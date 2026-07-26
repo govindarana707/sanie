@@ -1,0 +1,1086 @@
+<!DOCTYPE html>
+<html lang="en" data-bs-theme="light" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SanIE - Track Every Rupee. Master Every Month.</title>
+    
+    <!-- Inter Font -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    
+    <!-- Bootstrap 5.3 CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    
+    <!-- Bootstrap Icons -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
+    
+    <!-- Font Awesome 6 -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <!-- Google Material Symbols -->
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,400,0,0" />
+    
+    <!-- AOS Animation CSS -->
+    <link href="https://unpkg.com/aos@2.3.1/dist/aos.css" rel="stylesheet">
+    
+    <!-- SweetAlert2 CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.min.css" rel="stylesheet">
+    
+    <!-- Toastify CSS -->
+    <link rel="stylesheet" type="text/css" href="https://cdn.jsdelivr.net/npm/toastify-js/src/toastify.min.css">
+    
+    <!-- DataTables CSS -->
+    <link rel="stylesheet" href="https://cdn.datatables.net/1.13.6/css/dataTables.bootstrap5.min.css">
+    <link rel="stylesheet" href="https://cdn.datatables.net/responsive/2.5.0/css/responsive.bootstrap5.min.css">
+    
+    <!-- Flatpickr CSS -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
+    
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="assets/css/styles.css">
+</head>
+<body>
+    <div id="app">
+        <!-- Loading Screen -->
+        <div id="loading-screen" class="loading-screen">
+            <div class="loader"></div>
+            <p>Loading SanIE...</p>
+        </div>
+
+        <!-- Auth Screen -->
+        <div id="auth-screen" class="auth-screen hidden">
+            <div class="auth-container">
+                <div class="auth-header">
+                    <h1 class="logo">SanIE</h1>
+                    <p class="tagline">Track Every Rupee. Master Every Month.</p>
+                </div>
+                
+                <div class="auth-tabs">
+                    <button class="auth-tab active" data-tab="login">Login</button>
+                    <button class="auth-tab" data-tab="register">Register</button>
+                </div>
+
+                <form id="login-form" class="auth-form active">
+                    <div class="form-group">
+                        <label for="login-email">Email</label>
+                        <input type="email" id="login-email" name="email" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="login-password">Password</label>
+                        <input type="password" id="login-password" name="password" required>
+                    </div>
+                    <button type="submit" class="btn btn-primary">Login</button>
+                    <p class="auth-error" id="login-error"></p>
+                </form>
+
+                <form id="register-form" class="auth-form">
+                    <div class="form-group">
+                        <label for="register-first-name">First Name</label>
+                        <input type="text" id="register-first-name" name="first_name" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="register-last-name">Last Name</label>
+                        <input type="text" id="register-last-name" name="last_name">
+                    </div>
+                    <div class="form-group">
+                        <label for="register-email">Email</label>
+                        <input type="email" id="register-email" name="email" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="register-password">Password</label>
+                        <input type="password" id="register-password" name="password" required>
+                    </div>
+                    <button type="submit" class="btn btn-primary">Register</button>
+                    <p class="auth-error" id="register-error"></p>
+                </form>
+            </div>
+            <footer class="site-footer auth-footer">
+                <p>© 2026 SanIE. Track Every Rupee. Master Every Month.</p>
+                <div class="footer-links">
+                    <a href="#">About</a>
+                    <a href="#">Support</a>
+                    <a href="#">Privacy</a>
+                </div>
+            </footer>
+        </div>
+
+        <!-- Main Application -->
+        <div id="main-app" class="main-app hidden">
+            <!-- Sidebar -->
+            <aside class="sidebar">
+                <div class="sidebar-header">
+                    <h1 class="logo">SanIE</h1>
+                </div>
+                <nav class="sidebar-nav">
+                    <a href="#dashboard" class="nav-item active" data-page="dashboard">
+                        <i class="fas fa-chart-line"></i>
+                        <span>Dashboard</span>
+                    </a>
+                    <a href="#transactions" class="nav-item" data-page="transactions">
+                        <i class="fas fa-exchange-alt"></i>
+                        <span>Transactions</span>
+                    </a>
+                    <a href="#budgets" class="nav-item" data-page="budgets">
+                        <i class="fas fa-wallet"></i>
+                        <span>Budgets</span>
+                    </a>
+                    <a href="#goals" class="nav-item" data-page="goals">
+                        <i class="fas fa-bullseye"></i>
+                        <span>Goals</span>
+                    </a>
+                    <div class="nav-divider"></div>
+                    <div class="nav-group">
+                        <a href="#categories" class="nav-item has-submenu" data-page="categories">
+                            <i class="fas fa-folder"></i>
+                            <span>Category Management</span>
+                            <i class="fas fa-chevron-down submenu-toggle"></i>
+                        </a>
+                        <div class="submenu">
+                            <a href="#categories" class="nav-item" data-page="categories">
+                                <i class="fas fa-tags"></i>
+                                <span>Categories</span>
+                            </a>
+                            <a href="#subcategories" class="nav-item" data-page="subcategories">
+                                <i class="fas fa-layer-group"></i>
+                                <span>Subcategories</span>
+                            </a>
+                        </div>
+                    </div>
+                    <div class="nav-divider"></div>
+                    <a href="#analysis" class="nav-item" data-page="analysis">
+                        <i class="fas fa-brain"></i>
+                        <span>AI Analysis</span>
+                    </a>
+                    <a href="#reports" class="nav-item" data-page="reports">
+                        <i class="fas fa-file-alt"></i>
+                        <span>Reports</span>
+                    </a>
+                    <a href="#settings" class="nav-item" data-page="settings">
+                        <i class="fas fa-cog"></i>
+                        <span>Settings</span>
+                    </a>
+                </nav>
+                <div class="sidebar-footer">
+                    <div class="user-info">
+                        <div class="user-avatar">
+                            <i class="fas fa-user"></i>
+                        </div>
+                        <div class="user-details">
+                            <p class="user-name" id="user-name">User Name</p>
+                            <p class="user-email" id="user-email">user@email.com</p>
+                        </div>
+                    </div>
+                    <button class="btn btn-logout" id="logout-btn">
+                        <i class="fas fa-sign-out-alt"></i>
+                        Logout
+                    </button>
+                </div>
+            </aside>
+
+            <!-- Main Content -->
+            <main class="main-content">
+                <!-- Top Navigation -->
+                <header class="top-nav">
+                    <div class="d-flex align-items-center flex-fill me-3">
+                        <button class="btn btn-icon d-lg-none me-2" id="mobile-sidebar-toggle" aria-label="Toggle navigation">
+                            <i class="fas fa-bars"></i>
+                        </button>
+                        <div class="search-bar">
+                            <i class="fas fa-search"></i>
+                            <input type="text" placeholder="Search transactions, categories..." id="global-search">
+                        </div>
+                    </div>
+                    <div class="top-nav-actions">
+                        <button class="btn btn-primary" id="quick-add-btn">
+                            <i class="fas fa-plus"></i>
+                            Quick Add
+                        </button>
+                        <button class="btn btn-icon" id="notifications-btn">
+                            <i class="fas fa-bell"></i>
+                            <span class="notification-badge">3</span>
+                        </button>
+                        <button class="btn btn-icon" id="theme-toggle">
+                            <i class="fas fa-moon"></i>
+                        </button>
+                    </div>
+                </header>
+
+                <!-- Dashboard Page -->
+                <section id="dashboard-page" class="page active">
+                    <div class="page-header">
+                        <h2>Dashboard</h2>
+                        <div class="date-filter">
+                            <select id="dashboard-period">
+                                <option value="today">Today</option>
+                                <option value="week">This Week</option>
+                                <option value="month" selected>This Month</option>
+                                <option value="year">This Year</option>
+                                <option value="custom">Custom</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <!-- Statistics Cards -->
+                    <div class="stats-grid">
+                        <div class="stat-card income">
+                            <div class="stat-icon">
+                                <i class="fas fa-arrow-up"></i>
+                            </div>
+                            <div class="stat-content">
+                                <p class="stat-label">Income</p>
+                                <p class="stat-value" id="stat-income">Rs 0</p>
+                                <p class="stat-change" id="stat-income-change">No data yet</p>
+                            </div>
+                        </div>
+                        <div class="stat-card expense">
+                            <div class="stat-icon">
+                                <i class="fas fa-arrow-down"></i>
+                            </div>
+                            <div class="stat-content">
+                                <p class="stat-label">Expense</p>
+                                <p class="stat-value" id="stat-expense">Rs 0</p>
+                                <p class="stat-change" id="stat-expense-change">No data yet</p>
+                            </div>
+                        </div>
+                        <div class="stat-card savings">
+                            <div class="stat-icon">
+                                <i class="fas fa-piggy-bank"></i>
+                            </div>
+                            <div class="stat-content">
+                                <p class="stat-label">Savings</p>
+                                <p class="stat-value" id="stat-savings">Rs 0</p>
+                                <p class="stat-change" id="stat-savings-change">No data yet</p>
+                            </div>
+                        </div>
+                        <div class="stat-card balance">
+                            <div class="stat-icon">
+                                <i class="fas fa-wallet"></i>
+                            </div>
+                            <div class="stat-content">
+                                <p class="stat-label">Balance</p>
+                                <p class="stat-value" id="stat-balance">Rs 0</p>
+                                <p class="stat-change">Total across all accounts</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Quick Actions -->
+                    <div class="quick-actions-section">
+                        <h3 class="section-title">Quick Actions</h3>
+                        <div class="quick-actions-grid">
+                            <button class="quick-action-btn" onclick="window.location.hash='#transactions'">
+                                <div class="action-icon income-icon">
+                                    <i class="fas fa-plus"></i>
+                                </div>
+                                <span>Add Income</span>
+                            </button>
+                            <button class="quick-action-btn" onclick="window.location.hash='#transactions'">
+                                <div class="action-icon expense-icon">
+                                    <i class="fas fa-minus"></i>
+                                </div>
+                                <span>Add Expense</span>
+                            </button>
+                            <button class="quick-action-btn" onclick="window.location.hash='#transactions'">
+                                <div class="action-icon transfer-icon">
+                                    <i class="fas fa-exchange-alt"></i>
+                                </div>
+                                <span>Transfer</span>
+                            </button>
+                            <button class="quick-action-btn" onclick="window.location.hash='#budgets'">
+                                <div class="action-icon budget-icon">
+                                    <i class="fas fa-wallet"></i>
+                                </div>
+                                <span>Budget</span>
+                            </button>
+                            <button class="quick-action-btn" onclick="window.location.hash='#goals'">
+                                <div class="action-icon goal-icon">
+                                    <i class="fas fa-bullseye"></i>
+                                </div>
+                                <span>Goal</span>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Charts Section -->
+                    <div class="row g-4 mb-4">
+                        <div class="col-lg-8">
+                            <div class="card-premium p-4">
+                                <h4 class="mb-3">Income vs Expense</h4>
+                                <div id="incomeExpenseChart" style="height: 300px;"></div>
+                                <div id="incomeExpenseChart-empty" class="chart-empty-state" style="display: none;">
+                                    <div class="empty-state-icon">
+                                        <i class="fas fa-chart-bar"></i>
+                                    </div>
+                                    <h4>No Transaction Data</h4>
+                                    <p>Add your first income or expense to see your spending trends</p>
+                                    <button class="btn btn-primary" onclick="window.location.hash='#transactions'">
+                                        <i class="fas fa-plus"></i> Add Transaction
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-lg-4">
+                            <div class="card-premium p-4">
+                                <h4 class="mb-3">Spending by Category</h4>
+                                <div id="categoryChart" style="height: 300px;"></div>
+                                <div id="categoryChart-empty" class="chart-empty-state" style="display: none;">
+                                    <div class="empty-state-icon">
+                                        <i class="fas fa-chart-pie"></i>
+                                    </div>
+                                    <h4>No Category Data</h4>
+                                    <p>Track expenses to see your spending breakdown</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Financial Health Score -->
+                    <div class="health-score-card">
+                        <div class="health-score-content">
+                            <h3>Financial Health Score</h3>
+                            <div class="score-display">
+                                <span class="score-value" id="health-score">--</span>
+                                <span class="score-max">/100</span>
+                            </div>
+                            <p class="score-status" id="health-status">Add transactions to calculate your score</p>
+                        </div>
+                        <div class="health-score-chart">
+                            <div class="score-circle">
+                                <svg viewBox="0 0 36 36">
+                                    <path class="score-bg" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"/>
+                                    <path class="score-progress" id="health-progress" stroke-dasharray="0, 100" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"/>
+                                </svg>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- AI Insights -->
+                    <div class="ai-insights-section">
+                        <h3 class="section-title">AI Insights</h3>
+                        <div class="ai-insights-card" id="ai-insights-card">
+                            <div class="ai-insights-empty">
+                                <div class="ai-icon">
+                                    <i class="fas fa-brain"></i>
+                                </div>
+                                <h4>Welcome to SanIE!</h4>
+                                <p>Add your first transaction to unlock powerful AI features:</p>
+                                <ul class="ai-features-list">
+                                    <li><i class="fas fa-check-circle"></i> AI Financial Analysis</li>
+                                    <li><i class="fas fa-check-circle"></i> Spending Trends</li>
+                                    <li><i class="fas fa-check-circle"></i> Budget Suggestions</li>
+                                    <li><i class="fas fa-check-circle"></i> Financial Score</li>
+                                    <li><i class="fas fa-check-circle"></i> Smart Insights</li>
+                                </ul>
+                                <button class="btn btn-primary" onclick="window.location.hash='#transactions'">
+                                    <i class="fas fa-plus"></i> Add First Transaction
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Recent Transactions -->
+                    <div class="recent-transactions">
+                        <div class="section-header">
+                            <h3>Recent Transactions</h3>
+                            <a href="#transactions" class="view-all">View All</a>
+                        </div>
+                        <div class="transactions-list" id="recent-transactions-list">
+                            <div class="empty-state">
+                                <div class="empty-state-icon">
+                                    <i class="fas fa-receipt"></i>
+                                </div>
+                                <h4>No Transactions Yet</h4>
+                                <p>Start tracking your finances by adding your first transaction</p>
+                                <button class="btn btn-primary" onclick="window.location.hash='#transactions'">
+                                    <i class="fas fa-plus"></i> Add Transaction
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Budget Progress -->
+                    <div class="budget-progress">
+                        <div class="section-header">
+                            <h3>Budget Progress</h3>
+                            <a href="#budgets" class="view-all">View All</a>
+                        </div>
+                        <div class="budget-list" id="budget-list">
+                            <div class="empty-state">
+                                <div class="empty-state-icon">
+                                    <i class="fas fa-wallet"></i>
+                                </div>
+                                <h4>No Budgets Set</h4>
+                                <p>Create budgets to track your spending limits</p>
+                                <button class="btn btn-primary" onclick="window.location.hash='#budgets'">
+                                    <i class="fas fa-plus"></i> Create Budget
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Goal Progress -->
+                    <div class="goal-progress">
+                        <div class="section-header">
+                            <h3>Goal Progress</h3>
+                            <a href="#goals" class="view-all">View All</a>
+                        </div>
+                        <div class="goal-list" id="goal-list">
+                            <div class="empty-state">
+                                <div class="empty-state-icon">
+                                    <i class="fas fa-bullseye"></i>
+                                </div>
+                                <h4>No Savings Goals</h4>
+                                <p>Set goals to track your savings progress</p>
+                                <button class="btn btn-primary" onclick="window.location.hash='#goals'">
+                                    <i class="fas fa-plus"></i> Create Goal
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Transactions Page -->
+                <section id="transactions-page" class="page">
+                    <div class="page-header">
+                        <h2>Transactions</h2>
+                        <div class="page-actions">
+                            <button class="btn btn-secondary" id="import-btn">
+                                <i class="fas fa-file-import"></i>
+                                Import
+                            </button>
+                            <button class="btn btn-secondary" id="export-btn">
+                                <i class="fas fa-file-export"></i>
+                                Export
+                            </button>
+                            <button class="btn btn-primary" id="add-transaction-btn">
+                                <i class="fas fa-plus"></i>
+                                Add Transaction
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Filters -->
+                    <div class="filters">
+                        <select id="filter-type">
+                            <option value="">All Types</option>
+                            <option value="income">Income</option>
+                            <option value="expense">Expense</option>
+                            <option value="transfer">Transfer</option>
+                        </select>
+                        <select id="filter-category">
+                            <option value="">All Categories</option>
+                        </select>
+                        <select id="filter-account">
+                            <option value="">All Accounts</option>
+                        </select>
+                        <input type="date" id="filter-start-date">
+                        <input type="date" id="filter-end-date">
+                        <button class="btn btn-secondary" id="apply-filters">Apply Filters</button>
+                        <button class="btn btn-secondary" id="clear-filters">Clear</button>
+                    </div>
+
+                    <!-- Transactions Table -->
+                    <div class="transactions-table">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Date</th>
+                                    <th>Description</th>
+                                    <th>Category</th>
+                                    <th>Account</th>
+                                    <th>Amount</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="transactions-table-body">
+                                <!-- Transactions will be loaded here -->
+                            </tbody>
+                        </table>
+                    </div>
+                </section>
+
+                <!-- Budgets Page -->
+                <section id="budgets-page" class="page">
+                    <div class="page-header">
+                        <h2>Budgets</h2>
+                        <button class="btn btn-primary" id="add-budget-btn">
+                            <i class="fas fa-plus"></i>
+                            Add Budget
+                        </button>
+                    </div>
+                    <div class="budgets-grid" id="budgets-grid">
+                        <!-- Budgets will be loaded here -->
+                    </div>
+                </section>
+
+                <!-- Goals Page -->
+                <section id="goals-page" class="page">
+                    <div class="page-header">
+                        <h2>Savings Goals</h2>
+                        <button class="btn btn-primary" id="add-goal-btn">
+                            <i class="fas fa-plus"></i>
+                            Add Goal
+                        </button>
+                    </div>
+                    <div class="goals-grid" id="goals-grid">
+                        <!-- Goals will be loaded here -->
+                    </div>
+                </section>
+
+                <!-- AI Analysis Page -->
+                <section id="analysis-page" class="page">
+                    <div class="page-header">
+                        <h2>AI Financial Analysis</h2>
+                        <div class="page-actions">
+                            <div class="date-filter">
+                                <select id="analysis-period">
+                                    <option value="today">Today</option>
+                                    <option value="week">This Week</option>
+                                    <option value="month" selected>This Month</option>
+                                    <option value="year">This Year</option>
+                                    <option value="custom">Custom</option>
+                                </select>
+                            </div>
+                            <button class="btn btn-secondary" onclick="exportAnalysis()">
+                                <i class="fas fa-download"></i>
+                                Export
+                            </button>
+                            <button class="btn btn-secondary" onclick="printAnalysis()">
+                                <i class="fas fa-print"></i>
+                                Print
+                            </button>
+                            <button class="btn btn-secondary" onclick="shareAnalysis()">
+                                <i class="fas fa-share-alt"></i>
+                                Share
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Financial Score Overview -->
+                    <div class="card-premium p-4 mb-4" data-aos="fade-up">
+                        <div class="row align-items-center">
+                            <div class="col-md-4 text-center">
+                                <div class="score-display-large">
+                                    <span class="score-value-large" id="analysis-score">0</span>
+                                    <span class="score-max-large">/100</span>
+                                </div>
+                                <p class="score-status-large" id="analysis-status">Calculating...</p>
+                            </div>
+                            <div class="col-md-8">
+                                <h4 class="mb-3">Financial Health Overview</h4>
+                                <p id="analysis-summary" class="text-muted">AI is analyzing your financial data to provide personalized insights and recommendations.</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Charts Row -->
+                    <div class="row g-4 mb-4">
+                        <div class="col-lg-6" data-aos="fade-up" data-aos-delay="100">
+                            <div class="card-premium p-4">
+                                <h4 class="mb-3">Spending Trends</h4>
+                                <div id="spendingTrendChart" style="height: 300px;"></div>
+                            </div>
+                        </div>
+                        <div class="col-lg-6" data-aos="fade-up" data-aos-delay="200">
+                            <div class="card-premium p-4">
+                                <h4 class="mb-3">Category Distribution</h4>
+                                <div id="categoryDistributionChart" style="height: 300px;"></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- AI Insights and Recommendations -->
+                    <div class="row g-4 mb-4">
+                        <div class="col-lg-6" data-aos="fade-up" data-aos-delay="300">
+                            <div class="card-premium p-4 h-100">
+                                <h4 class="mb-3">
+                                    <i class="fas fa-lightbulb text-warning me-2"></i>
+                                    AI Insights
+                                </h4>
+                                <div id="ai-insights-list">
+                                    <div class="empty-state">
+                                        <i class="fas fa-brain"></i>
+                                        <h4>No Insights Yet</h4>
+                                        <p>Add more transactions to get AI-powered insights.</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-lg-6" data-aos="fade-up" data-aos-delay="400">
+                            <div class="card-premium p-4 h-100">
+                                <h4 class="mb-3">
+                                    <i class="fas fa-rocket text-primary me-2"></i>
+                                    Recommendations
+                                </h4>
+                                <div id="ai-recommendations-list">
+                                    <div class="empty-state">
+                                        <i class="fas fa-clipboard-list"></i>
+                                        <h4>No Recommendations Yet</h4>
+                                        <p>Add more transactions to get personalized recommendations.</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Detailed Metrics -->
+                    <div class="row g-4 mb-4" data-aos="fade-up" data-aos-delay="500">
+                        <div class="col-md-3">
+                            <div class="card-premium p-4 text-center">
+                                <div class="metric-icon mb-3">
+                                    <i class="fas fa-piggy-bank"></i>
+                                </div>
+                                <h5 class="metric-label">Savings Rate</h5>
+                                <p class="metric-value" id="savings-rate">0%</p>
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="card-premium p-4 text-center">
+                                <div class="metric-icon mb-3">
+                                    <i class="fas fa-chart-line"></i>
+                                </div>
+                                <h5 class="metric-label">Monthly Growth</h5>
+                                <p class="metric-value" id="monthly-growth">0%</p>
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="card-premium p-4 text-center">
+                                <div class="metric-icon mb-3">
+                                    <i class="fas fa-bullseye"></i>
+                                </div>
+                                <h5 class="metric-label">Goal Progress</h5>
+                                <p class="metric-value" id="goal-progress">0%</p>
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="card-premium p-4 text-center">
+                                <div class="metric-icon mb-3">
+                                    <i class="fas fa-shield-alt"></i>
+                                </div>
+                                <h5 class="metric-label">Budget Health</h5>
+                                <p class="metric-value" id="budget-health">0%</p>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Reports Page -->
+                <section id="reports-page" class="page">
+                    <div class="page-header">
+                        <h2>Reports</h2>
+                    </div>
+                    <div class="reports-content">
+                        <p>Reports feature coming soon...</p>
+                    </div>
+                </section>
+
+                <!-- Categories Page -->
+                <section id="categories-page" class="page">
+                    <div class="page-header">
+                        <div>
+                            <h2>Category Management</h2>
+                            <p class="text-muted">Manage your income and expense categories</p>
+                        </div>
+                        <div class="page-actions">
+                            <button class="btn btn-secondary" id="import-categories-btn">
+                                <i class="fas fa-file-import"></i>
+                                Import
+                            </button>
+                            <button class="btn btn-secondary" id="export-categories-btn">
+                                <i class="fas fa-file-export"></i>
+                                Export
+                            </button>
+                            <button class="btn btn-primary" id="add-category-btn">
+                                <i class="fas fa-plus"></i>
+                                Add Category
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Statistics Cards -->
+                    <div class="stats-grid" id="category-stats">
+                        <div class="stat-card">
+                            <div class="stat-icon">
+                                <i class="fas fa-tags"></i>
+                            </div>
+                            <div class="stat-content">
+                                <p class="stat-label">Total Categories</p>
+                                <p class="stat-value" id="stat-total-categories">0</p>
+                            </div>
+                        </div>
+                        <div class="stat-card income">
+                            <div class="stat-icon">
+                                <i class="fas fa-arrow-up"></i>
+                            </div>
+                            <div class="stat-content">
+                                <p class="stat-label">Income Categories</p>
+                                <p class="stat-value" id="stat-income-categories">0</p>
+                            </div>
+                        </div>
+                        <div class="stat-card expense">
+                            <div class="stat-icon">
+                                <i class="fas fa-arrow-down"></i>
+                            </div>
+                            <div class="stat-content">
+                                <p class="stat-label">Expense Categories</p>
+                                <p class="stat-value" id="stat-expense-categories">0</p>
+                            </div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-icon">
+                                <i class="fas fa-layer-group"></i>
+                            </div>
+                            <div class="stat-content">
+                                <p class="stat-label">Total Subcategories</p>
+                                <p class="stat-value" id="stat-total-subcategories">0</p>
+                            </div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-icon">
+                                <i class="fas fa-archive"></i>
+                            </div>
+                            <div class="stat-content">
+                                <p class="stat-label">Inactive Categories</p>
+                                <p class="stat-value" id="stat-inactive-categories">0</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Filters -->
+                    <div class="filters">
+                        <select id="filter-category-type">
+                            <option value="">All Types</option>
+                            <option value="income">Income</option>
+                            <option value="expense">Expense</option>
+                        </select>
+                        <select id="filter-category-status">
+                            <option value="active">Active</option>
+                            <option value="archived">Archived</option>
+                            <option value="deleted">Deleted</option>
+                            <option value="">All Status</option>
+                        </select>
+                        <select id="filter-category-default">
+                            <option value="">All</option>
+                            <option value="default">Default</option>
+                            <option value="custom">Custom</option>
+                        </select>
+                        <input type="text" id="search-categories" placeholder="Search categories...">
+                        <button class="btn btn-secondary" id="apply-category-filters">
+                            <i class="fas fa-filter"></i>
+                            Apply
+                        </button>
+                        <button class="btn btn-secondary" id="clear-category-filters">Clear</button>
+                    </div>
+
+                    <!-- Bulk Actions -->
+                    <div class="bulk-actions" id="category-bulk-actions" style="display: none;">
+                        <span class="bulk-count"><span id="selected-categories-count">0</span> selected</span>
+                        <button class="btn btn-sm btn-outline-danger" data-action="delete">
+                            <i class="fas fa-trash"></i> Delete
+                        </button>
+                        <button class="btn btn-sm btn-outline-warning" data-action="archive">
+                            <i class="fas fa-archive"></i> Archive
+                        </button>
+                        <button class="btn btn-sm btn-outline-success" data-action="restore">
+                            <i class="fas fa-undo"></i> Restore
+                        </button>
+                        <button class="btn btn-sm btn-outline-primary" data-action="activate">
+                            <i class="fas fa-check"></i> Activate
+                        </button>
+                    </div>
+
+                    <!-- Categories Table -->
+                    <div class="card-premium p-4">
+                        <table id="categories-table" class="table table-hover">
+                            <thead>
+                                <tr>
+                                    <th><input type="checkbox" id="select-all-categories"></th>
+                                    <th>Icon</th>
+                                    <th>Category Name</th>
+                                    <th>Type</th>
+                                    <th>Color</th>
+                                    <th>Subcategories</th>
+                                    <th>Status</th>
+                                    <th>Created Date</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="categories-table-body">
+                                <!-- Categories will be loaded here -->
+                            </tbody>
+                        </table>
+                    </div>
+                </section>
+
+                <!-- Subcategories Page -->
+                <section id="subcategories-page" class="page">
+                    <div class="page-header">
+                        <div>
+                            <h2>Subcategory Management</h2>
+                            <p class="text-muted">Manage subcategories for your categories</p>
+                        </div>
+                        <div class="page-actions">
+                            <button class="btn btn-secondary" id="import-subcategories-btn">
+                                <i class="fas fa-file-import"></i>
+                                Import
+                            </button>
+                            <button class="btn btn-secondary" id="export-subcategories-btn">
+                                <i class="fas fa-file-export"></i>
+                                Export
+                            </button>
+                            <button class="btn btn-primary" id="add-subcategory-btn">
+                                <i class="fas fa-plus"></i>
+                                Add Subcategory
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Filters -->
+                    <div class="filters">
+                        <select id="filter-subcategory-category">
+                            <option value="">All Categories</option>
+                        </select>
+                        <select id="filter-subcategory-status">
+                            <option value="active">Active</option>
+                            <option value="archived">Archived</option>
+                            <option value="deleted">Deleted</option>
+                            <option value="">All Status</option>
+                        </select>
+                        <input type="text" id="search-subcategories" placeholder="Search subcategories...">
+                        <button class="btn btn-secondary" id="apply-subcategory-filters">
+                            <i class="fas fa-filter"></i>
+                            Apply
+                        </button>
+                        <button class="btn btn-secondary" id="clear-subcategory-filters">Clear</button>
+                    </div>
+
+                    <!-- Bulk Actions -->
+                    <div class="bulk-actions" id="subcategory-bulk-actions" style="display: none;">
+                        <span class="bulk-count"><span id="selected-subcategories-count">0</span> selected</span>
+                        <button class="btn btn-sm btn-outline-danger" data-action="delete">
+                            <i class="fas fa-trash"></i> Delete
+                        </button>
+                        <button class="btn btn-sm btn-outline-warning" data-action="archive">
+                            <i class="fas fa-archive"></i> Archive
+                        </button>
+                        <button class="btn btn-sm btn-outline-success" data-action="restore">
+                            <i class="fas fa-undo"></i> Restore
+                        </button>
+                        <button class="btn btn-sm btn-outline-primary" data-action="activate">
+                            <i class="fas fa-check"></i> Activate
+                        </button>
+                    </div>
+
+                    <!-- Subcategories Table -->
+                    <div class="card-premium p-4">
+                        <table id="subcategories-table" class="table table-hover">
+                            <thead>
+                                <tr>
+                                    <th><input type="checkbox" id="select-all-subcategories"></th>
+                                    <th>Parent Category</th>
+                                    <th>Subcategory Name</th>
+                                    <th>Icon</th>
+                                    <th>Status</th>
+                                    <th>Created Date</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="subcategories-table-body">
+                                <!-- Subcategories will be loaded here -->
+                            </tbody>
+                        </table>
+                    </div>
+                </section>
+
+                <!-- Settings Page -->
+                <section id="settings-page" class="page">
+                    <div class="page-header">
+                        <h2>Settings</h2>
+                    </div>
+                    <div class="settings-content">
+                        <div class="settings-section">
+                            <h3>Profile</h3>
+                            <form id="profile-form">
+                                <div class="form-group">
+                                    <label>First Name</label>
+                                    <input type="text" id="settings-first-name">
+                                </div>
+                                <div class="form-group">
+                                    <label>Last Name</label>
+                                    <input type="text" id="settings-last-name">
+                                </div>
+                                <div class="form-group">
+                                    <label>Email</label>
+                                    <input type="email" id="settings-email" disabled>
+                                </div>
+                                <div class="form-group">
+                                    <label>Phone</label>
+                                    <input type="tel" id="settings-phone">
+                                </div>
+                                <button type="submit" class="btn btn-primary">Save Changes</button>
+                            </form>
+                        </div>
+                        <div class="settings-section">
+                            <h3>Preferences</h3>
+                            <div class="form-group">
+                                <label>Currency</label>
+                                <select id="settings-currency">
+                                    <option value="NPR">NPR - Nepalese Rupee</option>
+                                    <option value="USD">USD - US Dollar</option>
+                                    <option value="EUR">EUR - Euro</option>
+                                    <option value="INR">INR - Indian Rupee</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label>Language</label>
+                                <select id="settings-language">
+                                    <option value="en">English</option>
+                                    <option value="ne">नेपाली</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label>Theme</label>
+                                <select id="settings-theme">
+                                    <option value="light">Light</option>
+                                    <option value="dark">Dark</option>
+                                    <option value="system">System</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+                <footer class="site-footer app-footer">
+                    <p>© 2026 SanIE. All rights reserved.</p>
+                    <div class="footer-links">
+                        <a href="#">Help</a>
+                        <a href="#">Terms</a>
+                        <a href="#">Contact</a>
+                    </div>
+                </footer>
+            </main>
+        </div>
+
+        <!-- Premium Bootstrap Modal -->
+        <div class="modal fade" id="appModal" tabindex="-1" aria-labelledby="appModalLabel" aria-hidden="true">
+            <div class="modal-dialog modal-dialog-centered modal-xl">
+                <div class="modal-content premium-modal-content">
+                    <div class="modal-header premium-modal-header">
+                        <div class="d-flex align-items-center gap-3">
+                            <div class="modal-icon-pill" id="modal-icon-pill">
+                                <i class="fas fa-wallet"></i>
+                            </div>
+                            <div>
+                                <h5 class="modal-title fw-bold" id="appModalLabel">Modal Title</h5>
+                                <p class="mb-0 text-muted small" id="modal-subtitle">Track your income and expenses.</p>
+                            </div>
+                        </div>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                    </div>
+                    <div class="modal-body premium-modal-body" id="modal-body">
+                        <!-- Modal content loaded dynamically -->
+                    </div>
+                    <div class="modal-footer premium-modal-footer" id="modal-footer">
+                        <button type="button" class="btn btn-light text-muted" id="modal-reset-btn">
+                            <i class="fas fa-undo me-1"></i> Reset
+                        </button>
+                        <div class="d-flex align-items-center gap-2">
+                            <button type="button" class="btn btn-light" id="modal-draft-btn">
+                                <i class="fas fa-save me-1"></i> Draft
+                            </button>
+                            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal" id="modal-cancel-btn">Cancel</button>
+                            <button type="button" class="btn btn-success" id="modal-save-btn">
+                                <i class="fas fa-check me-1"></i> Save
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Toast Notifications -->
+        <div id="toast-container" class="toast-container"></div>
+        
+        <!-- SVG Gradient Definitions -->
+        <svg class="svg-gradient-defs" style="position: absolute; width: 0; height: 0; overflow: hidden;">
+            <defs>
+                <linearGradient id="scoreGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                    <stop offset="0%" style="stop-color:#10B981;stop-opacity:1" />
+                    <stop offset="100%" style="stop-color:#059669;stop-opacity:1" />
+                </linearGradient>
+                <linearGradient id="incomeGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                    <stop offset="0%" style="stop-color:#10B981;stop-opacity:1" />
+                    <stop offset="100%" style="stop-color:#34D399;stop-opacity:1" />
+                </linearGradient>
+                <linearGradient id="expenseGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                    <stop offset="0%" style="stop-color:#EF4444;stop-opacity:1" />
+                    <stop offset="100%" style="stop-color:#F87171;stop-opacity:1" />
+                </linearGradient>
+            </defs>
+        </svg>
+    </div>
+
+    <!-- Bootstrap 5.3 JS -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+    
+    <!-- AOS Animation JS -->
+    <script src="https://unpkg.com/aos@2.3.1/dist/aos.js"></script>
+    
+    <!-- SweetAlert2 JS -->
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    
+    <!-- Toastify JS -->
+    <script type="text/javascript" src="https://cdn.jsdelivr.net/npm/toastify-js"></script>
+    
+    <!-- jQuery (required for DataTables) -->
+    <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+    
+    <!-- ApexCharts JS -->
+    <script src="https://cdn.jsdelivr.net/npm/apexcharts"></script>
+    
+    <!-- DataTables JS -->
+    <script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
+    <script src="https://cdn.datatables.net/1.13.6/js/dataTables.bootstrap5.min.js"></script>
+    <script src="https://cdn.datatables.net/responsive/2.5.0/js/dataTables.responsive.min.js"></script>
+    <script src="https://cdn.datatables.net/responsive/2.5.0/js/responsive.bootstrap5.min.js"></script>
+    <script src="https://cdn.datatables.net/rowreorder/1.4.1/js/dataTables.rowReorder.min.js"></script>
+    
+    <!-- CountUp.js -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/countup.js/2.0.7/countUp.umd.js"></script>
+    <script>
+        // Make CountUp available globally
+        if (typeof countUp !== 'undefined') {
+            window.CountUp = countUp.CountUp;
+        }
+    </script>
+    
+    <!-- Flatpickr -->
+    <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+    
+    <!-- Application configuration, utilities, and services -->
+    <script src="assets/js/config.js"></script>
+    <script src="assets/js/utils.js"></script>
+    <script src="assets/js/services/notification.js"></script>
+    <script src="assets/js/services/modal.js"></script>
+    <script src="assets/js/services/datatable.js"></script>
+    <script src="assets/js/services/chart.js"></script>
+    <script src="assets/js/api.js"></script>
+    <script src="assets/js/router.js"></script>
+    <script src="assets/js/auth.js"></script>
+    
+    <!-- Feature Modules -->
+    <script src="assets/js/dashboard.js"></script>
+    <script src="assets/js/transactions.js"></script>
+    <script src="assets/js/budgets.js"></script>
+    <script src="assets/js/goals.js"></script>
+    <script src="assets/js/categories.js"></script>
+    <script src="assets/js/subcategories.js"></script>
+    <script src="assets/js/analysis.js"></script>
+    <script src="assets/js/reports.js"></script>
+    <script src="assets/js/settings.js"></script>
+
+    <!-- Core App Initialization -->
+    <script src="assets/js/app.js"></script>
+</body>
+</html>
