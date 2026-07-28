@@ -221,6 +221,19 @@ const accountsAPI = {
 
     async getTotalBalance() {
         return api.get('/accounts/total-balance');
+    },
+
+    async getOverview() {
+        return api.get('/accounts/overview');
+    },
+
+    async getStatement(id, filters = {}) {
+        const params = new URLSearchParams(filters);
+        return api.get(`/accounts/${id}/statement?${params}`);
+    },
+
+    async getAnalytics(id) {
+        return api.get(`/accounts/${id}/analytics`);
     }
 };
 
@@ -305,8 +318,8 @@ const goalsAPI = {
         return api.get(`/goals/${id}/progress`);
     },
 
-    async contribute(id, amount) {
-        return api.post(`/goals/${id}/contribute`, { amount });
+    async contribute(id, amount, accountId) {
+        return api.post(`/goals/${id}/contribute`, { amount, account_id: accountId });
     }
 };
 
@@ -319,5 +332,44 @@ const dashboardAPI = {
 
     async getQuickStats() {
         return api.get('/dashboard/quick-stats');
+    }
+};
+
+// Notifications API
+const notificationsAPI = {
+    async getAll(filters = {}) {
+        const params = new URLSearchParams(filters);
+        return api.get(`/notifications?${params}`);
+    },
+
+    async getRecent(limit = 10) {
+        return api.get(`/notifications/recent?limit=${limit}`);
+    },
+
+    async getUnreadCount() {
+        return api.get('/notifications/unread-count');
+    },
+
+    async markAsRead(id) {
+        return api.post(`/notifications/${id}/read`);
+    },
+
+    async markAllAsRead() {
+        return api.post('/notifications/read-all');
+    },
+
+    async delete(id) {
+        return api.delete(`/notifications/${id}`);
+    },
+
+    async deleteAll() {
+        return api.delete('/notifications');
+    }
+};
+
+// Savings API
+const savingsAPI = {
+    async getData() {
+        return api.get('/savings/data');
     }
 };

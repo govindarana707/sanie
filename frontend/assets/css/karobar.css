@@ -1,0 +1,784 @@
+/* Karobar Module Styles */
+.karobar-stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 1.25rem;
+    margin-bottom: 1.5rem;
+}
+
+.karobar-stat-card {
+    background: var(--bg-primary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-lg);
+    padding: 1.5rem;
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    box-shadow: var(--card-shadow);
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.karobar-stat-card:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--card-shadow-lg);
+}
+
+.karobar-stat-icon {
+    width: 52px;
+    height: 52px;
+    border-radius: var(--radius-md);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.4rem;
+    flex-shrink: 0;
+}
+
+.karobar-stat-icon.receivable {
+    background: rgba(16, 185, 129, 0.12);
+    color: #10B981;
+}
+
+.karobar-stat-icon.payable {
+    background: rgba(239, 68, 68, 0.12);
+    color: #EF4444;
+}
+
+.karobar-stat-icon.net {
+    background: rgba(99, 102, 241, 0.12);
+    color: #6366f1;
+}
+
+.karobar-stat-icon.people {
+    background: rgba(245, 158, 11, 0.12);
+    color: #F59E0B;
+}
+
+.karobar-stat-icon.overdue {
+    background: rgba(239, 68, 68, 0.12);
+    color: #EF4444;
+}
+
+.karobar-stat-icon.settled {
+    background: rgba(107, 114, 128, 0.12);
+    color: #6B7280;
+}
+
+.karobar-stat-content .stat-label {
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+    margin-bottom: 0.25rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    font-weight: 600;
+}
+
+.karobar-stat-content .stat-value {
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: var(--text-primary);
+    line-height: 1.2;
+}
+
+.karobar-stat-content .stat-sub {
+    font-size: 0.78rem;
+    color: var(--text-secondary);
+    margin-top: 0.15rem;
+}
+
+.karobar-person-card {
+    background: var(--bg-primary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-lg);
+    padding: 1.25rem;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    box-shadow: var(--card-shadow);
+    position: relative;
+    overflow: hidden;
+}
+
+.karobar-person-card:hover {
+    transform: translateY(-3px);
+    box-shadow: var(--card-shadow-lg);
+    border-color: var(--sanie-primary);
+}
+
+.karobar-person-card .person-avatar {
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, var(--sanie-primary), var(--sanie-primary-dark));
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #fff;
+    font-weight: 700;
+    font-size: 1.1rem;
+    flex-shrink: 0;
+}
+
+.karobar-person-card .person-name {
+    font-weight: 600;
+    font-size: 1rem;
+    color: var(--text-primary);
+}
+
+.karobar-person-card .person-phone {
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+}
+
+.karobar-person-card .person-meta {
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+}
+
+.person-type-badge {
+    display: inline-block;
+    padding: 1px 6px;
+    border-radius: 4px;
+    font-size: 0.7rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    background: rgba(99, 102, 241, 0.1);
+    color: #6366f1;
+}
+
+.karobar-person-card .person-balance {
+    font-weight: 700;
+    font-size: 1.15rem;
+}
+
+.karobar-person-card .person-balance.positive {
+    color: #10B981;
+}
+
+.karobar-person-card .person-balance.negative {
+    color: #EF4444;
+}
+
+.karobar-person-card .person-balance.zero {
+    color: #6B7280;
+}
+
+.karobar-person-card .person-status-badge {
+    position: absolute;
+    top: 0.75rem;
+    right: 0.75rem;
+}
+
+.karobar-people-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: 1rem;
+}
+
+/* Ledger Table */
+.karobar-ledger-table {
+    width: 100%;
+    border-collapse: separate;
+    border-spacing: 0;
+}
+
+.karobar-ledger-table thead th {
+    background: var(--bg-secondary);
+    padding: 0.85rem 1rem;
+    font-size: 0.78rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-secondary);
+    font-weight: 600;
+    border-bottom: 2px solid var(--border-color);
+}
+
+.karobar-ledger-table tbody td {
+    padding: 0.85rem 1rem;
+    border-bottom: 1px solid var(--border-color);
+    vertical-align: middle;
+}
+
+.karobar-ledger-table tbody tr:hover {
+    background: var(--bg-secondary);
+}
+
+.karobar-ledger-table .debit {
+    color: #EF4444;
+    font-weight: 600;
+}
+
+.karobar-ledger-table .credit {
+    color: #10B981;
+    font-weight: 600;
+}
+
+.karobar-ledger-table .balance-positive {
+    color: #10B981;
+    font-weight: 700;
+}
+
+.karobar-ledger-table .balance-negative {
+    color: #EF4444;
+    font-weight: 700;
+}
+
+.karobar-ledger-table .balance-zero {
+    color: #6B7280;
+    font-weight: 700;
+}
+
+/* Type Badges */
+.karobar-type-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    padding: 0.25rem 0.75rem;
+    border-radius: 2rem;
+    font-size: 0.75rem;
+    font-weight: 600;
+}
+
+.karobar-type-badge.lent {
+    background: rgba(239, 68, 68, 0.12);
+    color: #EF4444;
+}
+
+.karobar-type-badge.borrowed {
+    background: rgba(16, 185, 129, 0.12);
+    color: #10B981;
+}
+
+.karobar-type-badge.returned {
+    background: rgba(59, 130, 246, 0.12);
+    color: #3B82F6;
+}
+
+.karobar-type-badge.repaid {
+    background: rgba(245, 158, 11, 0.12);
+    color: #D97706;
+}
+
+.karobar-type-badge.adjustment {
+    background: rgba(107, 114, 128, 0.12);
+    color: #6B7280;
+}
+
+/* Status Badges */
+.karobar-status-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    padding: 0.25rem 0.75rem;
+    border-radius: 2rem;
+    font-size: 0.75rem;
+    font-weight: 600;
+}
+
+.karobar-status-badge.receivable {
+    background: rgba(16, 185, 129, 0.12);
+    color: #10B981;
+}
+
+.karobar-status-badge.payable {
+    background: rgba(239, 68, 68, 0.12);
+    color: #EF4444;
+}
+
+.karobar-status-badge.settled {
+    background: rgba(107, 114, 128, 0.12);
+    color: #6B7280;
+}
+
+/* Person Profile Header */
+.karobar-profile-header {
+    display: flex;
+    align-items: center;
+    gap: 1.5rem;
+    padding: 1.5rem;
+    background: var(--bg-primary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--card-shadow);
+    margin-bottom: 1.5rem;
+}
+
+.karobar-profile-avatar {
+    width: 80px;
+    height: 80px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, var(--sanie-primary), var(--sanie-primary-dark));
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #fff;
+    font-weight: 700;
+    font-size: 2rem;
+    flex-shrink: 0;
+}
+
+.karobar-profile-info h3 {
+    font-weight: 700;
+    margin-bottom: 0.25rem;
+}
+
+.karobar-profile-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1rem;
+    margin-top: 0.5rem;
+}
+
+.karobar-profile-meta span {
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+}
+
+/* Quick Action Buttons for Karobar */
+.karobar-quick-actions {
+    display: flex;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+}
+
+.karobar-quick-actions .btn {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+/* Report Summary Cards */
+.karobar-report-summary {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 1rem;
+    margin-bottom: 1.5rem;
+}
+
+.karobar-report-card {
+    background: var(--bg-primary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    padding: 1.25rem;
+    text-align: center;
+    box-shadow: var(--card-shadow);
+}
+
+.karobar-report-card .report-value {
+    font-size: 1.75rem;
+    font-weight: 700;
+}
+
+.karobar-report-card .report-label {
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-top: 0.25rem;
+}
+
+/* Chart containers */
+.karobar-chart-container {
+    background: var(--bg-primary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-lg);
+    padding: 1.5rem;
+    box-shadow: var(--card-shadow);
+    margin-bottom: 1.5rem;
+}
+
+.karobar-chart-container h5 {
+    font-weight: 600;
+    margin-bottom: 1rem;
+}
+
+/* ============ PERSON PROFILE PAGE ============ */
+
+/* Profile Header Card */
+.profile-header-card {
+    background: var(--bg-primary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-lg);
+    padding: 1.75rem;
+    box-shadow: var(--card-shadow);
+    margin-bottom: 1.5rem;
+}
+
+.profile-avatar-lg {
+    width: 72px;
+    height: 72px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, var(--sanie-primary), var(--sanie-primary-dark));
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #fff;
+    font-weight: 700;
+    font-size: 1.75rem;
+    flex-shrink: 0;
+}
+
+/* Profile Stat Cards */
+.profile-stat-card {
+    background: var(--bg-primary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    padding: 1.25rem;
+    display: flex;
+    align-items: center;
+    gap: 0.85rem;
+    box-shadow: var(--card-shadow);
+    transition: transform 0.2s ease;
+}
+
+.profile-stat-card:hover {
+    transform: translateY(-2px);
+}
+
+.profile-stat-icon {
+    width: 46px;
+    height: 46px;
+    border-radius: var(--radius-md);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.2rem;
+    flex-shrink: 0;
+}
+
+.profile-stat-card.positive .profile-stat-icon,
+.profile-stat-card.payable .profile-stat-icon {
+    background: rgba(239, 68, 68, 0.12);
+    color: #EF4444;
+}
+
+.profile-stat-card.negative .profile-stat-icon,
+.profile-stat-card.receivable .profile-stat-icon {
+    background: rgba(16, 185, 129, 0.12);
+    color: #10B981;
+}
+
+.profile-stat-card.zero .profile-stat-icon,
+.profile-stat-card.settled .profile-stat-icon {
+    background: rgba(107, 114, 128, 0.12);
+    color: #6B7280;
+}
+
+.profile-stat-card.borrowed .profile-stat-icon {
+    background: rgba(16, 185, 129, 0.12);
+    color: #10B981;
+}
+
+.profile-stat-card.lent .profile-stat-icon {
+    background: rgba(239, 68, 68, 0.12);
+    color: #EF4444;
+}
+
+.profile-stat-card.txcount .profile-stat-icon {
+    background: rgba(99, 102, 241, 0.12);
+    color: #6366f1;
+}
+
+.profile-stat-value {
+    font-size: 1.35rem;
+    font-weight: 700;
+    line-height: 1.2;
+}
+
+.profile-stat-value.positive,
+.profile-stat-value.payable {
+    color: #EF4444;
+}
+
+.profile-stat-value.negative,
+.profile-stat-value.receivable {
+    color: #10B981;
+}
+
+.profile-stat-value.zero,
+.profile-stat-value.settled {
+    color: #6B7280;
+}
+
+.profile-stat-label {
+    font-size: 0.78rem;
+    color: var(--text-secondary);
+    margin-top: 0.15rem;
+}
+
+/* Outstanding Card */
+.profile-outstanding-card {
+    background: var(--bg-primary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-lg);
+    padding: 1.5rem;
+    text-align: center;
+    box-shadow: var(--card-shadow);
+}
+
+.profile-outstanding-card.payable {
+    border-color: rgba(239, 68, 68, 0.25);
+}
+
+.profile-outstanding-card.receivable {
+    border-color: rgba(16, 185, 129, 0.25);
+}
+
+.profile-outstanding-card.settled {
+    border-color: var(--border-color);
+}
+
+.outstanding-label {
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-secondary);
+    font-weight: 600;
+    margin-bottom: 0.5rem;
+}
+
+.outstanding-amount {
+    font-size: 2rem;
+    font-weight: 700;
+    line-height: 1.2;
+}
+
+/* Quick Actions */
+.profile-quick-actions {
+    display: flex;
+    gap: 0.65rem;
+    flex-wrap: wrap;
+}
+
+.profile-quick-actions .btn {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-size: 0.85rem;
+    font-weight: 600;
+    padding: 0.55rem 1rem;
+    border-radius: var(--radius-md);
+}
+
+/* Chart Card */
+.profile-chart-card {
+    background: var(--bg-primary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-lg);
+    padding: 1.5rem;
+    box-shadow: var(--card-shadow);
+}
+
+.profile-chart-card h6 {
+    font-weight: 700;
+}
+
+/* Timeline Card */
+.profile-timeline-card {
+    background: var(--bg-primary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-lg);
+    padding: 1.5rem;
+    box-shadow: var(--card-shadow);
+}
+
+.profile-timeline {
+    position: relative;
+    padding-left: 1.5rem;
+}
+
+.profile-timeline::before {
+    content: '';
+    position: absolute;
+    left: 8px;
+    top: 0;
+    bottom: 0;
+    width: 2px;
+    background: var(--border-color);
+}
+
+.timeline-item {
+    display: flex;
+    gap: 0.75rem;
+    padding: 0.6rem 0;
+    position: relative;
+}
+
+.timeline-dot {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    background: var(--bg-primary);
+    border: 2px solid var(--border-color);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.65rem;
+    flex-shrink: 0;
+    position: relative;
+    z-index: 1;
+}
+
+.timeline-content {
+    flex: 1;
+    min-width: 0;
+}
+
+.timeline-date {
+    font-size: 0.72rem;
+    color: var(--text-secondary);
+}
+
+.timeline-label {
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.timeline-amount {
+    font-size: 0.9rem;
+    font-weight: 700;
+    color: var(--text-primary);
+}
+
+/* Ledger Card */
+.profile-ledger-card {
+    background: var(--bg-primary);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-lg);
+    padding: 1.5rem;
+    box-shadow: var(--card-shadow);
+}
+
+.profile-ledger-table thead th {
+    background: var(--bg-secondary);
+    padding: 0.75rem 0.85rem;
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-secondary);
+    font-weight: 600;
+    border-bottom: 2px solid var(--border-color);
+}
+
+.profile-ledger-table tbody td {
+    padding: 0.75rem 0.85rem;
+    border-bottom: 1px solid var(--border-color);
+    vertical-align: middle;
+    font-size: 0.88rem;
+}
+
+.profile-ledger-table tbody tr:hover {
+    background: var(--bg-secondary);
+}
+
+/* Dark mode adjustments */
+[data-bs-theme="dark"] .karobar-stat-card,
+[data-bs-theme="dark"] .karobar-person-card,
+[data-bs-theme="dark"] .karobar-profile-header,
+[data-bs-theme="dark"] .karobar-report-card,
+[data-bs-theme="dark"] .karobar-chart-container {
+    background: var(--bg-primary);
+    border-color: var(--border-color);
+}
+
+/* Dark mode adjustments for profile */
+[data-bs-theme="dark"] .profile-header-card,
+[data-bs-theme="dark"] .profile-stat-card,
+[data-bs-theme="dark"] .profile-outstanding-card,
+[data-bs-theme="dark"] .profile-chart-card,
+[data-bs-theme="dark"] .profile-timeline-card,
+[data-bs-theme="dark"] .profile-ledger-card {
+    background: var(--bg-primary);
+    border-color: var(--border-color);
+}
+
+[data-bs-theme="dark"] .profile-timeline::before {
+    background: var(--border-color);
+}
+
+[data-bs-theme="dark"] .timeline-dot {
+    background: var(--bg-primary);
+    border-color: var(--border-color);
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+    .karobar-stats-grid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+
+    .karobar-people-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .karobar-profile-header {
+        flex-direction: column;
+        text-align: center;
+    }
+
+    .karobar-profile-meta {
+        justify-content: center;
+    }
+
+    .karobar-quick-actions {
+        justify-content: center;
+    }
+
+    .profile-quick-actions {
+        flex-direction: column;
+    }
+
+    .profile-quick-actions .btn {
+        justify-content: center;
+    }
+
+    .profile-header-card .row {
+        text-align: center;
+    }
+
+    .profile-header-card .d-flex.gap-2 {
+        justify-content: center;
+    }
+}
+
+@media (max-width: 576px) {
+    .karobar-stats-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .karobar-stat-card {
+        padding: 1rem;
+    }
+
+    .karobar-stat-icon {
+        width: 44px;
+        height: 44px;
+        font-size: 1.2rem;
+    }
+
+    .karobar-stat-content .stat-value {
+        font-size: 1.25rem;
+    }
+
+    .profile-avatar-lg {
+        width: 60px;
+        height: 60px;
+        font-size: 1.5rem;
+    }
+
+    .outstanding-amount {
+        font-size: 1.5rem;
+    }
+
+    .profile-ledger-card .d-flex.justify-content-between {
+        flex-direction: column;
+    }
+}

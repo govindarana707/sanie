@@ -13,29 +13,23 @@ class Transaction {
 
     public function create($data) {
         $query = "INSERT INTO " . $this->table . " 
-                  (user_id, account_id, category_id, subcategory_id, amount, type, date, time, description, notes, tags, is_recurring, is_favorite, location_lat, location_lng, location_address, receipt_path, voice_note_path) 
-                  VALUES (:user_id, :account_id, :category_id, :subcategory_id, :amount, :type, :date, :time, :description, :notes, :tags, :is_recurring, :is_favorite, :location_lat, :location_lng, :location_address, :receipt_path, :voice_note_path)";
+                  (user_id, account_id, from_account_id, to_account_id, category_id, subcategory_id, amount, type, payment_method, karobar_transaction_id, date, description) 
+                  VALUES (:user_id, :account_id, :from_account_id, :to_account_id, :category_id, :subcategory_id, :amount, :type, :payment_method, :karobar_transaction_id, :date, :description)";
         
         $stmt = $this->conn->prepare($query);
-        
-        $stmt->bindParam(':user_id', $data['user_id']);
-        $stmt->bindParam(':account_id', $data['account_id']);
-        $stmt->bindParam(':category_id', $data['category_id']);
-        $stmt->bindParam(':subcategory_id', $data['subcategory_id']);
-        $stmt->bindParam(':amount', $data['amount']);
-        $stmt->bindParam(':type', $data['type']);
-        $stmt->bindParam(':date', $data['date']);
-        $stmt->bindParam(':time', $data['time']);
-        $stmt->bindParam(':description', $data['description']);
-        $stmt->bindParam(':notes', $data['notes']);
-        $stmt->bindParam(':tags', $data['tags']);
-        $stmt->bindParam(':is_recurring', $data['is_recurring']);
-        $stmt->bindParam(':is_favorite', $data['is_favorite']);
-        $stmt->bindParam(':location_lat', $data['location_lat']);
-        $stmt->bindParam(':location_lng', $data['location_lng']);
-        $stmt->bindParam(':location_address', $data['location_address']);
-        $stmt->bindParam(':receipt_path', $data['receipt_path']);
-        $stmt->bindParam(':voice_note_path', $data['voice_note_path']);
+
+        $stmt->bindValue(':user_id', $data['user_id']);
+        $stmt->bindValue(':account_id', $data['account_id'] ?? null);
+        $stmt->bindValue(':from_account_id', $data['from_account_id'] ?? null);
+        $stmt->bindValue(':to_account_id', $data['to_account_id'] ?? null);
+        $stmt->bindValue(':category_id', $data['category_id'] ?? null);
+        $stmt->bindValue(':subcategory_id', $data['subcategory_id'] ?? null);
+        $stmt->bindValue(':amount', $data['amount']);
+        $stmt->bindValue(':type', $data['type']);
+        $stmt->bindValue(':payment_method', $data['payment_method'] ?? null);
+        $stmt->bindValue(':karobar_transaction_id', $data['karobar_transaction_id'] ?? null);
+        $stmt->bindValue(':date', $data['date']);
+        $stmt->bindValue(':description', $data['description'] ?? '');
         
         if ($stmt->execute()) {
             return $this->conn->lastInsertId();
@@ -44,15 +38,26 @@ class Transaction {
         return false;
     }
 
+    public function updateKarobarLink($transactionId, $karobarTransactionId) {
+        $query = "UPDATE " . $this->table . " SET karobar_transaction_id = :karobar_id WHERE id = :id";
+        $stmt = $this->conn->prepare($query);
+        $stmt->bindParam(':karobar_id', $karobarTransactionId);
+        $stmt->bindParam(':id', $transactionId);
+        return $stmt->execute();
+    }
+
     public function findAll($userId, $filters = [], $limit = 50, $offset = 0) {
         $query = "SELECT t.*, 
                   c.name as category_name, c.icon as category_icon, c.color as category_color,
                   sc.name as subcategory_name,
-                  a.name as account_name, a.type as account_type
+                  a.name as account_name, a.type as account_type,
+                  fa.name as from_account_name, ta.name as to_account_name
                   FROM " . $this->table . " t
                   LEFT JOIN categories c ON t.category_id = c.id
-                  LEFT JOIN categories sc ON t.subcategory_id = sc.id
+                  LEFT JOIN subcategories sc ON t.subcategory_id = sc.id
                   LEFT JOIN accounts a ON t.account_id = a.id
+                  LEFT JOIN accounts fa ON t.from_account_id = fa.id
+                  LEFT JOIN accounts ta ON t.to_account_id = ta.id
                   WHERE t.user_id = :user_id";
         
         $params = [':user_id' => $userId];
@@ -83,7 +88,7 @@ class Transaction {
         }
         
         if (!empty($filters['search'])) {
-            $query .= " AND (t.description LIKE :search OR t.notes LIKE :search)";
+            $query .= " AND (t.description LIKE :search)";
             $params[':search'] = '%' . $filters['search'] . '%';
         }
         
@@ -107,11 +112,14 @@ class Transaction {
         $query = "SELECT t.*, 
                   c.name as category_name, c.icon as category_icon, c.color as category_color,
                   sc.name as subcategory_name,
-                  a.name as account_name, a.type as account_type
+                  a.name as account_name, a.type as account_type,
+                  fa.name as from_account_name, ta.name as to_account_name
                   FROM " . $this->table . " t
                   LEFT JOIN categories c ON t.category_id = c.id
-                  LEFT JOIN categories sc ON t.subcategory_id = sc.id
+                  LEFT JOIN subcategories sc ON t.subcategory_id = sc.id
                   LEFT JOIN accounts a ON t.account_id = a.id
+                  LEFT JOIN accounts fa ON t.from_account_id = fa.id
+                  LEFT JOIN accounts ta ON t.to_account_id = ta.id
                   WHERE t.id = :id AND t.user_id = :user_id LIMIT 1";
         
         $stmt = $this->conn->prepare($query);
@@ -123,48 +131,38 @@ class Transaction {
     }
 
     public function update($id, $userId, $data) {
+        $fromAccountId = $data['from_account_id'] ?? null;
+        $toAccountId = $data['to_account_id'] ?? null;
+        $paymentMethod = $data['payment_method'] ?? null;
+
         $query = "UPDATE " . $this->table . " SET 
                   account_id = :account_id,
+                  from_account_id = :from_account_id,
+                  to_account_id = :to_account_id,
                   category_id = :category_id,
                   subcategory_id = :subcategory_id,
                   amount = :amount,
                   type = :type,
+                  payment_method = :payment_method,
                   date = :date,
-                  time = :time,
                   description = :description,
-                  notes = :notes,
-                  tags = :tags,
-                  is_recurring = :is_recurring,
-                  is_favorite = :is_favorite,
-                  location_lat = :location_lat,
-                  location_lng = :location_lng,
-                  location_address = :location_address,
-                  receipt_path = :receipt_path,
-                  voice_note_path = :voice_note_path,
                   updated_at = CURRENT_TIMESTAMP
                   WHERE id = :id AND user_id = :user_id";
         
         $stmt = $this->conn->prepare($query);
         
-        $stmt->bindParam(':id', $id);
-        $stmt->bindParam(':user_id', $userId);
-        $stmt->bindParam(':account_id', $data['account_id']);
-        $stmt->bindParam(':category_id', $data['category_id']);
-        $stmt->bindParam(':subcategory_id', $data['subcategory_id']);
-        $stmt->bindParam(':amount', $data['amount']);
-        $stmt->bindParam(':type', $data['type']);
-        $stmt->bindParam(':date', $data['date']);
-        $stmt->bindParam(':time', $data['time']);
-        $stmt->bindParam(':description', $data['description']);
-        $stmt->bindParam(':notes', $data['notes']);
-        $stmt->bindParam(':tags', $data['tags']);
-        $stmt->bindParam(':is_recurring', $data['is_recurring']);
-        $stmt->bindParam(':is_favorite', $data['is_favorite']);
-        $stmt->bindParam(':location_lat', $data['location_lat']);
-        $stmt->bindParam(':location_lng', $data['location_lng']);
-        $stmt->bindParam(':location_address', $data['location_address']);
-        $stmt->bindParam(':receipt_path', $data['receipt_path']);
-        $stmt->bindParam(':voice_note_path', $data['voice_note_path']);
+        $stmt->bindValue(':id', $id);
+        $stmt->bindValue(':user_id', $userId);
+        $stmt->bindValue(':account_id', $data['account_id'] ?? null);
+        $stmt->bindValue(':from_account_id', $data['from_account_id'] ?? null);
+        $stmt->bindValue(':to_account_id', $data['to_account_id'] ?? null);
+        $stmt->bindValue(':category_id', $data['category_id'] ?? null);
+        $stmt->bindValue(':subcategory_id', $data['subcategory_id'] ?? null);
+        $stmt->bindValue(':amount', $data['amount']);
+        $stmt->bindValue(':type', $data['type']);
+        $stmt->bindValue(':payment_method', $data['payment_method'] ?? null);
+        $stmt->bindValue(':date', $data['date']);
+        $stmt->bindValue(':description', $data['description'] ?? '');
         
         return $stmt->execute();
     }
@@ -218,6 +216,71 @@ class Transaction {
         $stmt->bindParam(':type', $type);
         $stmt->execute();
         
+        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    }
+
+    public function findRecentByAccounts($userId, $accountIds, $limit = 10) {
+        if (empty($accountIds)) return [];
+
+        $fromPlaceholders = [];
+        $toPlaceholders = [];
+        $params = [':user_id' => $userId];
+        $idx = 0;
+
+        foreach ($accountIds as $aid) {
+            $key = ':aid_' . $idx;
+            $fromPlaceholders[] = $key;
+            $toPlaceholders[] = $key;
+            $params[$key] = $aid;
+            $idx++;
+        }
+
+        $fromIn = implode(',', $fromPlaceholders);
+        $toIn = implode(',', $toPlaceholders);
+
+        $query = "SELECT t.*, 
+                  c.name as category_name, c.icon as category_icon, c.color as category_color,
+                  sc.name as subcategory_name,
+                  a.name as account_name, a.type as account_type,
+                  fa.name as from_account_name, ta.name as to_account_name
+                  FROM " . $this->table . " t
+                  LEFT JOIN categories c ON t.category_id = c.id
+                  LEFT JOIN subcategories sc ON t.subcategory_id = sc.id
+                  LEFT JOIN accounts a ON t.account_id = a.id
+                  LEFT JOIN accounts fa ON t.from_account_id = fa.id
+                  LEFT JOIN accounts ta ON t.to_account_id = ta.id
+                  WHERE t.user_id = :user_id
+                    AND (t.from_account_id IN ($fromIn) OR t.to_account_id IN ($toIn))
+                  ORDER BY t.date DESC, t.created_at DESC
+                  LIMIT :limit";
+
+        $stmt = $this->conn->prepare($query);
+
+        foreach ($params as $key => $value) {
+            $stmt->bindValue($key, $value);
+        }
+        $stmt->bindValue(':limit', (int)$limit, PDO::PARAM_INT);
+        $stmt->execute();
+
+        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    }
+
+    public function getMonthlyData($userId, $year) {
+        $query = "SELECT 
+                    DATE_FORMAT(date, '%b') AS month,
+                    MONTH(date) AS month_num,
+                    SUM(CASE WHEN type = 'income' THEN amount ELSE 0 END) AS income,
+                    SUM(CASE WHEN type = 'expense' THEN amount ELSE 0 END) AS expense
+                  FROM " . $this->table . "
+                  WHERE user_id = :user_id AND YEAR(date) = :year
+                  GROUP BY MONTH(date), DATE_FORMAT(date, '%b')
+                  ORDER BY month_num ASC";
+
+        $stmt = $this->conn->prepare($query);
+        $stmt->bindParam(':user_id', $userId);
+        $stmt->bindParam(':year', $year, PDO::PARAM_INT);
+        $stmt->execute();
+
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
     }
 }

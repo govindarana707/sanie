@@ -271,6 +271,35 @@ class Subcategory {
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
     }
 
+    public function getByCategoryIds($categoryIds, $userId = null, $status = 'active') {
+        if (empty($categoryIds)) return [];
+
+        $placeholders = implode(',', array_fill(0, count($categoryIds), '?'));
+        $query = "SELECT * FROM " . $this->table . " WHERE category_id IN ($placeholders)";
+
+        if ($userId) {
+            $query .= " AND (user_id = ? OR user_id IS NULL)";
+        }
+        if ($status) {
+            $query .= " AND status = ?";
+        }
+
+        $query .= " ORDER BY sort_order ASC, name ASC";
+        $stmt = $this->conn->prepare($query);
+
+        $params = $categoryIds;
+        if ($userId) $params[] = $userId;
+        if ($status) $params[] = $status;
+        $stmt->execute($params);
+
+        $results = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        $grouped = [];
+        foreach ($results as $sub) {
+            $grouped[$sub['category_id']][] = $sub;
+        }
+        return $grouped;
+    }
+
     public function getStatistics($userId) {
         $query = "SELECT 
                     COUNT(*) as total,

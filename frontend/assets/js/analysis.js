@@ -1,39 +1,55 @@
-// AI Analysis Module
+// AI Analysis Module - Refactored with ChartService and lifecycle hooks
 class AnalysisManager {
     constructor() {
         this.currentPeriod = 'month';
-        this.spendingTrendChart = null;
-        this.categoryDistributionChart = null;
-        this.init();
+        this._periodHandler = null;
+        this._mounted = false;
     }
 
-    init() {
+    onMount() {
+        if (this._mounted) return;
+        this._mounted = true;
         this.setupEventListeners();
         this.initCharts();
         this.loadAnalysisData();
     }
 
+    onUnmount() {
+        this._mounted = false;
+
+        if (this._periodHandler) {
+            const periodSelect = document.getElementById('analysis-period');
+            if (periodSelect) {
+                periodSelect.removeEventListener('change', this._periodHandler);
+            }
+            this._periodHandler = null;
+        }
+
+        if (window.ChartService) {
+            ChartService.destroy('#spendingTrendChart');
+            ChartService.destroy('#categoryDistributionChart');
+        }
+    }
+
     setupEventListeners() {
-        // Period selector
-        document.getElementById('analysis-period').addEventListener('change', (e) => {
-            this.currentPeriod = e.target.value;
-            this.loadAnalysisData();
-        });
+        const periodSelect = document.getElementById('analysis-period');
+        if (periodSelect) {
+            periodSelect.removeEventListener('change', this._periodHandler);
+            this._periodHandler = (e) => {
+                this.currentPeriod = e.target.value;
+                this.loadAnalysisData();
+            };
+            periodSelect.addEventListener('change', this._periodHandler);
+        }
     }
 
     initCharts() {
-        // Initialize Spending Trend Chart
         const spendingTrendOptions = {
-            series: [{
-                name: 'Spending',
-                data: []
-            }],
+            series: [{ name: 'Spending', data: [] }],
             chart: {
                 type: 'area',
                 height: 300,
-                toolbar: {
-                    show: false
-                },
+                toolbar: { show: false },
                 fontFamily: 'Inter, sans-serif'
             },
             colors: ['#10B981'],
@@ -46,101 +62,49 @@ class AnalysisManager {
                     stops: [0, 90, 100]
                 }
             },
-            dataLabels: {
-                enabled: false
-            },
-            stroke: {
-                curve: 'smooth',
-                width: 2
-            },
+            dataLabels: { enabled: false },
+            stroke: { curve: 'smooth', width: 2 },
             xaxis: {
                 categories: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'],
-                labels: {
-                    style: {
-                        colors: '#6B7280',
-                        fontSize: '12px'
-                    }
-                }
+                labels: { style: { colors: '#6B7280', fontSize: '12px' } }
             },
             yaxis: {
                 labels: {
-                    style: {
-                        colors: '#6B7280',
-                        fontSize: '12px'
-                    },
-                    formatter: (value) => {
-                        return 'Rs ' + value.toLocaleString();
-                    }
+                    style: { colors: '#6B7280', fontSize: '12px' },
+                    formatter: (val) => Formatters.compactCurrency(val)
                 }
             },
             tooltip: {
-                y: {
-                    formatter: (value) => {
-                        return 'Rs ' + value.toLocaleString();
-                    }
-                }
+                y: { formatter: (val) => Formatters.currency(val) }
             },
             responsive: [{
                 breakpoint: 768,
-                options: {
-                    chart: {
-                        height: 250
-                    }
-                }
+                options: { chart: { height: 250 } }
             }]
         };
 
-        this.spendingTrendChart = new ApexCharts(document.querySelector('#spendingTrendChart'), spendingTrendOptions);
-        this.spendingTrendChart.render();
-
-        // Initialize Category Distribution Chart
         const categoryDistributionOptions = {
             series: [],
-            chart: {
-                type: 'donut',
-                height: 300,
-                fontFamily: 'Inter, sans-serif'
-            },
+            chart: { type: 'donut', height: 300, fontFamily: 'Inter, sans-serif' },
             labels: [],
             colors: ['#10B981', '#EF4444', '#F59E0B', '#3B82F6', '#8B5CF6', '#EC4899', '#14B8A6', '#F97316'],
-            plotOptions: {
-                pie: {
-                    donut: {
-                        size: '70%'
-                    }
-                }
-            },
-            dataLabels: {
-                enabled: false
-            },
-            legend: {
-                position: 'bottom',
-                horizontalAlign: 'center'
-            },
+            plotOptions: { pie: { donut: { size: '70%' } } },
+            dataLabels: { enabled: false },
+            legend: { position: 'bottom', horizontalAlign: 'center' },
             tooltip: {
-                y: {
-                    formatter: (value) => {
-                        return 'Rs ' + value.toLocaleString();
-                    }
-                }
-            },
-            responsive: [{
-                breakpoint: 768,
-                options: {
-                    legend: {
-                        position: 'bottom'
-                    }
-                }
-            }]
+                y: { formatter: (val) => Formatters.currency(val) }
+            }
         };
 
-        this.categoryDistributionChart = new ApexCharts(document.querySelector('#categoryDistributionChart'), categoryDistributionOptions);
-        this.categoryDistributionChart.render();
+        if (window.ChartService) {
+            ChartService.create('#spendingTrendChart', spendingTrendOptions);
+            ChartService.create('#categoryDistributionChart', categoryDistributionOptions);
+        }
     }
 
     async loadAnalysisData() {
+        AjaxService?.showSkeleton('analysis-content');
         try {
-            // Simulate API call for now - in production, this would call the backend
             const mockData = {
                 score: 75,
                 status: 'Good',
@@ -181,12 +145,13 @@ class AnalysisManager {
             this.updateAnalysisUI(mockData);
         } catch (error) {
             console.error('Failed to load analysis data:', error);
-            showToast('Failed to load analysis data', 'error');
+            NotificationService.error('Failed to load analysis data');
+        } finally {
+            AjaxService?.hideSkeleton('analysis-content');
         }
     }
 
     updateAnalysisUI(data) {
-        // Update score with animation
         const scoreElement = document.getElementById('analysis-score');
         const CountUpCtor = window.CountUp || window.countUp?.CountUp || window.countUp;
 
@@ -202,51 +167,38 @@ class AnalysisManager {
             scoreElement.textContent = data.score;
         }
 
-        document.getElementById('analysis-status').textContent = data.status;
-        document.getElementById('analysis-summary').textContent = data.summary;
+        const statusEl = document.getElementById('analysis-status');
+        if (statusEl) statusEl.textContent = data.status;
+        const summaryEl = document.getElementById('analysis-summary');
+        if (summaryEl) summaryEl.textContent = data.summary;
 
-        // Update charts
         this.updateCharts(data);
-
-        // Update insights
         this.updateInsights(data.insights);
-
-        // Update recommendations
         this.updateRecommendations(data.recommendations);
-
-        // Update metrics
         this.updateMetrics(data.metrics);
     }
 
     updateCharts(data) {
-        // Update Spending Trend Chart
-        if (this.spendingTrendChart && data.monthly_data) {
+        if (data.monthly_data && window.ChartService) {
             const months = data.monthly_data.map(d => d.month);
             const spending = data.monthly_data.map(d => d.expense);
 
-            this.spendingTrendChart.updateOptions({
-                xaxis: { categories: months }
-            });
-            this.spendingTrendChart.updateSeries([{
-                name: 'Spending',
-                data: spending
-            }]);
+            ChartService.updateOptions('#spendingTrendChart', { xaxis: { categories: months } });
+            ChartService.updateSeries('#spendingTrendChart', [{ name: 'Spending', data: spending }]);
         }
 
-        // Update Category Distribution Chart
-        if (this.categoryDistributionChart && data.category_breakdown) {
+        if (data.category_breakdown && window.ChartService) {
             const categories = data.category_breakdown.map(d => d.category);
             const amounts = data.category_breakdown.map(d => d.amount);
 
-            this.categoryDistributionChart.updateOptions({
-                labels: categories
-            });
-            this.categoryDistributionChart.updateSeries(amounts);
+            ChartService.updateOptions('#categoryDistributionChart', { labels: categories });
+            ChartService.updateSeries('#categoryDistributionChart', amounts);
         }
     }
 
     updateInsights(insights) {
         const container = document.getElementById('ai-insights-list');
+        if (!container) return;
         container.innerHTML = '';
 
         insights.forEach(insight => {
@@ -259,7 +211,7 @@ class AnalysisManager {
             item.className = 'insight-item';
             item.innerHTML = `
                 <i class="fas ${icon} me-2"></i>
-                <span>${insight.text}</span>
+                <span>${Formatters.escapeHTML(insight.text)}</span>
             `;
             container.appendChild(item);
         });
@@ -267,18 +219,18 @@ class AnalysisManager {
 
     updateRecommendations(recommendations) {
         const container = document.getElementById('ai-recommendations-list');
+        if (!container) return;
         container.innerHTML = '';
 
         recommendations.forEach(rec => {
             const badgeClass = rec.priority === 'high' ? 'bg-danger' :
-                              rec.priority === 'medium' ? 'bg-warning' :
-                              'bg-info';
+                              rec.priority === 'medium' ? 'bg-warning' : 'bg-info';
 
             const item = document.createElement('div');
             item.className = 'recommendation-item';
             item.innerHTML = `
                 <div class="d-flex justify-content-between align-items-start">
-                    <span>${rec.text}</span>
+                    <span>${Formatters.escapeHTML(rec.text)}</span>
                     <span class="badge ${badgeClass}">${rec.priority}</span>
                 </div>
             `;
@@ -291,9 +243,7 @@ class AnalysisManager {
             const element = document.getElementById(elementId);
             const CountUpCtor = window.CountUp || window.countUp?.CountUp || window.countUp;
 
-            if (!element) {
-                return;
-            }
+            if (!element) return;
 
             if (CountUpCtor) {
                 const countUp = new CountUpCtor(element, value, {
@@ -316,7 +266,6 @@ class AnalysisManager {
     }
 }
 
-// Export, Print, Share functions
 function exportAnalysis() {
     Swal.fire({
         title: 'Export Analysis',
@@ -340,11 +289,9 @@ function exportAnalysis() {
         }
     }).then((result) => {
         if (result.isConfirmed) {
-            showToast('Exporting to PDF...', 'info');
-            // Implement PDF export
+            NotificationService.info('Exporting to PDF...');
         } else if (result.isDenied) {
-            showToast('Exporting to Excel...', 'info');
-            // Implement Excel export
+            NotificationService.info('Exporting to Excel...');
         }
     });
 }
@@ -376,23 +323,11 @@ function shareAnalysis() {
         }
     }).then((result) => {
         if (result.isConfirmed) {
-            showToast('Opening email client...', 'info');
-            // Implement email sharing
+            NotificationService.info('Opening email client...');
         } else if (result.isDenied) {
-            showToast('Link copied to clipboard!', 'success');
-            // Implement link sharing
+            NotificationService.success('Link copied to clipboard!');
         }
     });
 }
 
-// Initialize analysis manager when app loads
-let analysisManager;
-document.addEventListener('DOMContentLoaded', () => {
-    if (window.authManager?.initPromise) {
-        window.authManager.initPromise.then(() => {
-            analysisManager = new AnalysisManager();
-        });
-    } else {
-        analysisManager = new AnalysisManager();
-    }
-});
+window.AnalysisManager = AnalysisManager;

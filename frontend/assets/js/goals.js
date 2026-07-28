@@ -3,12 +3,14 @@ class GoalsManager {
     constructor() {
         this.goals = [];
         this._mounted = false;
+        this._listeners = {};
     }
 
     onMount() {
         if (this._mounted) return;
         this._mounted = true;
         this.setupEventListeners();
+        window.addEventListener('app:data-changed', this._onDataChanged = () => this.loadGoals());
         if (window.authManager?.isAuthenticated()) {
             this.loadGoals();
         }
@@ -16,18 +18,27 @@ class GoalsManager {
 
     onUnmount() {
         this._mounted = false;
+        if (this._onDataChanged) {
+            window.removeEventListener('app:data-changed', this._onDataChanged);
+        }
+        const addBtn = document.getElementById('add-goal-btn');
+        if (addBtn && this._listeners.addClick) {
+            addBtn.removeEventListener('click', this._listeners.addClick);
+        }
     }
 
     setupEventListeners() {
         const addBtn = document.getElementById('add-goal-btn');
         if (addBtn) {
-            addBtn.addEventListener('click', () => this.showAddGoalModal());
+            this._listeners.addClick = () => this.showAddGoalModal();
+            addBtn.addEventListener('click', this._listeners.addClick);
         }
     }
 
     async loadGoals() {
         if (!window.authManager?.isAuthenticated()) return;
 
+        AjaxService?.showSkeleton('goals-grid');
         try {
             const response = await goalsAPI.getAll();
             if (response.success) {
@@ -37,6 +48,8 @@ class GoalsManager {
         } catch (error) {
             console.error('Failed to load goals:', error);
             NotificationService.error('Failed to load goals');
+        } finally {
+            AjaxService?.hideSkeleton('goals-grid');
         }
     }
 
@@ -157,8 +170,7 @@ class GoalsManager {
                 subtitle: 'Define a target and track progress.',
                 icon: 'fa-bullseye',
                 bodyHTML: formHTML,
-                showFooter: false,
-                onSave: null
+                onSave: () => this.handleGoalSubmit()
             });
         } else if (window.premiumModal) {
             document.getElementById('modal-body').innerHTML = formHTML;
@@ -172,16 +184,6 @@ class GoalsManager {
         if (window.DatePickerManager) {
             DatePickerManager.bind('#goal-deadline');
         }
-
-        setTimeout(() => {
-            const form = document.getElementById('goal-form');
-            if (form) {
-                form.addEventListener('submit', (e) => {
-                    e.preventDefault();
-                    this.handleGoalSubmit();
-                });
-            }
-        }, 50);
     }
 
     async handleGoalSubmit() {
@@ -200,6 +202,8 @@ class GoalsManager {
             description: document.getElementById('goal-description').value
         };
 
+        const saveBtn = document.querySelector('#modal-footer .btn-primary');
+        AjaxService?.showButtonLoading(saveBtn);
         try {
             const response = await goalsAPI.create(data);
 
@@ -207,17 +211,41 @@ class GoalsManager {
                 if (window.modalService) modalService.close();
                 else if (window.premiumModal) premiumModal.close();
                 NotificationService.success('Goal created successfully');
-                this.loadGoals();
+                window.dispatchEvent(new CustomEvent('app:data-changed'));
             }
         } catch (error) {
             console.error('Failed to create goal:', error);
             NotificationService.error('Failed to create goal');
+        } finally {
+            AjaxService?.hideButtonLoading(saveBtn);
         }
     }
 
-    showContributeModal(goalId) {
+    async showContributeModal(goalId) {
+        let accounts = [];
+        try {
+            const res = await accountsAPI.getAll();
+            if (res.success) {
+                accounts = (res.data || []).filter(a => a.is_active);
+            }
+        } catch (e) { /* ignore */ }
+
+        const accountOptions = accounts.map(a =>
+            `<option value="${a.id}">${Formatters.escapeHTML(a.name)} (${Formatters.currency(a.balance)})</option>`
+        ).join('');
+
         const formHTML = `
             <form id="contribute-form">
+                <div class="form-group mb-3">
+                    <label>From Account</label>
+                    <div class="form-control-icon">
+                        <i class="fas fa-university"></i>
+                        <select id="contribute-account" required class="form-select">
+                            <option value="">Select account</option>
+                            ${accountOptions}
+                        </select>
+                    </div>
+                </div>
                 <div class="form-group">
                     <label>Amount</label>
                     <div class="form-control-icon">
@@ -234,8 +262,7 @@ class GoalsManager {
                 subtitle: 'Move closer to your savings goal.',
                 icon: 'fa-plus-circle',
                 bodyHTML: formHTML,
-                showFooter: false,
-                onSave: null
+                onSave: () => this.handleContributeSubmit(goalId)
             });
         } else if (window.premiumModal) {
             document.getElementById('modal-body').innerHTML = formHTML;
@@ -245,16 +272,6 @@ class GoalsManager {
             premiumModal.setIcon('fa-plus-circle');
             premiumModal.open();
         }
-
-        setTimeout(() => {
-            const form = document.getElementById('contribute-form');
-            if (form) {
-                form.addEventListener('submit', (e) => {
-                    e.preventDefault();
-                    this.handleContributeSubmit(goalId);
-                });
-            }
-        }, 50);
     }
 
     async handleContributeSubmit(goalId) {
@@ -265,19 +282,29 @@ class GoalsManager {
         }
 
         const amount = parseFloat(document.getElementById('contribute-amount').value);
+        const accountId = document.getElementById('contribute-account').value;
 
+        if (!accountId) {
+            NotificationService.error('Please select an account');
+            return;
+        }
+
+        const saveBtn = document.querySelector('#modal-footer .btn-primary');
+        AjaxService?.showButtonLoading(saveBtn);
         try {
-            const response = await goalsAPI.contribute(goalId, amount);
+            const response = await goalsAPI.contribute(goalId, amount, accountId);
 
             if (response.success) {
                 if (window.modalService) modalService.close();
                 else if (window.premiumModal) premiumModal.close();
                 NotificationService.success('Contribution added successfully');
-                this.loadGoals();
+                window.dispatchEvent(new CustomEvent('app:data-changed'));
             }
         } catch (error) {
             console.error('Failed to add contribution:', error);
             NotificationService.error('Failed to add contribution');
+        } finally {
+            AjaxService?.hideButtonLoading(saveBtn);
         }
     }
 
@@ -290,16 +317,19 @@ class GoalsManager {
 
         if (!confirmed) return;
 
+        AjaxService?.showButtonLoading(event?.target);
         try {
             const response = await goalsAPI.delete(id);
 
             if (response.success) {
                 NotificationService.success('Goal deleted successfully');
-                this.loadGoals();
+                window.dispatchEvent(new CustomEvent('app:data-changed'));
             }
         } catch (error) {
             console.error('Failed to delete goal:', error);
             NotificationService.error(error.message || 'Failed to delete goal');
+        } finally {
+            AjaxService?.hideButtonLoading(event?.target);
         }
     }
 }

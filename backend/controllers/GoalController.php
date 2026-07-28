@@ -4,12 +4,18 @@ require_once __DIR__ . '/../includes/cors.php';
 require_once __DIR__ . '/../includes/response.php';
 require_once __DIR__ . '/../includes/middleware.php';
 require_once __DIR__ . '/../models/Goal.php';
+require_once __DIR__ . '/../services/NotificationService.php';
+require_once __DIR__ . '/../services/AccountingService.php';
 
 class GoalController {
     private $goalModel;
+    private $notifService;
+    private $accountingService;
 
     public function __construct() {
         $this->goalModel = new Goal();
+        $this->notifService = new NotificationService();
+        $this->accountingService = new AccountingService();
     }
 
     public function index() {
@@ -54,6 +60,10 @@ class GoalController {
         
         if ($goalId) {
             $goal = $this->goalModel->findById($goalId, $userId);
+            $this->notifService->create($userId, 'goal_created',
+                'Goal Created',
+                "New goal \"{$data['name']}\" with target Rs " . number_format($data['target_amount'], 0) . " has been created.",
+                'goal', $goalId);
             Response::success($goal, 'Goal created successfully', 201);
         }
         
@@ -113,16 +123,29 @@ class GoalController {
         $userId = Middleware::auth();
         $data = json_decode(file_get_contents('php://input'), true);
         
-        $errors = Middleware::validateRequired($data, ['amount']);
+        $errors = Middleware::validateRequired($data, ['amount', 'account_id']);
         if (!empty($errors)) {
             Response::error('Validation failed', 422, $errors);
         }
 
-        if ($this->goalModel->addContribution($id, $userId, $data['amount'])) {
+        try {
+            $this->accountingService->contributeToGoal(
+                $id,
+                $userId,
+                $data['amount'],
+                $data['account_id']
+            );
+
             $progress = $this->goalModel->getGoalProgress($id, $userId);
+            if ($progress && isset($progress['status']) && $progress['status'] === 'completed') {
+                $this->notifService->create($userId, 'goal_achieved',
+                    'Goal Achieved!',
+                    'Congratulations! You have reached your goal target.',
+                    'goal', $id);
+            }
             Response::success($progress, 'Contribution added successfully');
+        } catch (\Throwable $e) {
+            Response::serverError($e->getMessage());
         }
-        
-        Response::serverError('Contribution failed');
     }
 }

@@ -1,4 +1,2 @@
-RewriteEngine On
-RewriteCond %{REQUEST_FILENAME} !-f
-RewriteCond %{REQUEST_FILENAME} !-d
-RewriteRule ^(.*)$ index.php [QSA,L]
+# Backend directory - API routing is handled by backend/api/.htaccess
+# This file intentionally left empty to prevent rewrite conflicts

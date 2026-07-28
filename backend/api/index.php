@@ -79,6 +79,12 @@ try {
                 $controller->index();
             } elseif ($method === 'GET' && $resourceId === 'total-balance') {
                 $controller->totalBalance();
+            } elseif ($method === 'GET' && $resourceId === 'overview') {
+                $controller->overview();
+            } elseif ($method === 'GET' && $resourceId !== null && $action === 'statement') {
+                $controller->statement($resourceId);
+            } elseif ($method === 'GET' && $resourceId !== null && $action === 'analytics') {
+                $controller->analytics($resourceId);
             } elseif ($method === 'GET' && $resourceId !== null) {
                 $controller->show($resourceId);
             } elseif ($method === 'POST' && count($segments) === 1) {
@@ -106,10 +112,14 @@ try {
                 $controller->reorder();
             } elseif ($method === 'POST' && $resourceId === 'bulk') {
                 $controller->bulkAction();
+            } elseif ($method === 'POST' && $resourceId !== null && $action === 'duplicate') {
+                $controller->duplicate($resourceId);
             } elseif ($method === 'GET' && $resourceId !== null && $action === 'archive') {
                 $controller->archive($resourceId);
             } elseif ($method === 'GET' && $resourceId !== null && $action === 'restore') {
                 $controller->restore($resourceId);
+            } elseif ($method === 'GET' && $resourceId !== null && $action === 'dynamic-subcategories') {
+                $controller->dynamicSubcategories($resourceId);
             } elseif ($method === 'GET' && $resourceId !== null) {
                 $controller->show($resourceId);
             } elseif ($method === 'POST' && count($segments) === 1) {
@@ -209,9 +219,112 @@ try {
             }
             break;
             
+        case 'people':
+            require_once __DIR__ . '/../controllers/PersonController.php';
+            $controller = new PersonController();
+            
+            if ($method === 'GET' && count($segments) === 1) {
+                $controller->index();
+            } elseif ($method === 'GET' && $resourceId !== null && $action === 'ledger') {
+                $controller->ledger($resourceId);
+            } elseif ($method === 'GET' && $resourceId !== null) {
+                $controller->show($resourceId);
+            } elseif ($method === 'POST' && count($segments) === 1) {
+                $controller->store();
+            } elseif ($method === 'PUT' && $resourceId !== null) {
+                $controller->update($resourceId);
+            } elseif ($method === 'DELETE' && $resourceId !== null) {
+                $controller->destroy($resourceId);
+            } else {
+                Response::error('Invalid people endpoint', 404);
+            }
+            break;
+            
+        case 'karobar':
+            require_once __DIR__ . '/../controllers/KarobarController.php';
+            $controller = new KarobarController();
+            
+            if ($method === 'GET' && count($segments) === 1) {
+                $controller->index();
+            } elseif ($method === 'GET' && $resourceId === 'dashboard') {
+                $controller->dashboard();
+            } elseif ($method === 'GET' && $resourceId === 'reports') {
+                $controller->creditReports();
+            } elseif ($method === 'GET' && $resourceId === 'ai-analysis') {
+                $controller->aiAnalysis();
+            } elseif ($method === 'GET' && $resourceId !== null) {
+                $controller->show($resourceId);
+            } elseif ($method === 'POST' && $resourceId === 'repayment') {
+                $controller->repayment();
+            } elseif ($method === 'POST' && $resourceId === 'receiving') {
+                $controller->receiving();
+            } elseif ($method === 'POST' && count($segments) === 1) {
+                $controller->store();
+            } elseif ($method === 'PUT' && $resourceId !== null) {
+                $controller->update($resourceId);
+            } elseif ($method === 'DELETE' && $resourceId !== null) {
+                $controller->destroy($resourceId);
+            } else {
+                Response::error('Invalid karobar endpoint', 404);
+            }
+            break;
+            
+        case 'notifications':
+            require_once __DIR__ . '/../controllers/NotificationController.php';
+            $controller = new NotificationController();
+            
+            if ($method === 'GET' && $resourceId === 'unread-count') {
+                $controller->unreadCount();
+            } elseif ($method === 'GET' && $resourceId === 'recent') {
+                $controller->recent();
+            } elseif ($method === 'GET' && count($segments) === 1) {
+                $controller->index();
+            } elseif ($method === 'POST' && $resourceId === 'read-all') {
+                $controller->markAllRead();
+            } elseif ($method === 'POST' && $resourceId !== null && $action === 'read') {
+                $controller->markRead($resourceId);
+            } elseif ($method === 'POST' && $resourceId !== null) {
+                $controller->markRead($resourceId);
+            } elseif ($method === 'DELETE' && $resourceId === null && count($segments) === 1) {
+                $controller->destroyAll();
+            } elseif ($method === 'DELETE' && $resourceId !== null) {
+                $controller->destroy($resourceId);
+            } else {
+                Response::error('Invalid notifications endpoint', 404);
+            }
+            break;
+            
+        case 'savings':
+            require_once __DIR__ . '/../controllers/SavingsController.php';
+            $controller = new SavingsController();
+            
+            if ($method === 'GET' && $resourceId === 'data') {
+                $controller->data();
+            } elseif ($method === 'GET' && count($segments) === 1) {
+                $controller->data();
+            } else {
+                Response::error('Invalid savings endpoint', 404);
+            }
+            break;
+            
+        case 'reports':
+            require_once __DIR__ . '/../controllers/ReportsController.php';
+            $controller = new ReportsController();
+            
+            if ($method === 'GET' && $resourceId === 'income-expense') {
+                $controller->incomeExpense();
+            } elseif ($method === 'GET' && $resourceId === 'category-breakdown') {
+                $controller->categoryBreakdown();
+            } elseif ($method === 'GET' && $resourceId === 'budget-health') {
+                $controller->budgetHealth();
+            } else {
+                Response::error('Invalid reports endpoint', 404);
+            }
+            break;
+            
         default:
             Response::error('Endpoint not found', 404);
     }
-} catch (Exception $e) {
+} catch (\Throwable $e) {
     Response::serverError($e->getMessage());
 }

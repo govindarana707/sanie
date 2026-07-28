@@ -63,11 +63,18 @@ class ModalService {
         bodyHTML = '',
         showFooter = true,
         onSave = null,
-        onCancel = null
+        onCancel = null,
+        saveText = '<i class="fas fa-check me-1"></i> Save'
     } = {}) {
         if (!this.el || !this.bsModal) return;
 
         this.cleanup();
+
+        const saveBtn = document.getElementById('modal-save-btn');
+        if (saveBtn) {
+            saveBtn.innerHTML = saveText;
+            saveBtn.disabled = false;
+        }
 
         const titleEl = document.getElementById('appModalLabel');
         const subtitleEl = document.getElementById('modal-subtitle');
@@ -81,9 +88,6 @@ class ModalService {
         if (bodyEl) bodyEl.innerHTML = bodyHTML;
         if (footerEl) footerEl.classList.toggle('hidden', !showFooter);
 
-        const saveBtn = document.getElementById('modal-save-btn');
-        const cancelBtn = document.getElementById('modal-cancel-btn');
-
         if (saveBtn && typeof onSave === 'function') {
             saveBtn.onclick = async (e) => {
                 e.preventDefault();
@@ -92,6 +96,7 @@ class ModalService {
             };
         }
 
+        const cancelBtn = document.getElementById('modal-cancel-btn');
         if (cancelBtn && typeof onCancel === 'function') {
             cancelBtn.onclick = () => onCancel();
         } else if (cancelBtn) {

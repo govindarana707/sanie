@@ -134,7 +134,7 @@ CREATE TABLE recurring_transactions (
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
     FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE RESTRICT,
     FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE RESTRICT,
-    FOREIGN KEY (subcategory_id) REFERENCES categories(id) ON DELETE SET NULL,
+    FOREIGN KEY (subcategory_id) REFERENCES subcategories(id) ON DELETE SET NULL,
     INDEX idx_user_id (user_id),
     INDEX idx_next_occurrence (next_occurrence),
     INDEX idx_is_active (is_active)
@@ -145,36 +145,33 @@ CREATE TABLE transactions (
     id INT AUTO_INCREMENT PRIMARY KEY,
     user_id INT NOT NULL,
     account_id INT NOT NULL,
-    category_id INT NOT NULL,
+    from_account_id INT NULL,
+    to_account_id INT NULL,
+    category_id INT NULL,
     subcategory_id INT NULL,
     amount DECIMAL(15, 2) NOT NULL,
     type ENUM('income', 'expense', 'transfer') NOT NULL,
+    payment_method VARCHAR(30) DEFAULT NULL,
+    karobar_transaction_id INT NULL,
     date DATE NOT NULL,
-    time TIME,
     description TEXT,
-    notes TEXT,
-    tags JSON,
-    is_recurring BOOLEAN DEFAULT FALSE,
-    recurring_transaction_id INT NULL,
-    is_favorite BOOLEAN DEFAULT FALSE,
-    location_lat DECIMAL(10, 8),
-    location_lng DECIMAL(11, 8),
-    location_address VARCHAR(255),
-    receipt_path VARCHAR(255),
-    voice_note_path VARCHAR(255),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
     FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE RESTRICT,
-    FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE RESTRICT,
-    FOREIGN KEY (subcategory_id) REFERENCES categories(id) ON DELETE SET NULL,
-    FOREIGN KEY (recurring_transaction_id) REFERENCES recurring_transactions(id) ON DELETE SET NULL,
+    FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE SET NULL,
+    FOREIGN KEY (subcategory_id) REFERENCES subcategories(id) ON DELETE SET NULL,
+    FOREIGN KEY (karobar_transaction_id) REFERENCES karobar_transactions(id) ON DELETE SET NULL,
+    FOREIGN KEY (from_account_id) REFERENCES accounts(id) ON DELETE SET NULL,
+    FOREIGN KEY (to_account_id) REFERENCES accounts(id) ON DELETE SET NULL,
     INDEX idx_user_id (user_id),
     INDEX idx_account_id (account_id),
     INDEX idx_category_id (category_id),
     INDEX idx_date (date),
     INDEX idx_type (type),
-    INDEX idx_amount (amount)
+    INDEX idx_amount (amount),
+    INDEX idx_from_account_id (from_account_id),
+    INDEX idx_to_account_id (to_account_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Budgets Table
@@ -194,7 +191,7 @@ CREATE TABLE budgets (
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
     FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE SET NULL,
-    FOREIGN KEY (subcategory_id) REFERENCES categories(id) ON DELETE SET NULL,
+    FOREIGN KEY (subcategory_id) REFERENCES subcategories(id) ON DELETE SET NULL,
     INDEX idx_user_id (user_id),
     INDEX idx_category_id (category_id),
     INDEX idx_period (period)
@@ -223,16 +220,24 @@ CREATE TABLE attachments (
 CREATE TABLE notifications (
     id INT AUTO_INCREMENT PRIMARY KEY,
     user_id INT NOT NULL,
-    type ENUM('budget_exceeded', 'salary_reminder', 'recurring_transaction', 'goal_reminder', 'bill_reminder', 'monthly_report', 'weekly_summary', 'ai_recommendation', 'system') NOT NULL,
+    type VARCHAR(50) NOT NULL,
     title VARCHAR(255) NOT NULL,
     message TEXT,
-    data JSON,
+    icon VARCHAR(50) DEFAULT 'fa-bell',
+    color VARCHAR(20) DEFAULT '#6366f1',
+    priority ENUM('low', 'normal', 'high', 'urgent') DEFAULT 'normal',
+    reference_type VARCHAR(50) NULL,
+    reference_id INT NULL,
     is_read BOOLEAN DEFAULT FALSE,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
     INDEX idx_user_id (user_id),
+    INDEX idx_type (type),
     INDEX idx_is_read (is_read),
-    INDEX idx_type (type)
+    INDEX idx_created_at (created_at),
+    INDEX idx_user_unread (user_id, is_read),
+    INDEX idx_reference (reference_type, reference_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- AI Analysis History Table
@@ -289,6 +294,57 @@ CREATE TABLE activity_logs (
     INDEX idx_created_at (created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- People Table (Karobar Module)
+CREATE TABLE people (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    user_id INT NOT NULL,
+    name VARCHAR(150) NOT NULL,
+    type ENUM('person','friend','family','shop','vendor','business','other') DEFAULT 'person',
+    phone VARCHAR(30),
+    email VARCHAR(255),
+    address TEXT,
+    photo VARCHAR(255),
+    notes TEXT,
+    status ENUM('active', 'archived') DEFAULT 'active',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    INDEX idx_user_id (user_id),
+    INDEX idx_name (name),
+    INDEX idx_phone (phone),
+    INDEX idx_status (status),
+    INDEX idx_type (type)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Karobar Transactions Table
+CREATE TABLE karobar_transactions (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    user_id INT NOT NULL,
+    person_id INT NOT NULL,
+    type ENUM('lent', 'borrowed', 'returned', 'repaid', 'adjustment') NOT NULL,
+    amount DECIMAL(15, 2) NOT NULL,
+    account_id INT NULL,
+    expense_transaction_id INT NULL,
+    income_transaction_id INT NULL,
+    payment_method VARCHAR(30) NULL,
+    description TEXT,
+    transaction_date DATE NOT NULL,
+    due_date DATE NULL,
+    created_by INT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (person_id) REFERENCES people(id) ON DELETE CASCADE,
+    FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE SET NULL,
+    FOREIGN KEY (expense_transaction_id) REFERENCES transactions(id) ON DELETE SET NULL,
+    FOREIGN KEY (income_transaction_id) REFERENCES transactions(id) ON DELETE SET NULL,
+    INDEX idx_user_id (user_id),
+    INDEX idx_person_id (person_id),
+    INDEX idx_type (type),
+    INDEX idx_transaction_date (transaction_date),
+    INDEX idx_due_date (due_date)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 -- Password Reset Tokens Table
 CREATE TABLE password_reset_tokens (
     id INT AUTO_INCREMENT PRIMARY KEY,
@@ -341,12 +397,12 @@ INSERT INTO categories (name, type, icon, color, is_default, sort_order) VALUES
 ('Rent', 'expense', 'home', '#EF4444', TRUE, 9),
 ('Insurance', 'expense', 'shield', '#EF4444', TRUE, 10),
 ('EMI', 'expense', 'credit-card', '#EF4444', TRUE, 11),
-('Savings', 'expense', 'piggy-bank', '#EF4444', TRUE, 12),
-('Family', 'expense', 'users', '#EF4444', TRUE, 13),
-('Donation', 'expense', 'hand-heart', '#EF4444', TRUE, 14),
-('Taxes', 'expense', 'landmark', '#EF4444', TRUE, 15),
-('Pets', 'expense', 'paw-print', '#EF4444', TRUE, 16),
-('Others', 'expense', 'more-horizontal', '#EF4444', TRUE, 17);
+('Family', 'expense', 'users', '#EF4444', TRUE, 12),
+('Donation', 'expense', 'hand-heart', '#EF4444', TRUE, 13),
+('Taxes', 'expense', 'landmark', '#EF4444', TRUE, 14),
+('Pets', 'expense', 'paw-print', '#EF4444', TRUE, 15),
+('Others', 'expense', 'more-horizontal', '#EF4444', TRUE, 16),
+('Room Expense', 'expense', 'home', '#EF4444', TRUE, 17);
 
 -- Insert Default Income Subcategories
 INSERT INTO subcategories (category_id, name, icon, sort_order) VALUES
@@ -416,3 +472,21 @@ INSERT INTO subcategories (category_id, name, icon, sort_order) VALUES
 ((SELECT id FROM categories WHERE name = 'Travel' AND type = 'expense' LIMIT 1), 'Hotel', 'building', 2),
 ((SELECT id FROM categories WHERE name = 'Travel' AND type = 'expense' LIMIT 1), 'Transportation', 'car', 3),
 ((SELECT id FROM categories WHERE name = 'Travel' AND type = 'expense' LIMIT 1), 'Activities', 'camera', 4);
+
+-- Room Expense subcategories
+INSERT INTO subcategories (category_id, name, icon, sort_order) VALUES
+((SELECT id FROM categories WHERE name = 'Room Expense' AND type = 'expense' LIMIT 1), 'Grains', 'wheat', 1),
+((SELECT id FROM categories WHERE name = 'Room Expense' AND type = 'expense' LIMIT 1), 'Pulses', 'leaf', 2),
+((SELECT id FROM categories WHERE name = 'Room Expense' AND type = 'expense' LIMIT 1), 'Vegetables', 'carrot', 3),
+((SELECT id FROM categories WHERE name = 'Room Expense' AND type = 'expense' LIMIT 1), 'Fruits', 'apple', 4),
+((SELECT id FROM categories WHERE name = 'Room Expense' AND type = 'expense' LIMIT 1), 'Meat, Fish & Eggs', 'egg', 5),
+((SELECT id FROM categories WHERE name = 'Room Expense' AND type = 'expense' LIMIT 1), 'Dairy', 'cup', 6),
+((SELECT id FROM categories WHERE name = 'Room Expense' AND type = 'expense' LIMIT 1), 'Cooking Oil', 'droplet', 7),
+((SELECT id FROM categories WHERE name = 'Room Expense' AND type = 'expense' LIMIT 1), 'Spices & Seasonings', 'pepper', 8),
+((SELECT id FROM categories WHERE name = 'Room Expense' AND type = 'expense' LIMIT 1), 'Tea Products', 'cup-hot', 9),
+((SELECT id FROM categories WHERE name = 'Room Expense' AND type = 'expense' LIMIT 1), 'Snacks', 'cookie', 10),
+((SELECT id FROM categories WHERE name = 'Room Expense' AND type = 'expense' LIMIT 1), 'Cooking Gas', 'fire', 11),
+((SELECT id FROM categories WHERE name = 'Room Expense' AND type = 'expense' LIMIT 1), 'Household Supplies', 'spray', 12),
+((SELECT id FROM categories WHERE name = 'Room Expense' AND type = 'expense' LIMIT 1), 'Room Rent', 'home', 13),
+((SELECT id FROM categories WHERE name = 'Room Expense' AND type = 'expense' LIMIT 1), 'Utilities', 'zap', 14),
+((SELECT id FROM categories WHERE name = 'Room Expense' AND type = 'expense' LIMIT 1), 'Others', 'more-horizontal', 15);

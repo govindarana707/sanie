@@ -3,12 +3,14 @@ class BudgetsManager {
     constructor() {
         this.budgets = [];
         this._mounted = false;
+        this._listeners = {};
     }
 
     onMount() {
         if (this._mounted) return;
         this._mounted = true;
         this.setupEventListeners();
+        window.addEventListener('app:data-changed', this._onDataChanged = () => this.loadBudgets());
         if (window.authManager?.isAuthenticated()) {
             this.loadBudgets();
         }
@@ -16,18 +18,27 @@ class BudgetsManager {
 
     onUnmount() {
         this._mounted = false;
+        if (this._onDataChanged) {
+            window.removeEventListener('app:data-changed', this._onDataChanged);
+        }
+        const addBtn = document.getElementById('add-budget-btn');
+        if (addBtn && this._listeners.addClick) {
+            addBtn.removeEventListener('click', this._listeners.addClick);
+        }
     }
 
     setupEventListeners() {
         const addBtn = document.getElementById('add-budget-btn');
         if (addBtn) {
-            addBtn.addEventListener('click', () => this.showAddBudgetModal());
+            this._listeners.addClick = () => this.showAddBudgetModal();
+            addBtn.addEventListener('click', this._listeners.addClick);
         }
     }
 
     async loadBudgets() {
         if (!window.authManager?.isAuthenticated()) return;
 
+        AjaxService?.showSkeleton('budgets-grid');
         try {
             const response = await budgetsAPI.getAll();
             if (response.success) {
@@ -37,6 +48,8 @@ class BudgetsManager {
         } catch (error) {
             console.error('Failed to load budgets:', error);
             NotificationService.error('Failed to load budgets');
+        } finally {
+            AjaxService?.hideSkeleton('budgets-grid');
         }
     }
 
@@ -179,8 +192,7 @@ class BudgetsManager {
                 subtitle: 'Set spending limits for categories.',
                 icon: 'fa-wallet',
                 bodyHTML: formHTML,
-                showFooter: false,
-                onSave: null
+                onSave: () => this.handleBudgetSubmit()
             });
         } else if (window.premiumModal) {
             document.getElementById('modal-body').innerHTML = formHTML;
@@ -197,16 +209,6 @@ class BudgetsManager {
         }
 
         this.loadCategoriesForForm();
-
-        setTimeout(() => {
-            const form = document.getElementById('budget-form');
-            if (form) {
-                form.addEventListener('submit', (e) => {
-                    e.preventDefault();
-                    this.handleBudgetSubmit();
-                });
-            }
-        }, 50);
     }
 
     async loadCategoriesForForm() {
@@ -247,6 +249,8 @@ class BudgetsManager {
             alert_threshold: parseFloat(document.getElementById('budget-alert-threshold').value)
         };
 
+        const saveBtn = document.querySelector('#modal-footer .btn-primary');
+        AjaxService?.showButtonLoading(saveBtn);
         try {
             const response = await budgetsAPI.create(data);
 
@@ -254,11 +258,13 @@ class BudgetsManager {
                 if (window.modalService) modalService.close();
                 else if (window.premiumModal) premiumModal.close();
                 NotificationService.success('Budget created successfully');
-                this.loadBudgets();
+                window.dispatchEvent(new CustomEvent('app:data-changed'));
             }
         } catch (error) {
             console.error('Failed to create budget:', error);
             NotificationService.error('Failed to create budget');
+        } finally {
+            AjaxService?.hideButtonLoading(saveBtn);
         }
     }
 
@@ -271,16 +277,19 @@ class BudgetsManager {
 
         if (!confirmed) return;
 
+        AjaxService?.showButtonLoading(event?.target);
         try {
             const response = await budgetsAPI.delete(id);
 
             if (response.success) {
                 NotificationService.success('Budget deleted successfully');
-                this.loadBudgets();
+                window.dispatchEvent(new CustomEvent('app:data-changed'));
             }
         } catch (error) {
             console.error('Failed to delete budget:', error);
             NotificationService.error(error.message || 'Failed to delete budget');
+        } finally {
+            AjaxService?.hideButtonLoading(event?.target);
         }
     }
 }

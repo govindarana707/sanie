@@ -5,14 +5,19 @@ require_once __DIR__ . '/../includes/response.php';
 require_once __DIR__ . '/../includes/middleware.php';
 require_once __DIR__ . '/../models/Category.php';
 require_once __DIR__ . '/../models/Subcategory.php';
+require_once __DIR__ . '/../models/Goal.php';
+require_once __DIR__ . '/../models/Account.php';
+require_once __DIR__ . '/../services/NotificationService.php';
 
 class CategoryController {
     private $categoryModel;
     private $subcategoryModel;
+    private $notifService;
 
     public function __construct() {
         $this->categoryModel = new Category();
         $this->subcategoryModel = new Subcategory();
+        $this->notifService = new NotificationService();
     }
 
     public function index() {
@@ -20,12 +25,24 @@ class CategoryController {
         $type = $_GET['type'] ?? null;
         $status = $_GET['status'] ?? 'active';
         $categories = $this->categoryModel->findAll($userId, $type, $status);
-        
-        // Add subcategory count to each category
-        foreach ($categories as &$category) {
-            $category['subcategory_count'] = $this->subcategoryModel->getCountByCategory($category['id']);
+
+        $categoryIds = array_column($categories, 'id');
+
+        $subcategoriesByCategory = [];
+        if (!empty($categoryIds)) {
+            try {
+                $subcategoriesByCategory = $this->subcategoryModel->getByCategoryIds($categoryIds, $userId, $status);
+            } catch (Exception $e) {
+                error_log('CategoryController::index eager-load subcategories failed: ' . $e->getMessage());
+                $subcategoriesByCategory = [];
+            }
         }
-        
+
+        foreach ($categories as &$category) {
+            $category['subcategories'] = $subcategoriesByCategory[$category['id']] ?? [];
+            $category['subcategory_count'] = count($category['subcategories']);
+        }
+
         Response::success($categories);
     }
 
@@ -36,6 +53,12 @@ class CategoryController {
         if ($category) {
             $category['subcategory_count'] = $this->subcategoryModel->getCountByCategory($category['id']);
             $category['has_transactions'] = $this->categoryModel->hasTransactions($id);
+            $category['subcategories'] = $this->subcategoryModel->getByCategory($category['id'], $userId);
+
+            $txInfo = $this->categoryModel->getTransactionStats($id);
+            $category['transaction_count'] = $txInfo['tx_count'] ?? 0;
+            $category['last_used_at'] = $txInfo['last_used_at'] ?? null;
+
             Response::success($category);
         }
         
@@ -69,6 +92,10 @@ class CategoryController {
         
         if ($categoryId) {
             $category = $this->categoryModel->findById($categoryId, $userId);
+            $this->notifService->create($userId, 'category_created',
+                'Category Created',
+                "New {$data['type']} category \"{$data['name']}\" has been created.",
+                'category', $categoryId);
             Response::success($category, 'Category created successfully', 201);
         }
         
@@ -78,6 +105,11 @@ class CategoryController {
     public function update($id) {
         $userId = Middleware::auth();
         $data = json_decode(file_get_contents('php://input'), true);
+        
+        $errors = Middleware::validateRequired($data, ['name', 'type']);
+        if (!empty($errors)) {
+            Response::error('Validation failed', 422, $errors);
+        }
         
         $existingCategory = $this->categoryModel->findById($id, $userId);
         if (!$existingCategory) {
@@ -137,6 +169,10 @@ class CategoryController {
             Response::notFound('Category not found');
         }
         
+        if ($category['is_default']) {
+            Response::error('Cannot archive default category', 403);
+        }
+        
         if ($this->categoryModel->archive($id, $userId)) {
             Response::success(null, 'Category archived successfully');
         }
@@ -150,6 +186,10 @@ class CategoryController {
         $category = $this->categoryModel->findById($id, $userId);
         if (!$category) {
             Response::notFound('Category not found');
+        }
+        
+        if ($category['is_default']) {
+            Response::error('Cannot restore default category', 403);
         }
         
         if ($this->categoryModel->restore($id, $userId)) {
@@ -181,7 +221,48 @@ class CategoryController {
         }
         
         $results = $this->categoryModel->search($userId, $query, $type, $status);
+
+        $categoryIds = array_column($results, 'id');
+        $subcategoriesByCategory = [];
+        if (!empty($categoryIds)) {
+            try {
+                $subcategoriesByCategory = $this->subcategoryModel->getByCategoryIds($categoryIds, $userId, 'active');
+            } catch (Exception $e) {
+                error_log('CategoryController::search eager-load subcategories failed: ' . $e->getMessage());
+            }
+        }
+
+        foreach ($results as &$category) {
+            $category['subcategories'] = $subcategoriesByCategory[$category['id']] ?? [];
+            $category['subcategory_count'] = count($category['subcategories']);
+        }
+
         Response::success($results);
+    }
+
+    public function duplicate($id) {
+        $userId = Middleware::auth();
+        
+        $category = $this->categoryModel->findById($id, $userId);
+        if (!$category) {
+            Response::notFound('Category not found');
+        }
+        
+        if ($category['is_default']) {
+            Response::error('Cannot duplicate default category', 403);
+        }
+        
+        $newId = $this->categoryModel->duplicate($id, $userId);
+        
+        if ($newId) {
+            $newCategory = $this->categoryModel->findById($newId, $userId);
+            $subcats = $this->subcategoryModel->getByCategory($newId, $userId);
+            $newCategory['subcategories'] = $subcats;
+            $newCategory['subcategory_count'] = count($subcats);
+            Response::success($newCategory, 'Category duplicated successfully', 201);
+        }
+        
+        Response::serverError('Category duplication failed');
     }
 
     public function reorder() {
@@ -253,5 +334,68 @@ class CategoryController {
             }
         }
         return $maxOrder;
+    }
+
+    public function dynamicSubcategories($categoryId) {
+        $userId = Middleware::auth();
+        $category = $this->categoryModel->findById($categoryId, $userId);
+        if (!$category) {
+            Response::notFound('Category not found');
+        }
+
+        $subcategories = [];
+
+        if (strtolower($category['name']) === 'savings') {
+            $goalModel = new Goal();
+            $accountModel = new Account();
+
+            $goals = $goalModel->findAll($userId);
+            foreach ($goals as $goal) {
+                if ($goal['status'] !== 'active') continue;
+                $percentage = $goal['target_amount'] > 0 ? ($goal['current_amount'] / $goal['target_amount']) * 100 : 0;
+                $subcategories[] = [
+                    'id' => 'goal_' . $goal['id'],
+                    'name' => $goal['name'],
+                    'icon' => $goal['icon'] ?? 'fa-bullseye',
+                    'description' => $goal['description'] ?? '',
+                    'dynamic_type' => 'goal',
+                    'reference_id' => $goal['id'],
+                    'current_amount' => (float)$goal['current_amount'],
+                    'target_amount' => (float)$goal['target_amount'],
+                    'percentage' => round($percentage, 1),
+                    'deadline' => $goal['deadline'],
+                    'color' => $goal['color'] ?? '#10B981'
+                ];
+            }
+
+            $accounts = $accountModel->findAll($userId);
+            foreach ($accounts as $account) {
+                if (!$account['is_active'] || $account['type'] !== 'savings') continue;
+                $subcategories[] = [
+                    'id' => 'account_' . $account['id'],
+                    'name' => $account['name'],
+                    'icon' => $account['icon'] ?? 'fa-piggy-bank',
+                    'description' => $account['account_number'] ?? '',
+                    'dynamic_type' => 'account',
+                    'reference_id' => $account['id'],
+                    'balance' => (float)$account['balance'],
+                    'color' => $account['color'] ?? '#6366f1'
+                ];
+            }
+        } else {
+            $realSubcategories = $this->subcategoryModel->getByCategory($categoryId, $userId);
+            foreach ($realSubcategories as $sub) {
+                $subcategories[] = [
+                    'id' => $sub['id'],
+                    'name' => $sub['name'],
+                    'icon' => $sub['icon'] ?? 'tag',
+                    'description' => $sub['description'] ?? '',
+                    'dynamic_type' => null,
+                    'reference_id' => $sub['id']
+                ];
+            }
+        }
+
+        Response::success($subcategories);
     }
 }

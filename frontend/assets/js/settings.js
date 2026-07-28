@@ -1,56 +1,77 @@
-// Settings Management Module
+// Settings Management Module - Refactored with lifecycle hooks
 class SettingsManager {
     constructor() {
-        this.init();
-    }
-
-    init() {
-        this.setupEventListeners();
+        this._mounted = false;
+        this._listeners = {};
     }
 
     onMount() {
+        if (this._mounted) return;
+        this._mounted = true;
+        this.setupEventListeners();
         this.loadProfile();
         this.loadPreferences();
     }
 
     onUnmount() {
-        // Cleanup if needed
+        this._mounted = false;
+
+        if (this._listeners.profileSubmit) {
+            const form = document.getElementById('profile-form');
+            if (form) {
+                form.removeEventListener('submit', this._listeners.profileSubmit);
+            }
+        }
+        if (this._listeners.currencyChange) {
+            document.getElementById('settings-currency')?.removeEventListener('change', this._listeners.currencyChange);
+        }
+        if (this._listeners.languageChange) {
+            document.getElementById('settings-language')?.removeEventListener('change', this._listeners.languageChange);
+        }
+        if (this._listeners.themeChange) {
+            document.getElementById('settings-theme')?.removeEventListener('change', this._listeners.themeChange);
+        }
     }
 
     setupEventListeners() {
         const profileForm = document.getElementById('profile-form');
         if (profileForm) {
-            profileForm.addEventListener('submit', (e) => {
+            profileForm.removeEventListener('submit', this._listeners.profileSubmit);
+            this._listeners.profileSubmit = (e) => {
                 e.preventDefault();
                 this.saveProfile();
-            });
+            };
+            profileForm.addEventListener('submit', this._listeners.profileSubmit);
         }
 
         const currencySelect = document.getElementById('settings-currency');
         if (currencySelect) {
-            currencySelect.addEventListener('change', (e) => {
+            this._listeners.currencyChange = (e) => {
                 localStorage.setItem('currency', e.target.value);
                 NotificationService.success(`Currency updated to ${e.target.value}`);
-            });
+            };
+            currencySelect.addEventListener('change', this._listeners.currencyChange);
         }
 
         const langSelect = document.getElementById('settings-language');
         if (langSelect) {
-            langSelect.addEventListener('change', (e) => {
+            this._listeners.languageChange = (e) => {
                 localStorage.setItem('language', e.target.value);
                 NotificationService.success('Language preferences saved');
-            });
+            };
+            langSelect.addEventListener('change', this._listeners.languageChange);
         }
 
         const themeSelect = document.getElementById('settings-theme');
         if (themeSelect) {
-            themeSelect.addEventListener('change', (e) => {
+            this._listeners.themeChange = (e) => {
                 const theme = e.target.value;
                 if (window.app && typeof window.app.setTheme === 'function') {
                     window.app.setTheme(theme === 'system' ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light') : theme);
                 }
                 NotificationService.success(`Theme updated to ${theme}`);
-            });
+            };
+            themeSelect.addEventListener('change', this._listeners.themeChange);
         }
     }
 

@@ -4,12 +4,15 @@ require_once __DIR__ . '/../includes/cors.php';
 require_once __DIR__ . '/../includes/response.php';
 require_once __DIR__ . '/../includes/middleware.php';
 require_once __DIR__ . '/../models/Budget.php';
+require_once __DIR__ . '/../services/NotificationService.php';
 
 class BudgetController {
     private $budgetModel;
+    private $notifService;
 
     public function __construct() {
         $this->budgetModel = new Budget();
+        $this->notifService = new NotificationService();
     }
 
     public function index() {
@@ -55,6 +58,10 @@ class BudgetController {
         
         if ($budgetId) {
             $budget = $this->budgetModel->findById($budgetId, $userId);
+            $this->notifService->create($userId, 'category_created',
+                'Budget Created',
+                "Budget \"{$data['name']}\" with limit Rs " . number_format($data['amount'], 0) . " has been created.",
+                'budget', $budgetId);
             Response::success($budget, 'Budget created successfully', 201);
         }
         
@@ -105,6 +112,17 @@ class BudgetController {
         $progress = $this->budgetModel->getBudgetProgress($id, $userId);
         
         if ($progress) {
+            if (isset($progress['percentage']) && $progress['percentage'] >= 100) {
+                $this->notifService->create($userId, 'budget_exceeded',
+                    'Budget Exceeded',
+                    "Your budget has exceeded the limit! (" . round($progress['percentage']) . "% used)",
+                    'budget', $id);
+            } elseif (isset($progress['percentage']) && $progress['percentage'] >= 80) {
+                $this->notifService->create($userId, 'budget_warning',
+                    'Budget Warning',
+                    "Your budget has reached " . round($progress['percentage']) . "% of the limit.",
+                    'budget', $id);
+            }
             Response::success($progress);
         }
         

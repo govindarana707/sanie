@@ -13,6 +13,8 @@ class SubcategoriesManager {
         this.isLoadingCategories = false;
         this.isLoadingSubcategories = false;
         this._mounted = false;
+        this._listeners = {};
+        this._bulkListeners = [];
     }
 
     onMount() {
@@ -25,6 +27,29 @@ class SubcategoriesManager {
 
     onUnmount() {
         this._mounted = false;
+        if (this._listeners.addClick) {
+            document.getElementById('add-subcategory-btn')?.removeEventListener('click', this._listeners.addClick);
+        }
+        if (this._listeners.applyClick) {
+            document.getElementById('apply-subcategory-filters')?.removeEventListener('click', this._listeners.applyClick);
+        }
+        if (this._listeners.clearClick) {
+            document.getElementById('clear-subcategory-filters')?.removeEventListener('click', this._listeners.clearClick);
+        }
+        if (this._listeners.searchInput) {
+            document.getElementById('search-subcategories')?.removeEventListener('input', this._listeners.searchInput);
+        }
+        if (this._listeners.selectAllChange) {
+            document.getElementById('select-all-subcategories')?.removeEventListener('change', this._listeners.selectAllChange);
+        }
+        this._bulkListeners.forEach(({ el, handler }) => el.removeEventListener('click', handler));
+        this._bulkListeners = [];
+        if (this._listeners.importClick) {
+            document.getElementById('import-subcategories-btn')?.removeEventListener('click', this._listeners.importClick);
+        }
+        if (this._listeners.exportClick) {
+            document.getElementById('export-subcategories-btn')?.removeEventListener('click', this._listeners.exportClick);
+        }
         if (window.DataTableService) {
             DataTableService.destroy('#subcategories-table');
         }
@@ -32,39 +57,53 @@ class SubcategoriesManager {
     }
 
     setupEventListeners() {
-        document.getElementById('add-subcategory-btn')?.addEventListener('click', () => {
-            this.showAddSubcategoryModal();
-        });
+        const addBtn = document.getElementById('add-subcategory-btn');
+        if (addBtn) {
+            this._listeners.addClick = () => this.showAddSubcategoryModal();
+            addBtn.addEventListener('click', this._listeners.addClick);
+        }
 
-        document.getElementById('apply-subcategory-filters')?.addEventListener('click', () => {
-            this.applyFilters();
-        });
+        const applyBtn = document.getElementById('apply-subcategory-filters');
+        if (applyBtn) {
+            this._listeners.applyClick = () => this.applyFilters();
+            applyBtn.addEventListener('click', this._listeners.applyClick);
+        }
 
-        document.getElementById('clear-subcategory-filters')?.addEventListener('click', () => {
-            this.clearFilters();
-        });
+        const clearBtn = document.getElementById('clear-subcategory-filters');
+        if (clearBtn) {
+            this._listeners.clearClick = () => this.clearFilters();
+            clearBtn.addEventListener('click', this._listeners.clearClick);
+        }
 
-        document.getElementById('search-subcategories')?.addEventListener('input', (e) => {
-            this.handleSearch(e.target.value);
-        });
+        const searchInput = document.getElementById('search-subcategories');
+        if (searchInput) {
+            this._listeners.searchInput = (e) => this.handleSearch(e.target.value);
+            searchInput.addEventListener('input', this._listeners.searchInput);
+        }
 
-        document.getElementById('select-all-subcategories')?.addEventListener('change', (e) => {
-            this.toggleSelectAll(e.target.checked);
-        });
+        const selectAll = document.getElementById('select-all-subcategories');
+        if (selectAll) {
+            this._listeners.selectAllChange = (e) => this.toggleSelectAll(e.target.checked);
+            selectAll.addEventListener('change', this._listeners.selectAllChange);
+        }
 
         document.querySelectorAll('#subcategory-bulk-actions button').forEach(btn => {
-            btn.addEventListener('click', () => {
-                this.handleBulkAction(btn.dataset.action);
-            });
+            const handler = () => this.handleBulkAction(btn.dataset.action);
+            this._bulkListeners.push({ el: btn, handler });
+            btn.addEventListener('click', handler);
         });
 
-        document.getElementById('import-subcategories-btn')?.addEventListener('click', () => {
-            this.showImportModal();
-        });
+        const importBtn = document.getElementById('import-subcategories-btn');
+        if (importBtn) {
+            this._listeners.importClick = () => this.showImportModal();
+            importBtn.addEventListener('click', this._listeners.importClick);
+        }
 
-        document.getElementById('export-subcategories-btn')?.addEventListener('click', () => {
-            this.exportSubcategories();
-        });
+        const exportBtn = document.getElementById('export-subcategories-btn');
+        if (exportBtn) {
+            this._listeners.exportClick = () => this.exportSubcategories();
+            exportBtn.addEventListener('click', this._listeners.exportClick);
+        }
     }
 
     async loadCategories() {

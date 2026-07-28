@@ -46,8 +46,9 @@ class RouterService {
 
     async navigate(page, updateHistory = true) {
         if (!page) return;
-        if (page === this.currentPage) {
-            const targetEl = document.getElementById(`${page}-page`);
+        const basePage = page.split('?')[0];
+        if (basePage === this.currentPage) {
+            const targetEl = document.getElementById(`${basePage}-page`);
             if (targetEl && targetEl.classList.contains('active')) {
                 return;
             }
@@ -75,17 +76,17 @@ class RouterService {
             }
 
             this.previousPage = this.currentPage;
-            this.currentPage = page;
+            this.currentPage = basePage;
 
             // 3. Update active nav items
             document.querySelectorAll('.nav-item').forEach(item => {
                 item.classList.remove('active');
-                if (item.dataset.page === page) {
+                if (item.dataset.page === basePage) {
                     item.classList.add('active');
                 }
             });
 
-            const activeNav = document.querySelector(`.nav-item[data-page="${page}"]`);
+            const activeNav = document.querySelector(`.nav-item[data-page="${basePage}"]`);
             if (activeNav) {
                 const parentSubmenu = activeNav.closest('.submenu');
                 if (parentSubmenu) {
@@ -100,24 +101,24 @@ class RouterService {
                 p.classList.remove('active');
             });
 
-            const targetPage = document.getElementById(`${page}-page`);
+            const targetPage = document.getElementById(`${basePage}-page`);
             if (targetPage) {
                 targetPage.classList.add('active');
             }
 
             // 5. Update browser history
             if (updateHistory) {
-                history.pushState({ page }, '', `#${page}`);
+                history.pushState({ page: basePage }, '', `#${page}`);
             }
 
             // 6. Mount new page module if authenticated
             if (window.authManager?.isAuthenticated()) {
-                const targetModule = this.routes.get(page);
+                const targetModule = this.routes.get(basePage);
                 if (targetModule && typeof targetModule.onMount === 'function') {
                     try {
                         await targetModule.onMount();
                     } catch (e) {
-                        console.error(`[Router] Error during mount of ${page}:`, e);
+                        console.error(`[Router] Error during mount of ${basePage}:`, e);
                     }
                 }
             }

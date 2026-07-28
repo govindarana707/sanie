@@ -18,15 +18,15 @@ class Category {
         
         $stmt = $this->conn->prepare($query);
         
-        $stmt->bindParam(':user_id', $data['user_id']);
-        $stmt->bindParam(':name', $data['name']);
-        $stmt->bindParam(':type', $data['type']);
-        $stmt->bindParam(':icon', $data['icon']);
-        $stmt->bindParam(':color', $data['color']);
-        $stmt->bindParam(':description', $data['description']);
-        $stmt->bindParam(':is_default', $data['is_default']);
-        $stmt->bindParam(':status', $data['status']);
-        $stmt->bindParam(':sort_order', $data['sort_order']);
+        $stmt->bindValue(':user_id', $data['user_id']);
+        $stmt->bindValue(':name', $data['name']);
+        $stmt->bindValue(':type', $data['type']);
+        $stmt->bindValue(':icon', $data['icon'] ?? null);
+        $stmt->bindValue(':color', $data['color'] ?? '#6B7280');
+        $stmt->bindValue(':description', $data['description'] ?? '');
+        $stmt->bindValue(':is_default', $data['is_default'] ?? 0);
+        $stmt->bindValue(':status', $data['status'] ?? 'active');
+        $stmt->bindValue(':sort_order', $data['sort_order'] ?? 0);
         
         if ($stmt->execute()) {
             return $this->conn->lastInsertId();
@@ -36,17 +36,28 @@ class Category {
     }
 
     public function findAll($userId, $type = null, $status = 'active') {
-        $query = "SELECT * FROM " . $this->table . " WHERE (user_id = :user_id OR user_id IS NULL)";
+        $query = "SELECT c.*,
+                    COALESCE(t.tx_count, 0) AS transaction_count,
+                    t.last_used_at
+                  FROM " . $this->table . " c
+                  LEFT JOIN (
+                    SELECT category_id,
+                           COUNT(*) AS tx_count,
+                           MAX(created_at) AS last_used_at
+                    FROM transactions
+                    GROUP BY category_id
+                  ) t ON t.category_id = c.id
+                  WHERE (c.user_id = :user_id OR c.user_id IS NULL)";
         
         if ($type) {
-            $query .= " AND type = :type";
+            $query .= " AND c.type = :type";
         }
         
         if ($status) {
-            $query .= " AND status = :status";
+            $query .= " AND c.status = :status";
         }
         
-        $query .= " ORDER BY sort_order ASC, name ASC";
+        $query .= " ORDER BY c.sort_order ASC, c.name ASC";
         
         $stmt = $this->conn->prepare($query);
         $stmt->bindParam(':user_id', $userId);
@@ -186,7 +197,25 @@ class Category {
         $stmt->execute();
         
         $result = $stmt->fetch(PDO::FETCH_ASSOC);
-        return $result['count'] > 0;
+        if ($result['count'] > 0) {
+            return true;
+        }
+
+        $query2 = "SELECT COUNT(*) as count FROM recurring_transactions WHERE category_id = :id LIMIT 1";
+        $stmt2 = $this->conn->prepare($query2);
+        $stmt2->bindParam(':id', $id);
+        $stmt2->execute();
+        
+        $result2 = $stmt2->fetch(PDO::FETCH_ASSOC);
+        return $result2['count'] > 0;
+    }
+
+    public function getTransactionStats($id) {
+        $query = "SELECT COUNT(*) AS tx_count, MAX(created_at) AS last_used_at FROM transactions WHERE category_id = :id";
+        $stmt = $this->conn->prepare($query);
+        $stmt->bindParam(':id', $id, PDO::PARAM_INT);
+        $stmt->execute();
+        return $stmt->fetch(PDO::FETCH_ASSOC);
     }
 
     public function updateSortOrder($orders, $userId) {
@@ -212,19 +241,30 @@ class Category {
     }
 
     public function search($userId, $query, $type = null, $status = null) {
-        $sql = "SELECT * FROM " . $this->table . " 
-                WHERE (user_id = :user_id OR user_id IS NULL) 
-                AND (name LIKE :query OR description LIKE :query)";
+        $sql = "SELECT DISTINCT c.*,
+                    COALESCE(t.tx_count, 0) AS transaction_count,
+                    t.last_used_at
+                FROM " . $this->table . " c
+                LEFT JOIN (
+                    SELECT category_id,
+                           COUNT(*) AS tx_count,
+                           MAX(created_at) AS last_used_at
+                    FROM transactions
+                    GROUP BY category_id
+                ) t ON t.category_id = c.id
+                LEFT JOIN subcategories sc ON sc.category_id = c.id AND sc.status = 'active'
+                WHERE (c.user_id = :user_id OR c.user_id IS NULL) 
+                AND (c.name LIKE :query OR c.description LIKE :query OR sc.name LIKE :query OR sc.description LIKE :query)";
         
         if ($type) {
-            $sql .= " AND type = :type";
+            $sql .= " AND c.type = :type";
         }
         
         if ($status) {
-            $sql .= " AND status = :status";
+            $sql .= " AND c.status = :status";
         }
         
-        $sql .= " ORDER BY sort_order ASC, name ASC";
+        $sql .= " ORDER BY c.sort_order ASC, c.name ASC";
         
         $stmt = $this->conn->prepare($sql);
         $stmt->bindParam(':user_id', $userId);
@@ -242,5 +282,31 @@ class Category {
         $stmt->execute();
         
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    }
+
+    public function duplicate($id, $userId) {
+        $source = $this->findById($id, $userId);
+        if (!$source) return false;
+        if ($source['is_default']) return false;
+
+        $maxSortOrder = 0;
+        $all = $this->findAll($userId, $source['type']);
+        foreach ($all as $c) {
+            if ($c['sort_order'] > $maxSortOrder) $maxSortOrder = $c['sort_order'];
+        }
+
+        $data = [
+            'user_id'    => $userId,
+            'name'       => $source['name'] . ' (Copy)',
+            'type'       => $source['type'],
+            'icon'       => $source['icon'],
+            'color'      => $source['color'],
+            'description'=> $source['description'],
+            'is_default' => false,
+            'status'     => 'active',
+            'sort_order' => $maxSortOrder + 1
+        ];
+
+        return $this->create($data);
     }
 }
