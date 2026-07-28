@@ -321,6 +321,17 @@ try {
                 Response::error('Invalid reports endpoint', 404);
             }
             break;
+
+        case 'analysis':
+            require_once __DIR__ . '/../controllers/AnalysisController.php';
+            $controller = new AnalysisController();
+            
+            if ($method === 'GET' && count($segments) === 1) {
+                $controller->index();
+            } else {
+                Response::error('Invalid analysis endpoint', 404);
+            }
+            break;
             
         default:
             Response::error('Endpoint not found', 404);

@@ -31,6 +31,11 @@ class CategoriesManager {
             window.removeEventListener('app:data-changed', this._onDataChanged);
         }
 
+        if (this._cardHandler) {
+            document.removeEventListener('click', this._cardHandler);
+            this._cardHandler = null;
+        }
+
         const removers = [
             ['addClick', 'add-category-btn'],
             ['addEmptyClick', 'add-category-btn-empty'],
@@ -330,33 +335,36 @@ class CategoriesManager {
             card.addEventListener('drop', (e) => this.onDrop(e));
         });
 
-        if (!grid._delegationAttached) {
-            grid._delegationAttached = true;
-            grid.addEventListener('click', (e) => {
-                const target = e.target.closest('a, button, [data-id], [data-sub-id], [data-category-id]');
+        if (!this._cardHandler) {
+            this._cardHandler = (e) => {
+                const page = document.getElementById('categories-page');
+                if (!page || !page.contains(e.target)) return;
+
+                const target = e.target.closest('.cat-menu-view, .cat-menu-edit, .cat-menu-duplicate, .cat-menu-archive, .cat-menu-restore, .cat-menu-delete, .cat-card-sub-add, .cat-sub-chip-edit, .cat-sub-chip-delete');
                 if (!target) return;
 
-                const stop = (el) => { e.preventDefault(); e.stopPropagation(); };
+                e.preventDefault();
+                e.stopPropagation();
 
                 const catId = Number(target.dataset.id || target.dataset.catId || 0);
                 const subId = Number(target.dataset.subId || 0);
                 const catCategoryId = Number(target.dataset.categoryId || 0);
 
-                if (target.classList.contains('cat-menu-view')) { stop(); this.viewCategory(catId); return; }
-                if (target.classList.contains('cat-menu-edit')) { stop(); this.editCategory(catId); return; }
-                if (target.classList.contains('cat-menu-duplicate')) { stop(); this.duplicateCategory(catId); return; }
-                if (target.classList.contains('cat-menu-archive')) { stop(); this.archiveCategory(catId); return; }
-                if (target.classList.contains('cat-menu-restore')) { stop(); this.restoreCategory(catId); return; }
-                if (target.classList.contains('cat-menu-delete')) { stop(); this.deleteCategory(catId); return; }
+                if (target.classList.contains('cat-menu-view')) { this.viewCategory(catId); return; }
+                if (target.classList.contains('cat-menu-edit')) { this.editCategory(catId); return; }
+                if (target.classList.contains('cat-menu-duplicate')) { this.duplicateCategory(catId); return; }
+                if (target.classList.contains('cat-menu-archive')) { this.archiveCategory(catId); return; }
+                if (target.classList.contains('cat-menu-restore')) { this.restoreCategory(catId); return; }
+                if (target.classList.contains('cat-menu-delete')) { this.deleteCategory(catId); return; }
                 if (target.classList.contains('cat-card-sub-add')) {
-                    stop();
                     const c = this.categories.find(cat => cat.id === catCategoryId);
                     if (c) this.showAddSubcategoryModal(c);
                     return;
                 }
-                if (target.classList.contains('cat-sub-chip-edit')) { stop(); this.inlineEditSubcategory(subId, catId); return; }
-                if (target.classList.contains('cat-sub-chip-delete')) { stop(); this.inlineDeleteSubcategory(subId, catId); return; }
-            });
+                if (target.classList.contains('cat-sub-chip-edit')) { this.inlineEditSubcategory(subId, catId); return; }
+                if (target.classList.contains('cat-sub-chip-delete')) { this.inlineDeleteSubcategory(subId, catId); return; }
+            };
+            document.addEventListener('click', this._cardHandler);
         }
     }
 
@@ -743,8 +751,8 @@ class CategoriesManager {
             const result = await window.Api.post('/categories', data);
             if (result.success) {
                 NotificationService.success('Category created successfully');
-                if (window.modalService) modalService.close();
-                else if (window.premiumModal) premiumModal.close();
+                if (window.modalService) window.modalService.close();
+                else if (window.premiumModal) window.premiumModal.close();
                 window.dispatchEvent(new CustomEvent('app:data-changed'));
             } else {
                 NotificationService.error(result.message || 'Failed to create category');
@@ -778,8 +786,8 @@ class CategoriesManager {
             const result = await window.Api.put(`/categories/${id}`, data);
             if (result.success) {
                 NotificationService.success('Category updated successfully');
-                if (window.modalService) modalService.close();
-                else if (window.premiumModal) premiumModal.close();
+                if (window.modalService) window.modalService.close();
+                else if (window.premiumModal) window.premiumModal.close();
                 window.dispatchEvent(new CustomEvent('app:data-changed'));
             } else {
                 NotificationService.error(result.message || 'Failed to update category');
@@ -1079,8 +1087,8 @@ class CategoriesManager {
             const result = await window.Api.post('/subcategories', data);
             if (result.success) {
                 NotificationService.success('Subcategory created successfully');
-                if (window.modalService) modalService.close();
-                else if (window.premiumModal) premiumModal.close();
+                if (window.modalService) window.modalService.close();
+                else if (window.premiumModal) window.premiumModal.close();
                 window.dispatchEvent(new CustomEvent('app:data-changed'));
             } else {
                 NotificationService.error(result.message || 'Failed to create subcategory');
