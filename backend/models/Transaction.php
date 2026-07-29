@@ -265,22 +265,232 @@ class Transaction {
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
     }
 
-    public function getMonthlyData($userId, $year) {
-        $query = "SELECT 
-                    DATE_FORMAT(date, '%b') AS month,
-                    MONTH(date) AS month_num,
-                    SUM(CASE WHEN type = 'income' THEN amount ELSE 0 END) AS income,
-                    SUM(CASE WHEN type = 'expense' THEN amount ELSE 0 END) AS expense
-                  FROM " . $this->table . "
-                  WHERE user_id = :user_id AND YEAR(date) = :year
-                  GROUP BY MONTH(date), DATE_FORMAT(date, '%b')
-                  ORDER BY month_num ASC";
+    public function getLedger($userId, $filters = [], $limit = 500, $offset = 0) {
+        $params = [':user_id' => $userId];
+
+        $query = "SELECT t.*,
+                  c.name as category_name, c.icon as category_icon, c.color as category_color,
+                  sc.name as subcategory_name,
+                  a.name as account_name, a.type as account_type,
+                  fa.name as from_account_name, ta.name as to_account_name,
+                  kt.id as karobar_id, kt.type as karobar_type, kt.description as karobar_description,
+                  p.name as person_name, p.photo as person_photo
+                  FROM transactions t
+                  LEFT JOIN categories c ON t.category_id = c.id
+                  LEFT JOIN subcategories sc ON t.subcategory_id = sc.id
+                  LEFT JOIN accounts a ON t.account_id = a.id
+                  LEFT JOIN accounts fa ON t.from_account_id = fa.id
+                  LEFT JOIN accounts ta ON t.to_account_id = ta.id
+                  LEFT JOIN karobar_transactions kt ON t.karobar_transaction_id = kt.id
+                  LEFT JOIN people p ON kt.person_id = p.id
+                  WHERE t.user_id = :user_id";
+
+        if (!empty($filters['type'])) {
+            $query .= " AND t.type = :type";
+            $params[':type'] = $filters['type'];
+        }
+        if (!empty($filters['category_id'])) {
+            $query .= " AND t.category_id = :category_id";
+            $params[':category_id'] = $filters['category_id'];
+        }
+        if (!empty($filters['account_id'])) {
+            $query .= " AND (t.account_id = :account_id OR t.from_account_id = :account_id2 OR t.to_account_id = :account_id3)";
+            $params[':account_id'] = $filters['account_id'];
+            $params[':account_id2'] = $filters['account_id'];
+            $params[':account_id3'] = $filters['account_id'];
+        }
+        if (!empty($filters['start_date'])) {
+            $query .= " AND t.date >= :start_date";
+            $params[':start_date'] = $filters['start_date'];
+        }
+        if (!empty($filters['end_date'])) {
+            $query .= " AND t.date <= :end_date";
+            $params[':end_date'] = $filters['end_date'];
+        }
+        if (!empty($filters['search'])) {
+            $query .= " AND (t.description LIKE :search OR c.name LIKE :search2 OR sc.name LIKE :search3)";
+            $searchTerm = '%' . $filters['search'] . '%';
+            $params[':search'] = $searchTerm;
+            $params[':search2'] = $searchTerm;
+            $params[':search3'] = $searchTerm;
+        }
+
+        $sortField = $filters['sort'] ?? 't.date';
+        $sortDir = strtoupper($filters['direction'] ?? 'DESC');
+        if (!in_array($sortDir, ['ASC', 'DESC'])) $sortDir = 'DESC';
+        $allowedSorts = ['t.date', 't.amount', 't.type', 't.description', 't.created_at'];
+        if (!in_array($sortField, $allowedSorts)) $sortField = 't.date';
+
+        $query .= " ORDER BY $sortField $sortDir, t.created_at DESC LIMIT :limit OFFSET :offset";
 
         $stmt = $this->conn->prepare($query);
-        $stmt->bindParam(':user_id', $userId);
-        $stmt->bindParam(':year', $year, PDO::PARAM_INT);
+        foreach ($params as $key => $value) {
+            $stmt->bindValue($key, $value);
+        }
+        $stmt->bindValue(':limit', (int)$limit, PDO::PARAM_INT);
+        $stmt->bindValue(':offset', (int)$offset, PDO::PARAM_INT);
         $stmt->execute();
 
+        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    }
+
+    public function getLedgerCount($userId, $filters = []) {
+        $params = [':user_id' => $userId];
+
+        $query = "SELECT COUNT(*) as total
+                  FROM transactions t
+                  LEFT JOIN categories c ON t.category_id = c.id
+                  LEFT JOIN subcategories sc ON t.subcategory_id = sc.id
+                  WHERE t.user_id = :user_id";
+
+        if (!empty($filters['type'])) {
+            $query .= " AND t.type = :type";
+            $params[':type'] = $filters['type'];
+        }
+        if (!empty($filters['category_id'])) {
+            $query .= " AND t.category_id = :category_id";
+            $params[':category_id'] = $filters['category_id'];
+        }
+        if (!empty($filters['account_id'])) {
+            $query .= " AND (t.account_id = :account_id OR t.from_account_id = :account_id2 OR t.to_account_id = :account_id3)";
+            $params[':account_id'] = $filters['account_id'];
+            $params[':account_id2'] = $filters['account_id'];
+            $params[':account_id3'] = $filters['account_id'];
+        }
+        if (!empty($filters['start_date'])) {
+            $query .= " AND t.date >= :start_date";
+            $params[':start_date'] = $filters['start_date'];
+        }
+        if (!empty($filters['end_date'])) {
+            $query .= " AND t.date <= :end_date";
+            $params[':end_date'] = $filters['end_date'];
+        }
+        if (!empty($filters['search'])) {
+            $query .= " AND (t.description LIKE :search OR c.name LIKE :search2 OR sc.name LIKE :search3)";
+            $searchTerm = '%' . $filters['search'] . '%';
+            $params[':search'] = $searchTerm;
+            $params[':search2'] = $searchTerm;
+            $params[':search3'] = $searchTerm;
+        }
+
+        $stmt = $this->conn->prepare($query);
+        foreach ($params as $key => $value) {
+            $stmt->bindValue($key, $value);
+        }
+        $stmt->execute();
+
+        return (int)$stmt->fetch(PDO::FETCH_ASSOC)['total'];
+    }
+
+    public function getLedgerSummary($userId, $filters = []) {
+        $params = [':user_id' => $userId];
+
+        $query = "SELECT
+                  COALESCE(SUM(CASE WHEN t.type = 'income' THEN t.amount ELSE 0 END), 0) as period_income,
+                  COALESCE(SUM(CASE WHEN t.type = 'expense' THEN t.amount ELSE 0 END), 0) as period_expense,
+                  COUNT(*) as period_count
+                  FROM transactions t
+                  LEFT JOIN categories c ON t.category_id = c.id
+                  WHERE t.user_id = :user_id";
+
+        if (!empty($filters['type'])) {
+            $query .= " AND t.type = :type";
+            $params[':type'] = $filters['type'];
+        }
+        if (!empty($filters['category_id'])) {
+            $query .= " AND t.category_id = :category_id";
+            $params[':category_id'] = $filters['category_id'];
+        }
+        if (!empty($filters['account_id'])) {
+            $query .= " AND (t.account_id = :account_id OR t.from_account_id = :account_id2 OR t.to_account_id = :account_id3)";
+            $params[':account_id'] = $filters['account_id'];
+            $params[':account_id2'] = $filters['account_id'];
+            $params[':account_id3'] = $filters['account_id'];
+        }
+        if (!empty($filters['start_date'])) {
+            $query .= " AND t.date >= :start_date";
+            $params[':start_date'] = $filters['start_date'];
+        }
+        if (!empty($filters['end_date'])) {
+            $query .= " AND t.date <= :end_date";
+            $params[':end_date'] = $filters['end_date'];
+        }
+
+        $stmt = $this->conn->prepare($query);
+        foreach ($params as $key => $value) {
+            $stmt->bindValue($key, $value);
+        }
+        $stmt->execute();
+
+        return $stmt->fetch(PDO::FETCH_ASSOC);
+    }
+
+    public function getOpeningBalance($userId, $beforeDate) {
+        $query = "SELECT
+                  COALESCE(SUM(CASE WHEN type = 'income' THEN amount ELSE 0 END), 0) -
+                  COALESCE(SUM(CASE WHEN type = 'expense' THEN amount ELSE 0 END), 0) as balance
+                  FROM transactions
+                  WHERE user_id = :user_id AND date < :before_date";
+
+        $stmt = $this->conn->prepare($query);
+        $stmt->bindValue(':user_id', $userId);
+        $stmt->bindValue(':before_date', $beforeDate);
+        $stmt->execute();
+
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        return floatval($row['balance'] ?? 0);
+    }
+
+    public function getMonthlyData($userId, $year = null, $startDate = null, $endDate = null) {
+        // If date range provided, use it instead of year
+        if ($startDate && $endDate) {
+            $rangeStart = new DateTime($startDate);
+            $rangeEnd = new DateTime($endDate);
+            $days = $rangeStart->diff($rangeEnd)->days;
+
+            if ($days <= 31) {
+                $label = "DATE_FORMAT(date, '%b %e')";
+                $order = "DAY(date), MONTH(date)";
+            } elseif ($days <= 60) {
+                $label = "CONCAT('Wk ', WEEK(date, 1) - WEEK(DATE_SUB(date, INTERVAL DAYOFMONTH(date)-1 DAY), 1) + 1)";
+                $order = "WEEK(date, 1)";
+            } else {
+                $label = "DATE_FORMAT(date, '%b')";
+                $order = "MONTH(date)";
+            }
+
+            $query = "SELECT
+                        $label AS month,
+                        MONTH(date) AS month_num,
+                        SUM(CASE WHEN type = 'income' THEN amount ELSE 0 END) AS income,
+                        SUM(CASE WHEN type = 'expense' THEN amount ELSE 0 END) AS expense
+                      FROM " . $this->table . "
+                      WHERE user_id = :user_id AND date >= :start_date AND date <= :end_date
+                      GROUP BY $label, month_num
+                      ORDER BY $order ASC, month_num ASC";
+
+            $stmt = $this->conn->prepare($query);
+            $stmt->bindParam(':user_id', $userId);
+            $stmt->bindParam(':start_date', $startDate);
+            $stmt->bindParam(':end_date', $endDate);
+        } else {
+            $year = $year ?? (int)date('Y');
+            $query = "SELECT
+                        DATE_FORMAT(date, '%b') AS month,
+                        MONTH(date) AS month_num,
+                        SUM(CASE WHEN type = 'income' THEN amount ELSE 0 END) AS income,
+                        SUM(CASE WHEN type = 'expense' THEN amount ELSE 0 END) AS expense
+                      FROM " . $this->table . "
+                      WHERE user_id = :user_id AND YEAR(date) = :year
+                      GROUP BY MONTH(date), DATE_FORMAT(date, '%b')
+                      ORDER BY month_num ASC";
+
+            $stmt = $this->conn->prepare($query);
+            $stmt->bindParam(':user_id', $userId);
+            $stmt->bindParam(':year', $year, PDO::PARAM_INT);
+        }
+
+        $stmt->execute();
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
     }
 }

@@ -12,13 +12,7 @@ class TransactionsManager {
         if (this._mounted) return;
         this._mounted = true;
         this._bindAddButton();
-        this._bindFilterButtons();
-        this._bindSearch();
         this._bindDocumentEvents();
-        if (window.DatePickerManager) {
-            window.DatePickerManager.bind('#filter-start-date');
-            window.DatePickerManager.bind('#filter-end-date');
-        }
         if (window.authManager?.isAuthenticated()) {
             this.loadTransactions();
         }
@@ -28,13 +22,9 @@ class TransactionsManager {
         this._mounted = false;
         this._destroyDataTable();
         this._unbindAddButton();
-        this._unbindFilterButtons();
-        this._unbindSearch();
         this._unbindDocumentEvents();
-        if (window.DatePickerManager) {
-            DatePickerManager.destroy('#filter-start-date');
-            DatePickerManager.destroy('#filter-end-date');
-        }
+        this._unbindMobilePagination();
+        this._unbindMobileActions();
     }
 
     /* ==================== BINDING HELPERS ==================== */
@@ -51,48 +41,6 @@ class TransactionsManager {
         const btn = document.getElementById('add-transaction-btn');
         if (btn && this._listeners._addClick) {
             btn.removeEventListener('click', this._listeners._addClick);
-        }
-    }
-
-    _bindFilterButtons() {
-        const apply = document.getElementById('apply-filters');
-        if (apply) {
-            this._listeners._applyClick = () => this.applyFilters();
-            apply.addEventListener('click', this._listeners._applyClick);
-        }
-        const clear = document.getElementById('clear-filters');
-        if (clear) {
-            this._listeners._clearClick = () => this.clearFilters();
-            clear.addEventListener('click', this._listeners._clearClick);
-        }
-    }
-
-    _unbindFilterButtons() {
-        const apply = document.getElementById('apply-filters');
-        if (apply && this._listeners._applyClick) {
-            apply.removeEventListener('click', this._listeners._applyClick);
-        }
-        const clear = document.getElementById('clear-filters');
-        if (clear && this._listeners._clearClick) {
-            clear.removeEventListener('click', this._listeners._clearClick);
-        }
-    }
-
-    _bindSearch() {
-        const el = document.getElementById('tx-search-input');
-        if (!el) return;
-        this._listeners._searchInput = () => {
-            if (this.dataTable) {
-                this.dataTable.search(el.value).draw();
-            }
-        };
-        el.addEventListener('input', this._listeners._searchInput);
-    }
-
-    _unbindSearch() {
-        const el = document.getElementById('tx-search-input');
-        if (el && this._listeners._searchInput) {
-            el.removeEventListener('input', this._listeners._searchInput);
         }
     }
 
@@ -153,32 +101,6 @@ class TransactionsManager {
         }
     }
 
-    applyFilters() {
-        this.filters = {};
-        const type = document.getElementById('filter-type');
-        const cat = document.getElementById('filter-category');
-        const sd = document.getElementById('filter-start-date');
-        const ed = document.getElementById('filter-end-date');
-        if (type && type.value) this.filters.type = type.value;
-        if (cat && cat.value) this.filters.category_id = cat.value;
-        if (sd && sd.value) this.filters.start_date = sd.value;
-        if (ed && ed.value) this.filters.end_date = ed.value;
-        this.loadTransactions();
-    }
-
-    clearFilters() {
-        this.filters = {};
-        ['filter-type', 'filter-category', 'filter-start-date', 'filter-end-date', 'tx-search-input'].forEach(id => {
-            const el = document.getElementById(id);
-            if (el) el.value = '';
-        });
-        const dt = document.getElementById('tx-search-input');
-        if (this.dataTable && dt) {
-            this.dataTable.search('').draw();
-        }
-        this.loadTransactions();
-    }
-
     /* ==================== SUMMARY ==================== */
 
     _renderSummary() {
@@ -214,14 +136,18 @@ class TransactionsManager {
         if (!tbody) return;
         tbody.innerHTML = '';
 
+        const mobileCards = document.getElementById('tx-mobile-cards');
         if (this.transactions.length === 0) {
             if (empty) empty.style.display = 'block';
             if (table) table.style.display = 'none';
+            if (mobileCards) mobileCards.style.display = 'none';
             return;
         }
         if (empty) empty.style.display = 'none';
         if (table) table.style.display = '';
+        if (mobileCards) mobileCards.style.display = '';
 
+        // Render in original order (usually newest first from API)
         this.transactions.forEach(t => {
             const tr = document.createElement('tr');
             tr.innerHTML = this._buildRow(t);
@@ -231,6 +157,8 @@ class TransactionsManager {
         this._initDataTable();
         this._initTooltips();
         this._setupDelegatedActions();
+        this._renderMobileCards();
+        this._bindMobilePagination();
     }
 
     _buildRow(t) {
@@ -241,43 +169,59 @@ class TransactionsManager {
         const isTransfer = t.type === 'transfer';
         const amt = parseFloat(t.amount) || 0;
         const amtFmt = amt.toLocaleString('en-IN');
-        const sign = t.type === 'income' ? '+' : (t.type === 'expense' ? '-' : '');
-        const cls = t.type === 'income' ? 'amount-income' : (t.type === 'expense' ? 'amount-expense' : 'amount-transfer');
+
+        // Type badge
+        const typeBadge = `<span class="tx-type-badge ${t.type}">${t.type}</span>`;
+
+        // Category
         const catIcon = t.category_icon ? this._faToBi(t.category_icon) : 'bi-tag-fill';
         const catColor = t.category_color || '#6366f1';
-
         let catHtml;
         if (isTransfer) {
             catHtml = `<div class="tx-cat-icon" style="background:#3B82F6"><i class="bi bi-arrow-left-right"></i></div>
-                       <span class="tx-cat-name">${this._h(t.from_account_name || '?')} &rarr; ${this._h(t.to_account_name || '?')}</span>`;
+                       <span class="tx-cat-name">Transfer</span>`;
         } else {
             catHtml = `<div class="tx-cat-icon" style="background:${catColor}"><i class="bi ${catIcon}"></i></div>
                        <span class="tx-cat-name">${this._h(t.category_name || 'Uncategorized')}</span>`;
         }
 
-        const subHtml = isTransfer
-            ? '<span class="tx-sub-badge" style="opacity:.5">Transfer</span>'
-            : (t.subcategory_name
-                ? `<span class="tx-sub-badge">${this._h(t.subcategory_name)}</span>`
-                : '<span class="tx-sub-badge no-sub">None</span>');
+        // Subcategory
+        const subHtml = t.subcategory_name
+            ? `<span class="tx-sub-badge">${this._h(t.subcategory_name)}</span>`
+            : '<span class="tx-sub-badge no-sub">None</span>';
 
+        // Account
+        let accountHtml;
+        if (isTransfer) {
+            accountHtml = `<span class="tx-account-name">${this._h(t.from_account_name || '?')} &rarr; ${this._h(t.to_account_name || '?')}</span>`;
+        } else {
+            accountHtml = `<span class="tx-account-name">${this._h(t.account_name || '--')}</span>`;
+        }
+
+        // Description
         const descHtml = t.description
             ? `<span class="tx-desc-text" title="${this._h(t.description)}">${this._h(t.description)}</span>`
             : '<span class="tx-desc-text tx-desc-no">No Description</span>';
 
+        // Single Amount column
+        const amtPrefix = t.type === 'expense' ? '- ' : '+ ';
+        const amtDataOrder = t.type === 'expense' ? -amt : amt;
+        const amountHtml = `<span class="tx-money ${t.type}">${amtPrefix}Rs ${amtFmt}</span>`;
+
+        const dateOrder = t.date || '';
         return `
-            <td>
+            <td data-order="${dateOrder}">
                 <div class="tx-date-cell">
                     <div class="tx-date-day">${day}</div>
                     <div class="tx-date-month">${month} ${year}</div>
                 </div>
             </td>
+            <td>${typeBadge}</td>
             <td><div class="tx-cat-cell">${catHtml}</div></td>
             <td>${subHtml}</td>
-            <td><div class="tx-desc-cell">${descHtml}</div></td>
-            <td class="tx-amount-cell ${cls}">
-                <span class="tx-type-dot dot-${t.type}"></span>${sign}Rs ${amtFmt}
-            </td>
+            <td>${accountHtml}</td>
+            <td>${descHtml}</td>
+            <td data-order="${amtDataOrder}">${amountHtml}</td>
             <td>
                 <div class="tx-actions-cell">
                     <div class="tx-action-btns">
@@ -352,8 +296,8 @@ class TransactionsManager {
                 order: [[0, 'desc']],
                 responsive: false,
                 columnDefs: [
-                    { orderable: true, targets: [0, 1, 2, 3, 4] },
-                    { orderable: false, targets: [5] }
+                    { orderable: true, targets: [0, 1, 2, 3, 4, 5] },
+                    { orderable: false, targets: [6, 7] }
                 ],
                 language: {
                     search: '', searchPlaceholder: 'Search...',
@@ -369,7 +313,10 @@ class TransactionsManager {
                     }
                 },
                 searching: false,
-                dom: '<"row"<"col-sm-12"r>><"row"<"col-sm-12"t>><"row align-items-center mt-2"<"col-sm-12 col-md-5"l><"col-sm-12 col-md-3"i><"col-sm-12 col-md-4"p>>'
+                dom: 'r<"dt-table-wrap"t><"dt-bottom"l i p>',
+                drawCallback: () => {
+                    this._renderMobileCards();
+                }
             });
         } catch (e) {
             console.error('DataTable init error:', e);
@@ -1064,20 +1011,188 @@ class TransactionsManager {
     handleAction(e) {
         const target = e.target.closest('button');
         if (!target) return;
-        const id = target.dataset.txId;
-        if (!id) return;
-        if (target.classList.contains('tx-btn-view')) this.viewTransaction(id);
-        else if (target.classList.contains('tx-btn-edit')) this.editTransaction(id);
-        else if (target.classList.contains('tx-btn-delete')) this.deleteTransaction(id);
+        // Desktop table buttons use data-tx-id + class
+        let id = target.dataset.txId;
+        let action = null;
+        if (id) {
+            if (target.classList.contains('tx-btn-view')) action = 'view';
+            else if (target.classList.contains('tx-btn-edit')) action = 'edit';
+            else if (target.classList.contains('tx-btn-delete')) action = 'delete';
+        } else {
+            // Mobile card buttons use data-tx-view/edit/delete
+            id = target.dataset.txView || target.dataset.txEdit || target.dataset.txDelete;
+            if (target.dataset.txView) action = 'view';
+            else if (target.dataset.txEdit) action = 'edit';
+            else if (target.dataset.txDelete) action = 'delete';
+        }
+        if (!id || !action) return;
+        if (action === 'view') this.viewTransaction(id);
+        else if (action === 'edit') this.editTransaction(id);
+        else if (action === 'delete') this.deleteTransaction(id);
     }
 
-    // Attach delegated listener for table action buttons
+    // Attach delegated listener for table and mobile card action buttons
     _setupDelegatedActions() {
         const table = document.getElementById('transactions-table-body');
         if (table) {
             table.removeEventListener('click', this._delegatedHandler);
             this._delegatedHandler = (e) => this.handleAction(e);
             table.addEventListener('click', this._delegatedHandler);
+        }
+        const mobileCards = document.getElementById('tx-mobile-cards');
+        if (mobileCards) {
+            mobileCards.removeEventListener('click', this._mobDelegatedHandler);
+            this._mobDelegatedHandler = (e) => this.handleAction(e);
+            mobileCards.addEventListener('click', this._mobDelegatedHandler);
+        }
+    }
+
+    /* ==================== MOBILE CARDS ==================== */
+
+    _renderMobileCards() {
+        const container = document.getElementById('tx-mobile-cards');
+        if (!container) return;
+
+        if (this.transactions.length === 0) {
+            container.style.display = 'none';
+            return;
+        }
+
+        let list = container.querySelector('.tx-mobile-cards-list');
+        if (!list) {
+            list = document.createElement('div');
+            list.className = 'tx-mobile-cards-list';
+            container.insertBefore(list, container.firstChild);
+        }
+
+        // Determine which transactions to show based on current DataTable page
+        let pageData = this.transactions;
+        let dtInfo = null;
+        if (this.dataTable) {
+            try {
+                dtInfo = this.dataTable.page.info();
+                const start = dtInfo.start;
+                const end = dtInfo.end;
+                pageData = this.transactions.slice(start, end);
+            } catch (e) {}
+        }
+
+        list.innerHTML = pageData.map(t => this._buildMobileCard(t)).join('');
+
+        // Update pagination info
+        this._updateMobilePagination(dtInfo);
+    }
+
+    _buildMobileCard(t) {
+        const date = t.date ? new Date(t.date + 'T00:00:00') : null;
+        const day = date ? date.getDate() : '--';
+        const month = date ? date.toLocaleString('en', { month: 'short' }).toUpperCase() : '';
+        const year = date ? date.getFullYear() : '';
+        const isTransfer = t.type === 'transfer';
+        const amt = parseFloat(t.amount) || 0;
+        const amtFmt = amt.toLocaleString('en-IN');
+        const amtPrefix = t.type === 'expense' ? '- ' : '+ ';
+
+        const catIcon = t.category_icon ? this._faToBi(t.category_icon) : 'bi-tag-fill';
+        const catColor = t.category_color || '#6366f1';
+
+        let catHtml;
+        if (isTransfer) {
+            catHtml = `<div class="tx-mob-cat-icon" style="background:#3B82F6"><i class="bi bi-arrow-left-right"></i></div>
+                       <div class="tx-mob-cat-details">
+                           <div class="tx-mob-cat-name">Transfer</div>
+                           <div class="tx-mob-account">${this._h(t.from_account_name || '?')} &rarr; ${this._h(t.to_account_name || '?')}</div>
+                       </div>`;
+        } else {
+            catHtml = `<div class="tx-mob-cat-icon" style="background:${catColor}"><i class="bi ${catIcon}"></i></div>
+                       <div class="tx-mob-cat-details">
+                           <div class="tx-mob-cat-name">${this._h(t.category_name || 'Uncategorized')}</div>
+                           <div class="tx-mob-account">${this._h(t.account_name || '--')}</div>
+                       </div>`;
+        }
+
+        return `
+            <div class="tx-mob-card" data-tx-id="${t.id}">
+                <div class="tx-mob-card-top">
+                    <span class="tx-mob-date">${month} ${day}, ${year}</span>
+                    <span class="tx-mob-type ${t.type}">${t.type}</span>
+                </div>
+                <div class="tx-mob-card-mid">
+                    ${catHtml}
+                </div>
+                <div class="tx-mob-card-bottom">
+                    <span class="tx-mob-amount ${t.type}">${amtPrefix}Rs ${amtFmt}</span>
+                    <div class="tx-mob-actions">
+                        <button class="tx-mob-action view" data-tx-view="${t.id}" title="View"><i class="bi bi-eye"></i></button>
+                        <button class="tx-mob-action edit" data-tx-edit="${t.id}" title="Edit"><i class="bi bi-pencil"></i></button>
+                        <button class="tx-mob-action delete" data-tx-delete="${t.id}" title="Delete"><i class="bi bi-trash3"></i></button>
+                    </div>
+                </div>
+            </div>`;
+    }
+
+    _bindMobilePagination() {
+        const prevBtn = document.getElementById('tx-mob-page-prev');
+        const nextBtn = document.getElementById('tx-mob-page-next');
+
+        if (prevBtn && this._mobPrevHandler) {
+            prevBtn.removeEventListener('click', this._mobPrevHandler);
+        }
+        if (nextBtn && this._mobNextHandler) {
+            nextBtn.removeEventListener('click', this._mobNextHandler);
+        }
+
+        this._mobPrevHandler = () => {
+            if (this.dataTable) {
+                this.dataTable.page('previous').draw('page');
+                this._renderMobileCards();
+            }
+        };
+        this._mobNextHandler = () => {
+            if (this.dataTable) {
+                this.dataTable.page('next').draw('page');
+                this._renderMobileCards();
+            }
+        };
+
+        if (prevBtn) prevBtn.addEventListener('click', this._mobPrevHandler);
+        if (nextBtn) nextBtn.addEventListener('click', this._mobNextHandler);
+    }
+
+    _updateMobilePagination(dtInfo) {
+        const infoEl = document.getElementById('tx-mob-page-info');
+        const totalEl = document.getElementById('tx-mob-total');
+        const prevBtn = document.getElementById('tx-mob-page-prev');
+        const nextBtn = document.getElementById('tx-mob-page-next');
+
+        if (dtInfo) {
+            if (infoEl) infoEl.textContent = dtInfo.page + 1;
+            if (totalEl) totalEl.textContent = dtInfo.recordsTotal + ' transaction' + (dtInfo.recordsTotal !== 1 ? 's' : '');
+            if (prevBtn) prevBtn.disabled = dtInfo.page <= 0;
+            if (nextBtn) nextBtn.disabled = dtInfo.page >= dtInfo.pages - 1;
+        } else {
+            if (infoEl) infoEl.textContent = '1';
+            if (totalEl) totalEl.textContent = this.transactions.length + ' transaction' + (this.transactions.length !== 1 ? 's' : '');
+            if (prevBtn) prevBtn.disabled = true;
+            if (nextBtn) nextBtn.disabled = true;
+        }
+    }
+
+    _unbindMobilePagination() {
+        const prevBtn = document.getElementById('tx-mob-page-prev');
+        const nextBtn = document.getElementById('tx-mob-page-next');
+        if (prevBtn && this._mobPrevHandler) {
+            prevBtn.removeEventListener('click', this._mobPrevHandler);
+        }
+        if (nextBtn && this._mobNextHandler) {
+            nextBtn.removeEventListener('click', this._mobNextHandler);
+        }
+    }
+
+    _unbindMobileActions() {
+        const mobileCards = document.getElementById('tx-mobile-cards');
+        if (mobileCards && this._mobDelegatedHandler) {
+            mobileCards.removeEventListener('click', this._mobDelegatedHandler);
         }
     }
 

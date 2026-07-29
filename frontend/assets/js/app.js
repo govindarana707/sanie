@@ -133,6 +133,7 @@ class App {
         this.setupMobileSidebar();
         this.setupThemeToggle();
         this.setupQuickAdd();
+        this.setupProfileButton();
         this.setupGlobalSearch();
         this.hideLoadingScreen();
     }
@@ -330,6 +331,18 @@ class App {
                 mgr.showAddTransactionModal();
             } else {
                 console.warn('[QuickAdd] transactionsManager not available');
+            }
+        });
+    }
+
+    setupProfileButton() {
+        const profileBtn = document.getElementById('profile-btn');
+        if (!profileBtn) return;
+
+        profileBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            if (this.router) {
+                this.router.navigate('settings');
             }
         });
     }

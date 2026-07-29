@@ -202,7 +202,14 @@ class BalanceService {
     /**
      * Account overview with calculated balances.
      */
-    public function getAccountOverview($userId): array {
+    public function getAccountOverview($userId, $periodStart = null, $periodEnd = null): array {
+        $incomeFilter = $periodStart && $periodEnd
+            ? " AND t.date >= :pstart1 AND t.date <= :pend1"
+            : "";
+        $expenseFilter = $periodStart && $periodEnd
+            ? " AND t.date >= :pstart2 AND t.date <= :pend2"
+            : "";
+
         $query = "SELECT a.id, a.name, a.type, a.color, a.icon, a.is_active,
                          a.is_default, a.account_number, a.created_at, a.opening_balance,
                          (SELECT MAX(t.date) FROM transactions t
@@ -210,10 +217,10 @@ class BalanceService {
                              AND t.user_id = a.user_id
                          ) as last_transaction_date,
                          (SELECT COALESCE(SUM(t.amount), 0) FROM transactions t
-                           WHERE t.type = 'income' AND t.account_id = a.id AND t.user_id = a.user_id
+                           WHERE t.type = 'income' AND t.account_id = a.id AND t.user_id = a.user_id$incomeFilter
                          ) as total_income,
                          (SELECT COALESCE(SUM(t.amount), 0) FROM transactions t
-                           WHERE t.type = 'expense' AND t.account_id = a.id AND t.user_id = a.user_id
+                           WHERE t.type = 'expense' AND t.account_id = a.id AND t.user_id = a.user_id$expenseFilter
                          ) as total_expense
                   FROM accounts a
                   WHERE a.user_id = :uid AND a.is_active = TRUE
@@ -221,6 +228,12 @@ class BalanceService {
 
         $stmt = $this->conn->prepare($query);
         $stmt->bindValue(':uid', $userId);
+        if ($periodStart && $periodEnd) {
+            $stmt->bindValue(':pstart1', $periodStart);
+            $stmt->bindValue(':pend1', $periodEnd);
+            $stmt->bindValue(':pstart2', $periodStart);
+            $stmt->bindValue(':pend2', $periodEnd);
+        }
         $stmt->execute();
         $accounts = $stmt->fetchAll(PDO::FETCH_ASSOC);
 

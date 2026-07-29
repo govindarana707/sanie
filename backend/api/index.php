@@ -330,6 +330,19 @@ try {
             }
             break;
 
+        case 'ledger':
+            require_once __DIR__ . '/../controllers/LedgerController.php';
+            $controller = new LedgerController();
+
+            if ($method === 'GET' && $resourceId === 'filters') {
+                $controller->filters();
+            } elseif ($method === 'GET' && count($segments) === 1) {
+                $controller->index();
+            } else {
+                Response::error('Invalid ledger endpoint', 404);
+            }
+            break;
+
         case 'analysis':
             require_once __DIR__ . '/../controllers/AnalysisController.php';
             $controller = new AnalysisController();

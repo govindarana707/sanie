@@ -254,7 +254,7 @@ class Budget {
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
     }
 
-    public function getBatchProgress($ids, $userId) {
+    public function getBatchProgress($ids, $userId, $periodStart = null, $periodEnd = null) {
         if (empty($ids)) return [];
 
         $placeholders = implode(',', array_fill(0, count($ids), '?'));
@@ -278,11 +278,21 @@ class Budget {
                     AND t.date BETWEEN b.start_date AND b.end_date
                     AND (b.category_id IS NULL OR t.category_id = b.category_id)
                     AND (b.subcategory_id IS NULL OR t.subcategory_id = b.subcategory_id)
-                  WHERE b.id IN ($placeholders) AND b.user_id = ?
-                  GROUP BY b.id";
+                  WHERE b.id IN ($placeholders) AND b.user_id = ?";
+        $params = array_merge($ids, [$userId]);
+
+        if ($periodStart) {
+            $query .= " AND (t.date IS NULL OR t.date >= ?)";
+            $params[] = $periodStart;
+        }
+        if ($periodEnd) {
+            $query .= " AND (t.date IS NULL OR t.date <= ?)";
+            $params[] = $periodEnd;
+        }
+
+        $query .= " GROUP BY b.id";
 
         $stmt = $this->conn->prepare($query);
-        $params = array_merge($ids, [$userId]);
         $stmt->execute($params);
         $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
 

@@ -1,0 +1,454 @@
+// Transaction Ledger Module
+class LedgerManager {
+    constructor() {
+        this.api = new APIClient();
+        this.dataTable = null;
+        this.transactions = [];
+        this.summary = null;
+        this.filters = {
+            type: '',
+            category_id: '',
+            account_id: '',
+            start_date: '',
+            end_date: '',
+            search: ''
+        };
+        this.filterData = { accounts: [], categories: [] };
+        this.isLoading = false;
+    }
+
+    async init() {
+        try {
+            await this.loadFilterData();
+            this.populateFilters();
+            this.setupEventListeners();
+            await this.loadLedger();
+        } catch (e) {
+            console.error('Ledger init failed:', e);
+            if (e.message === 'Authentication expired' || e.message === 'Authentication required') {
+                window.location.href = 'index.html';
+            }
+        }
+    }
+
+    async loadFilterData() {
+        try {
+            const res = await this.api.get('/ledger/filters');
+            if (res.success) {
+                this.filterData = res.data;
+            }
+        } catch (e) {
+            console.warn('Could not load filter data:', e);
+        }
+    }
+
+    populateFilters() {
+        const catSelect = document.getElementById('ledger-category');
+        const acctSelect = document.getElementById('ledger-account');
+
+        if (catSelect && this.filterData.categories) {
+            const incomeCats = this.filterData.categories.filter(c => c.type === 'income');
+            const expenseCats = this.filterData.categories.filter(c => c.type === 'expense');
+            catSelect.innerHTML = '<option value="">All Categories</option>';
+            if (incomeCats.length) {
+                const optGroup = document.createElement('optgroup');
+                optGroup.label = 'Income';
+                incomeCats.forEach(c => {
+                    const opt = document.createElement('option');
+                    opt.value = c.id;
+                    opt.textContent = c.name;
+                    optGroup.appendChild(opt);
+                });
+                catSelect.appendChild(optGroup);
+            }
+            if (expenseCats.length) {
+                const optGroup = document.createElement('optgroup');
+                optGroup.label = 'Expense';
+                expenseCats.forEach(c => {
+                    const opt = document.createElement('option');
+                    opt.value = c.id;
+                    opt.textContent = c.name;
+                    optGroup.appendChild(opt);
+                });
+                catSelect.appendChild(optGroup);
+            }
+        }
+
+        if (acctSelect && this.filterData.accounts) {
+            acctSelect.innerHTML = '<option value="">All Accounts</option>';
+            this.filterData.accounts.forEach(a => {
+                const opt = document.createElement('option');
+                opt.value = a.id;
+                opt.textContent = a.name;
+                acctSelect.appendChild(opt);
+            });
+        }
+    }
+
+    setupEventListeners() {
+        document.getElementById('ledger-type')?.addEventListener('change', () => this.applyFilters());
+        document.getElementById('ledger-category')?.addEventListener('change', () => this.applyFilters());
+        document.getElementById('ledger-account')?.addEventListener('change', () => this.applyFilters());
+        document.getElementById('ledger-date-start')?.addEventListener('change', () => this.applyFilters());
+        document.getElementById('ledger-date-end')?.addEventListener('change', () => this.applyFilters());
+
+        let searchTimer;
+        document.getElementById('ledger-search')?.addEventListener('input', () => {
+            clearTimeout(searchTimer);
+            searchTimer = setTimeout(() => this.applyFilters(), 400);
+        });
+
+        document.getElementById('ledger-apply-filters')?.addEventListener('click', () => this.applyFilters());
+        document.getElementById('ledger-clear-filters')?.addEventListener('click', () => this.clearFilters());
+        document.getElementById('ledger-refresh')?.addEventListener('click', () => this.loadLedger());
+        document.getElementById('ledger-export-csv')?.addEventListener('click', () => this.exportCSV());
+        document.getElementById('ledger-print')?.addEventListener('click', () => window.print());
+
+        // Init tooltips
+        if (window.bootstrap) {
+            document.querySelectorAll('[data-bs-toggle="tooltip"]').forEach(el => {
+                try { new bootstrap.Tooltip(el); } catch (e) {}
+            });
+        }
+    }
+
+    getFilters() {
+        return {
+            type: document.getElementById('ledger-type')?.value || '',
+            category_id: document.getElementById('ledger-category')?.value || '',
+            account_id: document.getElementById('ledger-account')?.value || '',
+            start_date: document.getElementById('ledger-date-start')?.value || '',
+            end_date: document.getElementById('ledger-date-end')?.value || '',
+            search: document.getElementById('ledger-search')?.value || ''
+        };
+    }
+
+    _hideAllStates() {
+        ['ledger-loading', 'ledger-empty', 'ledger-error'].forEach(id => {
+            const el = document.getElementById(id);
+            if (el) el.style.display = 'none';
+        });
+    }
+
+    showLoading(show) {
+        const table = document.getElementById('ledger-table');
+        const loading = document.getElementById('ledger-loading');
+        this._hideAllStates();
+        if (table && show) table.style.display = 'none';
+        if (loading && show) loading.style.display = 'flex';
+        if (table && !show) table.style.display = '';
+    }
+
+    showError(msg) {
+        const table = document.getElementById('ledger-table');
+        const error = document.getElementById('ledger-error');
+        this._hideAllStates();
+        if (table) table.style.display = 'none';
+        if (error) {
+            error.style.display = 'flex';
+            const em = error.querySelector('.error-message');
+            if (em) em.textContent = msg || 'Failed to load ledger data.';
+        }
+    }
+
+    async loadLedger() {
+        if (this.isLoading) return;
+        this.isLoading = true;
+        this.showLoading(true);
+
+        try {
+            this.filters = this.getFilters();
+            const params = new URLSearchParams();
+            Object.entries(this.filters).forEach(([k, v]) => { if (v) params.set(k, v); });
+            params.set('limit', '2000');
+            params.set('sort', 't.date');
+            params.set('direction', 'DESC');
+
+            const res = await this.api.get('/ledger?' + params.toString());
+            if (!res.success) throw new Error(res.message || 'Failed to load ledger');
+
+            this.transactions = res.data.transactions || [];
+            this.summary = res.data.summary;
+            this.renderSummary();
+            this.renderTable();
+        } catch (e) {
+            console.error('Ledger load error:', e);
+            this.showError(e.message);
+        } finally {
+            this.isLoading = false;
+            this.showLoading(false);
+        }
+    }
+
+    renderSummary() {
+        if (!this.summary) return;
+        const cur = v => Formatters.currency(v);
+        const byId = id => document.getElementById(id);
+        const setColor = (el, val) => {
+            if (el) el.style.color = val >= 0 ? 'var(--sanie-income)' : 'var(--sanie-expense)';
+        };
+
+        const ob = byId('ldg-opening-balance'); if (ob) ob.textContent = cur(this.summary.opening_balance);
+        const cb = byId('ldg-closing-balance'); if (cb) { cb.textContent = cur(this.summary.closing_balance); setColor(cb, this.summary.closing_balance); }
+        byId('ldg-period-income') && (byId('ldg-period-income').textContent = cur(this.summary.period_income));
+        byId('ldg-period-expense') && (byId('ldg-period-expense').textContent = cur(this.summary.period_expense));
+        const netEl = byId('ldg-period-net');
+        if (netEl) { netEl.textContent = cur(Math.abs(this.summary.period_net)); setColor(netEl, this.summary.period_net); }
+        byId('ldg-period-count') && (byId('ldg-period-count').textContent = this.summary.period_count.toLocaleString('en-IN'));
+    }
+
+    renderTable() {
+        if (this.dataTable) {
+            this.dataTable.destroy();
+            this.dataTable = null;
+        }
+        $('#ledger-table tbody').empty();
+
+        const emptyEl = document.getElementById('ledger-empty');
+        const table = document.getElementById('ledger-table');
+        if (!table) return;
+
+        this._hideAllStates();
+
+        if (!this.transactions.length) {
+            if (emptyEl) emptyEl.style.display = 'flex';
+            table.style.display = 'none';
+            return;
+        }
+
+        table.style.display = '';
+
+        const tbody = document.querySelector('#ledger-table tbody');
+
+        // Opening balance row
+        if (this.summary && this.summary.opening_balance !== 0) {
+            const ob = document.createElement('tr');
+            ob.className = 'ldg-row-opening';
+            ob.innerHTML = `<td colspan="5"><strong>Opening Balance</strong></td>
+                            <td class="ldg-amount">${Formatters.currency(this.summary.opening_balance)}</td>
+                            <td class="ldg-balance ${this.summary.opening_balance >= 0 ? 'positive' : 'negative'}">${Formatters.currency(this.summary.opening_balance)}</td>`;
+            tbody.appendChild(ob);
+        }
+
+        this.transactions.forEach(tx => {
+            const amount = parseFloat(tx.amount) || 0;
+            const rb = parseFloat(tx.running_balance) || 0;
+            const type = tx.type || '';
+            const catIcon = tx.category_icon || (type === 'transfer' ? 'arrows-left-right' : 'tag');
+            const catColor = tx.category_color || (type === 'transfer' ? '#6366f1' : '#64748b');
+            const hasKarobar = tx.karobar_id && (tx.karobar_type === 'lent' || tx.karobar_type === 'borrowed');
+
+            let accountDisplay = tx.account_name || '';
+            if (type === 'transfer' && tx.from_account_name && tx.to_account_name) {
+                accountDisplay = `${tx.from_account_name} → ${tx.to_account_name}`;
+            }
+
+            const row = document.createElement('tr');
+            row.dataset.txId = tx.id;
+            row.innerHTML = `
+                <td data-order="${tx.date || ''}"><span class="ldg-date">${Formatters.date(tx.date)}</span></td>
+                <td><span class="ldg-badge ${type}">${type}</span></td>
+                <td>
+                    <span class="ldg-desc" title="${(tx.description || '').replace(/"/g, '&quot;')}">${tx.description || '—'}</span>
+                    ${hasKarobar ? `<a href="index.html#karobar-transactions" class="ldg-karobar-link"><i class="bi bi-link-45deg"></i> ${tx.person_name || 'Karobar'}</a>` : ''}
+                </td>
+                <td>
+                    <div class="ldg-cat">
+                        <span class="ldg-cat-icon" style="background:${catColor}"><i class="bi bi-${catIcon}"></i></span>
+                        <span class="ldg-cat-name">${tx.category_name || (type === 'transfer' ? 'Transfer' : '—')}</span>
+                    </div>
+                </td>
+                <td><span class="ldg-acct">${accountDisplay || '—'}</span></td>
+                <td class="ldg-amount ${type}" data-order="${amount}">${type === 'expense' ? '-' : ''}${Formatters.currency(amount)}</td>
+                <td class="ldg-balance ${rb >= 0 ? 'positive' : 'negative'}" data-order="${rb}">${Formatters.currency(rb)}</td>
+            `;
+            row.addEventListener('click', () => this.showDetail(tx.id));
+            tbody.appendChild(row);
+        });
+
+        // Init DataTable with sticky header
+        this.dataTable = $('#ledger-table').DataTable({
+            paging: true,
+            pageLength: 25,
+            lengthMenu: [[10, 25, 50, 100, -1], [10, 25, 50, 100, 'All']],
+            order: [],
+            ordering: false,
+            scrollY: '55vh',
+            scrollCollapse: true,
+            dom: '<"ldg-dt-top"l>rt<"ldg-dt-bottom"ip>',
+            language: {
+                search: '',
+                searchPlaceholder: 'Search table...',
+                lengthMenu: '_MENU_',
+                info: '_START_ – _END_ of _TOTAL_',
+                infoEmpty: 'No entries',
+                infoFiltered: '(filtered from _MAX_)',
+                zeroRecords: 'No matching transactions found',
+                paginate: {
+                    first: '<i class="bi bi-chevron-double-left"></i>',
+                    last: '<i class="bi bi-chevron-double-right"></i>',
+                    next: '<i class="bi bi-chevron-right"></i>',
+                    previous: '<i class="bi bi-chevron-left"></i>'
+                }
+            },
+            drawCallback: () => {
+                document.querySelectorAll('#ledger-table tbody tr[data-tx-id]').forEach(row => {
+                    row.removeEventListener('click', this._detailHandler);
+                    this._detailHandler = () => this.showDetail(row.dataset.txId);
+                    row.addEventListener('click', this._detailHandler);
+                });
+            }
+        });
+    }
+
+    applyFilters() {
+        this.loadLedger();
+    }
+
+    clearFilters() {
+        ['ledger-type', 'ledger-category', 'ledger-account', 'ledger-date-start', 'ledger-date-end', 'ledger-search'].forEach(id => {
+            const el = document.getElementById(id);
+            if (el) el.value = '';
+        });
+        this.applyFilters();
+    }
+
+    async showDetail(txId) {
+        try {
+            const res = await this.api.get(`/transactions/${txId}`);
+            if (!res.success) throw new Error(res.message);
+            const tx = res.data;
+            this.renderDetailModal(tx);
+        } catch (e) {
+            console.error('Failed to load transaction detail:', e);
+            if (window.Swal) {
+                Swal.fire({ icon: 'error', title: 'Error', text: e.message, confirmButtonColor: '#EF4444' });
+            }
+        }
+    }
+
+    renderDetailModal(tx) {
+        const container = document.getElementById('ledger-detail-container');
+        if (!container) return;
+
+        const typeLabel = tx.type || '';
+        const amount = parseFloat(tx.amount) || 0;
+        const catColor = tx.category_color || (typeLabel === 'transfer' ? '#6366f1' : '#64748b');
+        const catIcon = tx.category_icon || (typeLabel === 'transfer' ? 'arrows-left-right' : 'tag');
+
+        let accountDisplay = tx.account_name || '';
+        if (typeLabel === 'transfer' && tx.from_account_name && tx.to_account_name) {
+            accountDisplay = `${tx.from_account_name} → ${tx.to_account_name}`;
+        }
+
+        let karobarHtml = '';
+        if (tx.karobar_id) {
+            karobarHtml = `
+                <div class="ledger-detail-item">
+                    <div class="detail-label">Karobar Link</div>
+                    <div class="detail-value" style="color:var(--sanie-secondary);font-size:0.85rem;">
+                        ${tx.karobar_type || 'Linked'} — ${tx.person_name || 'N/A'}
+                    </div>
+                </div>
+            `;
+        }
+
+        container.innerHTML = `
+            <div class="modal fade ledger-detail-modal" id="txDetailModal" tabindex="-1">
+                <div class="modal-dialog modal-dialog-centered">
+                    <div class="modal-content">
+                        <div class="modal-header">
+                            <h5 class="modal-title">
+                                <span class="ldg-badge ${typeLabel}">
+                                    <i class="bi ${typeLabel === 'income' ? 'bi-arrow-down-circle' : typeLabel === 'expense' ? 'bi-arrow-up-circle' : 'bi-arrow-left-right'}"></i>
+                                    ${typeLabel.charAt(0).toUpperCase() + typeLabel.slice(1)}
+                                </span>
+                            </h5>
+                            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                        </div>
+                        <div class="modal-body">
+                            <div class="ledger-detail-grid">
+                                <div class="ledger-detail-item">
+                                    <div class="detail-label">Amount</div>
+                                    <div class="detail-value ${typeLabel}">${Formatters.currency(amount)}</div>
+                                </div>
+                                <div class="ledger-detail-item">
+                                    <div class="detail-label">Date</div>
+                                    <div class="detail-value">${Formatters.date(tx.date)}</div>
+                                </div>
+                                <div class="ledger-detail-item">
+                                    <div class="detail-label">Category</div>
+                                    <div class="detail-value">
+                                        <span class="ldg-cat">
+                                            <span class="ldg-cat-icon" style="background:${catColor}"><i class="bi bi-${catIcon}"></i></span>
+                                            <span class="ldg-cat-name">${tx.category_name || (typeLabel === 'transfer' ? 'Transfer' : '-')}</span>
+                                        </span>
+                                    </div>
+                                </div>
+                                ${tx.subcategory_name ? `
+                                <div class="ledger-detail-item">
+                                    <div class="detail-label">Subcategory</div>
+                                    <div class="detail-value">${tx.subcategory_name}</div>
+                                </div>` : ''}
+                                <div class="ledger-detail-item">
+                                    <div class="detail-label">Account</div>
+                                    <div class="detail-value" style="font-size:0.85rem;">${accountDisplay || '-'}</div>
+                                </div>
+                                ${tx.payment_method ? `
+                                <div class="ledger-detail-item">
+                                    <div class="detail-label">Payment Method</div>
+                                    <div class="detail-value" style="font-size:0.85rem;text-transform:capitalize;">${tx.payment_method}</div>
+                                </div>` : ''}
+                                ${karobarHtml}
+                                <div class="ledger-detail-item" style="grid-column:1/-1;">
+                                    <div class="detail-label">Description</div>
+                                    <div class="detail-value" style="font-size:0.85rem;font-weight:400;">${tx.description || 'No description'}</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        const modal = new bootstrap.Modal(document.getElementById('txDetailModal'));
+        modal.show();
+
+        document.getElementById('txDetailModal').addEventListener('hidden.bs.modal', () => {
+            container.innerHTML = '';
+        }, { once: true });
+    }
+
+    exportCSV() {
+        const headers = ['Date', 'Type', 'Description', 'Category', 'Account', 'Amount', 'Running Balance'];
+        const rows = [headers.join(',')];
+
+        this.transactions.forEach(tx => {
+            const amount = parseFloat(tx.amount) || 0;
+            const sign = tx.type === 'expense' ? '-' : '';
+            const row = [
+                tx.date || '',
+                tx.type || '',
+                `"${(tx.description || '').replace(/"/g, '""')}"`,
+                tx.category_name || '',
+                tx.account_name || '',
+                `${sign}${amount.toFixed(2)}`,
+                (parseFloat(tx.running_balance) || 0).toFixed(2)
+            ];
+            rows.push(row.join(','));
+        });
+
+        const blob = new Blob([rows.join('\n')], { type: 'text/csv;charset=utf-8;' });
+        const link = document.createElement('a');
+        link.href = URL.createObjectURL(blob);
+        link.download = `ledger_${new Date().toISOString().slice(0, 10)}.csv`;
+        link.click();
+        URL.revokeObjectURL(link.href);
+    }
+}
+
+// Init on DOM ready
+document.addEventListener('DOMContentLoaded', () => {
+    window.ledgerManager = new LedgerManager();
+    window.ledgerManager.init();
+});

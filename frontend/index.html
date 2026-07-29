@@ -103,12 +103,9 @@
                 </form>
             </div>
             <footer class="site-footer auth-footer">
-                <p>© 2026 SanIE. Track Every Rupee. Master Every Month.</p>
-                <div class="footer-links">
-                    <a href="#">About</a>
-                    <a href="#">Support</a>
-                    <a href="#">Privacy</a>
-                </div>
+                <p class="footer-year">&copy; 2026 SanIE</p>
+                <p class="footer-tribute"><i class="bi bi-heart-fill text-danger"></i> Built with Love <i class="bi bi-heart-fill text-danger"></i></p>
+                <p class="footer-memory">Forever in Loving Memory of Sani</p>
             </footer>
         </div>
 
@@ -268,24 +265,29 @@
 
                 <!-- Dashboard Page -->
                 <section id="dashboard-page" class="page active">
-                    <!-- Premium Dashboard Header -->
-                    <div class="dashboard-hero">
-                        <div class="hero-copy">
-                            <span class="hero-pill"><i class="bi bi-grid-1x2-fill"></i> Dashboard</span>
-                            <h3 id="dashboard-greeting">Good Evening</h3>
-                            <p>Here's your financial overview for this month.</p>
-                            <p class="hero-date" id="dashboard-date"></p>
+                    <!-- Compact Dashboard Header -->
+                    <div class="dashboard-header d-flex justify-content-between align-items-center">
+                        <h1 id="dashboard-greeting" class="dashboard-greeting">Good Evening 👋</h1>
+                        <div class="dropdown dashboard-period-dropdown">
+                            <button class="btn dashboard-period-toggle dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false" id="dashboard-period-btn">
+                                <i class="bi bi-calendar3 me-2"></i>
+                                <span id="dashboard-period-label">This Month</span>
+                            </button>
+                            <ul class="dropdown-menu dropdown-menu-end dashboard-period-menu" id="dashboard-period-menu">
+                                <li><button class="dropdown-item" data-value="today">Today</button></li>
+                                <li><button class="dropdown-item" data-value="week">This Week</button></li>
+                                <li><button class="dropdown-item active" data-value="month">This Month</button></li>
+                                <li><button class="dropdown-item" data-value="year">This Year</button></li>
+                                <li><hr class="dropdown-divider"></li>
+                                <li><button class="dropdown-item" data-value="custom">Custom</button></li>
+                            </ul>
                         </div>
-                        <div class="hero-actions">
-                            <div class="date-filter">
-                                <select id="dashboard-period" aria-label="Select time period">
-                                    <option value="today">Today</option>
-                                    <option value="week">This Week</option>
-                                    <option value="month" selected>This Month</option>
-                                    <option value="year">This Year</option>
-                                    <option value="custom">Custom</option>
-                                </select>
-                            </div>
+                    </div>
+
+                    <!-- Dashboard Loading Overlay -->
+                    <div id="dashboard-loading-overlay" class="dashboard-loading-overlay" style="display: none;">
+                        <div class="spinner-border text-success" role="status">
+                            <span class="visually-hidden">Loading...</span>
                         </div>
                     </div>
 
@@ -558,180 +560,181 @@
                     </div>
                 </section>
 
+                <!-- Custom Date Range Modal -->
+                <div class="modal fade" id="customDateModal" tabindex="-1" aria-labelledby="customDateModalLabel" aria-hidden="true">
+                    <div class="modal-dialog modal-sm modal-dialog-centered">
+                        <div class="modal-content p-3" style="border-radius: 16px;">
+                            <div class="modal-header border-0 px-1 pt-1">
+                                <h5 class="modal-title fw-bold" id="customDateModalLabel">Select Date Range</h5>
+                                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                            </div>
+                            <div class="modal-body px-1">
+                                <div class="mb-3">
+                                    <label for="custom-start-date" class="form-label fw-semibold small">Start Date</label>
+                                    <input type="date" class="form-control" id="custom-start-date" style="height: 44px; border-radius: 10px;">
+                                </div>
+                                <div class="mb-3">
+                                    <label for="custom-end-date" class="form-label fw-semibold small">End Date</label>
+                                    <input type="date" class="form-control" id="custom-end-date" style="height: 44px; border-radius: 10px;">
+                                </div>
+                                <div id="custom-date-error" class="text-danger small" style="display: none;">
+                                    <i class="bi bi-exclamation-circle"></i> Start date cannot be after end date.
+                                </div>
+                            </div>
+                            <div class="modal-footer border-0 px-1 pb-1">
+                                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal" style="height: 44px; border-radius: 10px; flex: 1;">Cancel</button>
+                                <button type="button" class="btn btn-success" id="apply-custom-date" style="height: 44px; border-radius: 10px; flex: 1;">
+                                    <i class="bi bi-check-lg"></i> Apply
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
                 <!-- Transactions Page -->
                 <section id="transactions-page" class="page">
-                    <div class="tx-page-header">
-                        <div class="tx-page-header-left">
-                            <div class="tx-page-header-badge">
+                    <div class="tx-header">
+                        <div class="tx-header-left">
+                            <div class="tx-header-badge">
                                 <i class="bi bi-arrow-left-right"></i>
                             </div>
                             <div>
-                                <h2 class="tx-page-title">Transactions</h2>
-                                <p class="tx-page-subtitle">Manage and organize all your financial records.</p>
+                                <h2 class="tx-title">Transactions</h2>
+                                <p class="tx-subtitle">Manage and organize all your financial records.</p>
                             </div>
                         </div>
-                        <div class="tx-page-header-actions">
-                            <button class="btn btn-light tx-btn-action tx-btn-refresh" id="refresh-transactions-btn" title="Refresh" onclick="transactionsManager.loadTransactions()">
-                                <i class="bi bi-arrow-clockwise"></i>
-                            </button>
-                            <button class="btn btn-light tx-btn-action" id="export-btn" title="Export">
-                                <i class="bi bi-download"></i>
-                            </button>
-                            <button class="btn btn-light tx-btn-action" id="import-btn">
-                                <i class="bi bi-upload"></i>
-                                <span>Import</span>
-                            </button>
-                            <button class="btn btn-primary tx-btn-action tx-btn-add" id="add-transaction-btn">
+                        <div class="tx-header-actions">
+                            <div class="tx-header-actions-secondary">
+                                <button class="btn btn-light tx-btn" id="refresh-transactions-btn" title="Refresh" onclick="transactionsManager.loadTransactions()">
+                                    <i class="bi bi-arrow-clockwise"></i>
+                                </button>
+                                <button class="btn btn-light tx-btn" id="export-btn" title="Export">
+                                    <i class="bi bi-download"></i>
+                                </button>
+                                <button class="btn btn-light tx-btn" id="import-btn" title="Import">
+                                    <i class="bi bi-upload"></i>
+                                    <span class="tx-btn-label">Import</span>
+                                </button>
+                            </div>
+                            <button class="btn btn-primary tx-btn tx-btn-primary" id="add-transaction-btn">
                                 <i class="bi bi-plus-lg"></i>
-                                <span>Add Transaction</span>
+                                <span class="tx-btn-label">Add Transaction</span>
                             </button>
                         </div>
                     </div>
 
-                    <!-- Summary Strip -->
-                    <div class="tx-summary-strip" id="tx-summary-strip">
-                        <div class="tx-summary-card tx-summary-total">
-                            <div class="tx-summary-icon"><i class="bi bi-receipt-cutoff"></i></div>
-                            <div class="tx-summary-body">
-                                <p class="tx-summary-label">Total Transactions</p>
-                                <p class="tx-summary-value" id="tx-total-count">0</p>
+                    <div class="tx-cards" id="tx-summary-strip">
+                        <div class="tx-card tx-card-total">
+                            <div class="tx-card-icon"><i class="bi bi-receipt-cutoff"></i></div>
+                            <div class="tx-card-body">
+                                <p class="tx-card-label">Total Transactions</p>
+                                <p class="tx-card-value" id="tx-total-count">0</p>
                             </div>
                         </div>
-                        <div class="tx-summary-card tx-summary-income">
-                            <div class="tx-summary-icon"><i class="bi bi-arrow-down-left"></i></div>
-                            <div class="tx-summary-body">
-                                <p class="tx-summary-label">Income</p>
-                                <p class="tx-summary-value" id="tx-total-income">Rs 0</p>
+                        <div class="tx-card tx-card-income">
+                            <div class="tx-card-icon"><i class="bi bi-arrow-down-left"></i></div>
+                            <div class="tx-card-body">
+                                <p class="tx-card-label">Income</p>
+                                <p class="tx-card-value" id="tx-total-income">Rs 0</p>
                             </div>
                         </div>
-                        <div class="tx-summary-card tx-summary-expense">
-                            <div class="tx-summary-icon"><i class="bi bi-arrow-up-right"></i></div>
-                            <div class="tx-summary-body">
-                                <p class="tx-summary-label">Expense</p>
-                                <p class="tx-summary-value" id="tx-total-expense">Rs 0</p>
+                        <div class="tx-card tx-card-expense">
+                            <div class="tx-card-icon"><i class="bi bi-arrow-up-right"></i></div>
+                            <div class="tx-card-body">
+                                <p class="tx-card-label">Expense</p>
+                                <p class="tx-card-value" id="tx-total-expense">Rs 0</p>
                             </div>
                         </div>
-                        <div class="tx-summary-card tx-summary-net">
-                            <div class="tx-summary-icon"><i class="bi bi-graph-up-arrow"></i></div>
-                            <div class="tx-summary-body">
-                                <p class="tx-summary-label">Net Cash Flow</p>
-                                <p class="tx-summary-value" id="tx-net-flow">Rs 0</p>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Filters & Search Bar -->
-                    <div class="tx-toolbar" id="tx-filters-bar">
-                        <div class="tx-search-wrapper">
-                            <i class="bi bi-search tx-search-icon"></i>
-                            <input type="search" class="tx-search-input" id="tx-search-input" placeholder="Search transactions..." aria-label="Search transactions">
-                        </div>
-                        <div class="tx-filters-row">
-                            <div class="tx-filter-group">
-                                <label>Type</label>
-                                <select id="filter-type" class="form-select form-select-sm">
-                                    <option value="">All Types</option>
-                                    <option value="income">Income</option>
-                                    <option value="expense">Expense</option>
-                                    <option value="transfer">Transfer</option>
-                                </select>
-                            </div>
-                            <div class="tx-filter-group">
-                                <label>Category</label>
-                                <select id="filter-category" class="form-select form-select-sm">
-                                    <option value="">All Categories</option>
-                                </select>
-                            </div>
-                            <div class="tx-filter-group">
-                                <label>From</label>
-                                <input type="date" id="filter-start-date" class="form-control form-control-sm">
-                            </div>
-                            <div class="tx-filter-group">
-                                <label>To</label>
-                                <input type="date" id="filter-end-date" class="form-control form-control-sm">
-                            </div>
-                            <div class="tx-filter-actions">
-                                <button class="btn btn-sm btn-primary tx-btn-apply" id="apply-filters">
-                                    <i class="bi bi-funnel"></i> Apply
-                                </button>
-                                <button class="btn btn-sm btn-outline-secondary" id="clear-filters">
-                                    <i class="bi bi-x-lg"></i> Clear
-                                </button>
+                        <div class="tx-card tx-card-net">
+                            <div class="tx-card-icon"><i class="bi bi-graph-up-arrow"></i></div>
+                            <div class="tx-card-body">
+                                <p class="tx-card-label">Net Cash Flow</p>
+                                <p class="tx-card-value" id="tx-net-flow">Rs 0</p>
                             </div>
                         </div>
                     </div>
 
-                    <!-- Loading Skeleton -->
-                    <div class="tx-loading-skeleton" id="tx-loading-skeleton" style="display: none;">
-                        <div class="tx-skeleton-row" style="--delay:0">
-                            <div class="tx-skel-circle"></div>
-                            <div class="tx-skel-lines"><div class="tx-skel-line long"></div><div class="tx-skel-line short"></div></div>
-                            <div class="tx-skel-badge"></div>
-                            <div class="tx-skel-line medium"></div>
-                            <div class="tx-skel-amount"></div>
+                    <div class="tx-table-area">
+                        <div class="tx-loading-skeleton" id="tx-loading-skeleton" style="display: none;">
+                            <div class="tx-skeleton-row" style="--delay:0">
+                                <div class="tx-skel-circle"></div>
+                                <div class="tx-skel-lines"><div class="tx-skel-line long"></div><div class="tx-skel-line short"></div></div>
+                                <div class="tx-skel-badge"></div>
+                                <div class="tx-skel-line medium"></div>
+                                <div class="tx-skel-amount"></div>
+                            </div>
+                            <div class="tx-skeleton-row" style="--delay:1">
+                                <div class="tx-skel-circle"></div>
+                                <div class="tx-skel-lines"><div class="tx-skel-line long"></div><div class="tx-skel-line short"></div></div>
+                                <div class="tx-skel-badge"></div>
+                                <div class="tx-skel-line medium"></div>
+                                <div class="tx-skel-amount"></div>
+                            </div>
+                            <div class="tx-skeleton-row" style="--delay:2">
+                                <div class="tx-skel-circle"></div>
+                                <div class="tx-skel-lines"><div class="tx-skel-line long"></div><div class="tx-skel-line short"></div></div>
+                                <div class="tx-skel-badge"></div>
+                                <div class="tx-skel-line medium"></div>
+                                <div class="tx-skel-amount"></div>
+                            </div>
+                            <div class="tx-skeleton-row" style="--delay:3">
+                                <div class="tx-skel-circle"></div>
+                                <div class="tx-skel-lines"><div class="tx-skel-line long"></div><div class="tx-skel-line short"></div></div>
+                                <div class="tx-skel-badge"></div>
+                                <div class="tx-skel-line medium"></div>
+                                <div class="tx-skel-amount"></div>
+                            </div>
+                            <div class="tx-skeleton-row" style="--delay:4">
+                                <div class="tx-skel-circle"></div>
+                                <div class="tx-skel-lines"><div class="tx-skel-line long"></div><div class="tx-skel-line short"></div></div>
+                                <div class="tx-skel-badge"></div>
+                                <div class="tx-skel-line medium"></div>
+                                <div class="tx-skel-amount"></div>
+                            </div>
                         </div>
-                        <div class="tx-skeleton-row" style="--delay:1">
-                            <div class="tx-skel-circle"></div>
-                            <div class="tx-skel-lines"><div class="tx-skel-line long"></div><div class="tx-skel-line short"></div></div>
-                            <div class="tx-skel-badge"></div>
-                            <div class="tx-skel-line medium"></div>
-                            <div class="tx-skel-amount"></div>
-                        </div>
-                        <div class="tx-skeleton-row" style="--delay:2">
-                            <div class="tx-skel-circle"></div>
-                            <div class="tx-skel-lines"><div class="tx-skel-line long"></div><div class="tx-skel-line short"></div></div>
-                            <div class="tx-skel-badge"></div>
-                            <div class="tx-skel-line medium"></div>
-                            <div class="tx-skel-amount"></div>
-                        </div>
-                        <div class="tx-skeleton-row" style="--delay:3">
-                            <div class="tx-skel-circle"></div>
-                            <div class="tx-skel-lines"><div class="tx-skel-line long"></div><div class="tx-skel-line short"></div></div>
-                            <div class="tx-skel-badge"></div>
-                            <div class="tx-skel-line medium"></div>
-                            <div class="tx-skel-amount"></div>
-                        </div>
-                        <div class="tx-skeleton-row" style="--delay:4">
-                            <div class="tx-skel-circle"></div>
-                            <div class="tx-skel-lines"><div class="tx-skel-line long"></div><div class="tx-skel-line short"></div></div>
-                            <div class="tx-skel-badge"></div>
-                            <div class="tx-skel-line medium"></div>
-                            <div class="tx-skel-amount"></div>
-                        </div>
-                    </div>
 
-                    <!-- Transactions Table -->
-                    <div class="tx-table-wrapper" id="tx-table-wrapper">
-                        <table id="transactions-datatable" class="table table-hover mb-0" style="width:100%">
-                            <thead>
-                                <tr>
-                                    <th>Date</th>
-                                    <th>Category</th>
-                                    <th>Subcategory</th>
-                                    <th>Description</th>
-                                    <th>Amount</th>
-                                    <th class="text-center">Actions</th>
-                                </tr>
-                            </thead>
-                            <tbody id="transactions-table-body">
-                            </tbody>
-                        </table>
+                        <div class="tx-table-wrapper" id="tx-table-wrapper">
+                            <table id="transactions-datatable" class="table table-hover mb-0" style="width:100%">
+                                <thead>
+                                    <tr>
+                                        <th>Date</th>
+                                        <th>Type</th>
+                                        <th>Category</th>
+                                        <th>Subcategory</th>
+                                        <th>Account</th>
+                                        <th>Description</th>
+                                        <th>Amount</th>
+                                        <th class="text-center">Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="transactions-table-body">
+                                </tbody>
+                            </table>
 
-                        <!-- Empty State -->
-                        <div class="tx-empty-state" id="tx-empty-state" style="display: none;">
-                            <div class="tx-empty-illustration">
-                                <div class="tx-empty-circle">
-                                    <i class="bi bi-receipt"></i>
+                            <div class="tx-empty-state" id="tx-empty-state" style="display: none;">
+                                <div class="tx-empty-illustration">
+                                    <div class="tx-empty-circle">
+                                        <i class="bi bi-receipt"></i>
+                                    </div>
+                                    <div class="tx-empty-dots">
+                                        <span></span><span></span><span></span>
+                                    </div>
                                 </div>
-                                <div class="tx-empty-dots">
-                                    <span></span><span></span><span></span>
-                                </div>
+                                <h4>No Transactions Found</h4>
+                                <p>Start by adding your first transaction to track your finances.</p>
+                                <button class="btn btn-primary" onclick="document.getElementById('add-transaction-btn').click()">
+                                    <i class="bi bi-plus-lg me-2"></i>Add Transaction
+                                </button>
                             </div>
-                            <h4>No Transactions Found</h4>
-                            <p>Start by adding your first transaction to track your finances.</p>
-                            <button class="btn btn-primary tx-btn-add" onclick="document.getElementById('add-transaction-btn').click()">
-                                <i class="bi bi-plus-lg me-2"></i>Add Transaction
-                            </button>
+                        </div>
+
+                        <div class="tx-mobile-cards" id="tx-mobile-cards" style="display:none;">
+                            <div class="tx-mobile-pagination" id="tx-mobile-pagination">
+                                <button class="tx-mob-page-btn" id="tx-mob-page-prev" title="Previous"><i class="bi bi-caret-left-fill"></i></button>
+                                <span class="tx-mob-page-info" id="tx-mob-page-info">1</span>
+                                <button class="tx-mob-page-btn" id="tx-mob-page-next" title="Next"><i class="bi bi-caret-right-fill"></i></button>
+                                <span class="tx-mob-total" id="tx-mob-total">0 transactions</span>
+                            </div>
                         </div>
                     </div>
                 </section>
@@ -1470,12 +1473,9 @@
                 </section>
 
                 <footer class="site-footer app-footer">
-                    <p>© 2026 SanIE. All rights reserved.</p>
-                    <div class="footer-links">
-                        <a href="#">Help</a>
-                        <a href="#">Terms</a>
-                        <a href="#">Contact</a>
-                    </div>
+                    <p class="footer-year">&copy; 2026 SanIE</p>
+                    <p class="footer-tribute"><i class="bi bi-heart-fill text-danger"></i> Built with Love <i class="bi bi-heart-fill text-danger"></i></p>
+                    <p class="footer-memory">Forever in Loving Memory of Sani</p>
                 </footer>
             </main>
         </div>

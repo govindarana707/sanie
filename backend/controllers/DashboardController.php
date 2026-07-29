@@ -40,20 +40,22 @@ class DashboardController {
         $statistics = $this->balanceService->getStatistics($userId, $startDate, $endDate);
         $totalBalance = $this->balanceService->getTotalBalance($userId);
         $savingsBalance = $this->balanceService->getSavingsBalance($userId);
-        $recentTransactions = $this->transactionModel->findAll($userId, [], 10, 0);
+        $recentTransactions = $this->transactionModel->findAll($userId, [
+            'start_date' => $startDate,
+            'end_date' => $endDate
+        ], 10, 0);
 
         $expenseBreakdown = $this->transactionModel->getCategoryBreakdown($userId, $startDate, $endDate, 'expense');
         $incomeBreakdown = $this->transactionModel->getCategoryBreakdown($userId, $startDate, $endDate, 'income');
 
-        $year = (int) date('Y', strtotime($startDate));
-        $monthlyData = $this->transactionModel->getMonthlyData($userId, $year);
+        $monthlyData = $this->transactionModel->getMonthlyData($userId, null, $startDate, $endDate);
 
         $activeBudgets = array_filter(
             $this->budgetModel->findAll($userId),
             fn($b) => $b['is_active']
         );
         $budgetProgress = !empty($activeBudgets)
-            ? $this->budgetModel->getBatchProgress(array_column($activeBudgets, 'id'), $userId)
+            ? $this->budgetModel->getBatchProgress(array_column($activeBudgets, 'id'), $userId, $startDate, $endDate)
             : [];
 
         $goals = $this->goalModel->findAll($userId);
@@ -77,7 +79,7 @@ class DashboardController {
             $totalBalance, $savingsBalance, $totalReceivable, $totalPayable
         );
 
-        $accountsOverview = $this->balanceService->getAccountOverview($userId);
+        $accountsOverview = $this->balanceService->getAccountOverview($userId, $startDate, $endDate);
 
         Response::success([
             'statistics' => $statistics,

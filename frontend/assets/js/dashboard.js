@@ -2,14 +2,18 @@
 class DashboardManager {
     constructor() {
         this.currentPeriod = 'month';
+        this.customStartDate = null;
+        this.customEndDate = null;
         this.hasData = false;
         this._periodHandler = null;
+        this._isLoading = false;
     }
 
     onMount() {
         this.setupEventListeners();
         this.setDashboardGreeting();
         this.initCharts();
+        this.updatePeriodLabel();
         this.loadDashboardData();
         this._dataChangeHandler = () => {
             this.loadDashboardData();
@@ -19,9 +23,9 @@ class DashboardManager {
 
     onUnmount() {
         if (this._periodHandler) {
-            const periodSelect = document.getElementById('dashboard-period');
-            if (periodSelect) {
-                periodSelect.removeEventListener('change', this._periodHandler);
+            const menu = document.getElementById('dashboard-period-menu');
+            if (menu) {
+                menu.removeEventListener('click', this._periodHandler);
             }
             this._periodHandler = null;
         }
@@ -36,40 +40,91 @@ class DashboardManager {
     }
 
     setupEventListeners() {
-        const periodSelect = document.getElementById('dashboard-period');
-        if (periodSelect) {
-            periodSelect.removeEventListener('change', this._periodHandler);
+        const menu = document.getElementById('dashboard-period-menu');
+        if (menu) {
+            menu.removeEventListener('click', this._periodHandler);
             this._periodHandler = (e) => {
-                this.currentPeriod = e.target.value;
+                const item = e.target.closest('.dropdown-item');
+                if (!item) return;
+                const value = item.dataset.value;
+                if (!value) return;
+
+                if (value === 'custom') {
+                    const modal = new bootstrap.Modal(document.getElementById('customDateModal'));
+                    // Pre-fill with current period
+                    const { startDate, endDate } = this.getPeriodDates();
+                    const cs = document.getElementById('custom-start-date');
+                    const ce = document.getElementById('custom-end-date');
+                    if (cs) cs.value = startDate;
+                    if (ce) ce.value = endDate;
+                    document.getElementById('custom-date-error').style.display = 'none';
+                    modal.show();
+                    return;
+                }
+
+                this.currentPeriod = value;
+                this.customStartDate = null;
+                this.customEndDate = null;
+                document.querySelectorAll('#dashboard-period-menu .dropdown-item').forEach(el => el.classList.remove('active'));
+                item.classList.add('active');
+                this.updatePeriodLabel();
                 this.loadDashboardData();
             };
-            periodSelect.addEventListener('change', this._periodHandler);
+            menu.addEventListener('click', this._periodHandler);
+        }
+
+        // Custom date apply
+        const applyBtn = document.getElementById('apply-custom-date');
+        if (applyBtn) {
+            applyBtn.addEventListener('click', () => {
+                const startInput = document.getElementById('custom-start-date');
+                const endInput = document.getElementById('custom-end-date');
+                const errorEl = document.getElementById('custom-date-error');
+                if (!startInput || !endInput) return;
+
+                const sd = startInput.value;
+                const ed = endInput.value;
+                if (!sd || !ed) return;
+
+                if (sd > ed) {
+                    errorEl.style.display = 'block';
+                    return;
+                }
+                errorEl.style.display = 'none';
+
+                this.currentPeriod = 'custom';
+                this.customStartDate = sd;
+                this.customEndDate = ed;
+
+                // Set active on custom item
+                document.querySelectorAll('#dashboard-period-menu .dropdown-item').forEach(el => el.classList.remove('active'));
+                const customItem = document.querySelector('#dashboard-period-menu .dropdown-item[data-value="custom"]');
+                if (customItem) customItem.classList.add('active');
+
+                this.updatePeriodLabel();
+                bootstrap.Modal.getInstance(document.getElementById('customDateModal')).hide();
+                this.loadDashboardData();
+            });
         }
     }
 
     setDashboardGreeting() {
         const greetingEl = document.getElementById('dashboard-greeting');
-        const dateEl = document.getElementById('dashboard-date');
         const userNameEl = document.getElementById('user-name');
 
         if (greetingEl) {
             const hour = new Date().getHours();
-            let greeting = 'Good Evening';
-            if (hour < 12) greeting = 'Good Morning';
-            else if (hour < 17) greeting = 'Good Afternoon';
+            let greeting, emoji;
+            if (hour < 12) { greeting = 'Good Morning'; emoji = '☀️'; }
+            else if (hour < 17) { greeting = 'Good Afternoon'; emoji = '👋'; }
+            else { greeting = 'Good Evening'; emoji = '🌙'; }
 
             const firstName = userNameEl ? userNameEl.textContent.split(' ')[0] : '';
             if (firstName && firstName !== 'User' && firstName !== 'user@email.com') {
-                greetingEl.textContent = `${greeting}, ${firstName} 👋`;
+                greetingEl.textContent = `${greeting}, ${firstName} ${emoji}`;
             } else {
-                greetingEl.textContent = `${greeting} 👋`;
+                greetingEl.textContent = `${greeting} ${emoji}`;
             }
-        }
-
-        if (dateEl) {
-            const now = new Date();
-            const options = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' };
-            dateEl.textContent = now.toLocaleDateString('en-US', options);
         }
     }
 
@@ -174,6 +229,10 @@ class DashboardManager {
     }
 
     getPeriodDates() {
+        if (this.currentPeriod === 'custom' && this.customStartDate && this.customEndDate) {
+            return { startDate: this.customStartDate, endDate: this.customEndDate };
+        }
+
         const now = new Date();
         let startDate, endDate;
 
@@ -183,7 +242,8 @@ class DashboardManager {
                 break;
             case 'week': {
                 const weekStart = new Date(now);
-                weekStart.setDate(now.getDate() - now.getDay() + 1);
+                const dow = now.getDay();
+                weekStart.setDate(now.getDate() - (dow === 0 ? 6 : dow - 1));
                 startDate = weekStart.toISOString().split('T')[0];
                 const weekEnd = new Date(weekStart);
                 weekEnd.setDate(weekStart.getDate() + 6);
@@ -206,10 +266,48 @@ class DashboardManager {
         return { startDate, endDate };
     }
 
+    updatePeriodLabel() {
+        const label = document.getElementById('dashboard-period-label');
+        if (!label) return;
+        if (this.currentPeriod === 'custom' && this.customStartDate && this.customEndDate) {
+            const fmt = (d) => {
+                const dt = new Date(d + 'T00:00:00');
+                return dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+            };
+            if (this.customStartDate === this.customEndDate) {
+                label.textContent = fmt(this.customStartDate);
+            } else {
+                label.textContent = `${fmt(this.customStartDate)} – ${fmt(this.customEndDate)}`;
+            }
+            return;
+        }
+        const activeItem = document.querySelector('#dashboard-period-menu .dropdown-item.active');
+        label.textContent = activeItem ? activeItem.textContent.trim() : 'This Month';
+    }
+
+    getPeriodLabel() {
+        if (this.currentPeriod === 'custom' && this.customStartDate && this.customEndDate) {
+            const fmt = (d) => {
+                const dt = new Date(d + 'T00:00:00');
+                return dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+            };
+            if (this.customStartDate === this.customEndDate) {
+                return fmt(this.customStartDate);
+            }
+            return `${fmt(this.customStartDate)} – ${fmt(this.customEndDate)}`;
+        }
+        const map = { today: 'Today', week: 'This Week', month: 'This Month', year: 'This Year' };
+        return map[this.currentPeriod] || 'This Month';
+    }
+
     async loadDashboardData() {
         if (!window.authManager?.isAuthenticated()) {
             return;
         }
+
+        if (this._isLoading) return;
+        this._isLoading = true;
+        this.showLoading(true);
 
         try {
             const { startDate, endDate } = this.getPeriodDates();
@@ -235,7 +333,15 @@ class DashboardManager {
             console.error('Failed to load dashboard data:', error);
             NotificationService.error('Failed to load dashboard data: ' + error.message);
             this.handleEmptyStates(null);
+        } finally {
+            this._isLoading = false;
+            this.showLoading(false);
         }
+    }
+
+    showLoading(show) {
+        const overlay = document.getElementById('dashboard-loading-overlay');
+        if (overlay) overlay.style.display = show ? 'flex' : 'none';
     }
 
     updateCreditCards(receivable, payable, netWorth) {
@@ -527,14 +633,15 @@ class DashboardManager {
 
         const incomeCount = stats.income_count || 0;
         const expenseCount = stats.expense_count || 0;
+        const periodLabel = this.getPeriodLabel();
 
         setChange('stat-income-change',
-            incomeCount > 0 ? `${incomeCount} transaction${incomeCount !== 1 ? 's' : ''} this month` : 'No data yet',
+            incomeCount > 0 ? `${incomeCount} transaction${incomeCount !== 1 ? 's' : ''} ${periodLabel.toLowerCase() === 'today' ? 'today' : 'this period'}` : 'No data yet',
             incomeCount > 0 ? 'positive' : ''
         );
 
         setChange('stat-expense-change',
-            expenseCount > 0 ? `${expenseCount} transaction${expenseCount !== 1 ? 's' : ''} this month` : 'No data yet',
+            expenseCount > 0 ? `${expenseCount} transaction${expenseCount !== 1 ? 's' : ''} ${periodLabel.toLowerCase() === 'today' ? 'today' : 'this period'}` : 'No data yet',
             expenseCount > 0 ? 'negative' : ''
         );
 
