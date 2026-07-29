@@ -122,7 +122,7 @@ class CategoriesManager {
             const result = await window.Api.get(`/categories?${params}`);
 
             if (result.success) {
-                this.categories = result.data || [];
+                this.categories = (result.data || []).map(c => this._normalize(c));
             } else {
                 this.categories = [];
             }
@@ -135,6 +135,23 @@ class CategoriesManager {
             this.applyClientFilters();
             this.showLoading(false);
         }
+    }
+
+    _normalize(cat) {
+        return {
+            ...cat,
+            id: Number(cat.id),
+            is_default: Number(cat.is_default),
+            sort_order: Number(cat.sort_order) || 0,
+            transaction_count: Number(cat.transaction_count) || 0,
+            subcategory_count: Number(cat.subcategory_count) || 0,
+            subcategories: (cat.subcategories || []).map(s => ({
+                ...s,
+                id: Number(s.id),
+                category_id: Number(s.category_id),
+                sort_order: Number(s.sort_order) || 0
+            }))
+        };
     }
 
     applyClientFilters() {
@@ -252,10 +269,10 @@ class CategoriesManager {
                 <span class="cat-sub-chip-name">${esc(s.name)}</span>
                 ${!isDefault ? `
                 <button class="cat-sub-chip-edit" data-sub-id="${s.id}" data-cat-id="${cat.id}" title="Edit subcategory">
-                    <i class="fas fa-pen"></i>
+                    <i class="fas fa-pencil-alt"></i>
                 </button>
                 <button class="cat-sub-chip-delete" data-sub-id="${s.id}" data-cat-id="${cat.id}" title="Delete subcategory">
-                    <i class="fas fa-times"></i>
+                    <i class="fas fa-trash-alt"></i>
                 </button>
                 ` : ''}
             </span>
@@ -300,13 +317,13 @@ class CategoriesManager {
             <div class="cat-card-body">
                 ${cat.description ? `<p class="cat-card-description">${esc(cat.description)}</p>` : ''}
                 <div class="cat-card-subcategories" data-cat-id="${cat.id}">
-                    ${subChips || ''}
+                    ${(subChips || '')}
+                    ${subCount === 0 ? '<span class="cat-card-no-subs"><i class="fas fa-folder-open" style="font-size:0.55rem;opacity:0.5;"></i> No subcategories yet</span>' : ''}
                     ${!isDefault ? `
                     <button class="cat-card-sub-add" data-category-id="${cat.id}" title="Add subcategory">
                         <i class="fas fa-plus"></i>Add
                     </button>` : ''}
                 </div>
-                ${subCount === 0 ? '<p class="cat-card-no-subs">No subcategories yet</p>' : ''}
             </div>
             <div class="cat-card-footer">
                 <div class="cat-card-stats">
@@ -344,7 +361,6 @@ class CategoriesManager {
                 if (!target) return;
 
                 e.preventDefault();
-                e.stopPropagation();
 
                 const catId = Number(target.dataset.id || target.dataset.catId || 0);
                 const subId = Number(target.dataset.subId || 0);
@@ -358,11 +374,11 @@ class CategoriesManager {
                 if (target.classList.contains('cat-menu-delete')) { this.deleteCategory(catId); return; }
                 if (target.classList.contains('cat-card-sub-add')) {
                     const c = this.categories.find(cat => cat.id === catCategoryId);
-                    if (c) this.showAddSubcategoryModal(c);
+                    if (c) { e.stopPropagation(); this.showAddSubcategoryModal(c); }
                     return;
                 }
-                if (target.classList.contains('cat-sub-chip-edit')) { this.inlineEditSubcategory(subId, catId); return; }
-                if (target.classList.contains('cat-sub-chip-delete')) { this.inlineDeleteSubcategory(subId, catId); return; }
+                if (target.classList.contains('cat-sub-chip-edit')) { e.stopPropagation(); this.inlineEditSubcategory(subId, catId); return; }
+                if (target.classList.contains('cat-sub-chip-delete')) { e.stopPropagation(); this.inlineDeleteSubcategory(subId, catId); return; }
             };
             document.addEventListener('click', this._cardHandler);
         }
@@ -513,14 +529,17 @@ class CategoriesManager {
             const el = document.getElementById(id);
             if (el) el.textContent = val || 0;
         };
-        set('stat-total-categories', data.categories.total);
+        const total = parseInt(data.categories.total) || 0;
+        const inactive = parseInt(data.categories.inactive_count) || 0;
+        set('stat-total-categories', total);
         set('stat-income-categories', data.categories.income_count);
         set('stat-expense-categories', data.categories.expense_count);
         set('stat-total-subcategories', data.subcategories.total);
-        set('stat-inactive-categories', data.categories.inactive_count);
+        set('stat-inactive-categories', inactive);
+        set('stat-active-categories', Math.max(0, total - inactive));
 
         const badge = document.getElementById('category-count-badge');
-        if (badge) badge.textContent = data.categories.total || 0;
+        if (badge) badge.textContent = total;
     }
 
     showLoading(show) {
@@ -630,7 +649,7 @@ class CategoriesManager {
     }
 
     _setupFormListeners() {
-        setTimeout(() => {
+        requestAnimationFrame(() => {
             const colorInput = document.getElementById('category-color');
             const iconInput = document.getElementById('category-icon');
             const iconPreview = document.querySelector('.cat-icon-preview i');
@@ -672,7 +691,7 @@ class CategoriesManager {
 
             const pickBtn = document.getElementById('pick-icon-btn');
             if (pickBtn) pickBtn.addEventListener('click', () => this.showIconPicker());
-        }, 30);
+        });
     }
 
     showAddCategoryModal() {
@@ -868,7 +887,7 @@ class CategoriesManager {
     async deleteCategory(id) {
         const confirmed = await NotificationService.confirm({
             title: 'Delete Category',
-            text: 'Are you sure you want to delete this category? Subcategories will be orphaned. This action cannot be undone.',
+            text: 'Are you sure you want to delete this category and all its subcategories? This action cannot be undone.',
             confirmButtonText: 'Yes, delete it'
         });
 
@@ -1061,14 +1080,14 @@ class CategoriesManager {
             window.premiumModal.open();
         }
 
-        setTimeout(() => {
+        requestAnimationFrame(() => {
             const pickBtn = document.getElementById('pick-sub-icon-btn');
             if (pickBtn) pickBtn.addEventListener('click', () => {
                 this._subIconTarget = 'subcategory-icon';
                 this._subIconPreview = 'sub-icon-preview';
                 this.showIconPicker();
             });
-        }, 30);
+        });
     }
 
     async saveSubcategory() {
@@ -1156,6 +1175,7 @@ class CategoriesManager {
                         Swal.close();
                     });
                 });
+
             }
         });
     }
@@ -1191,14 +1211,15 @@ class CategoriesManager {
         try {
             const result = await window.Api.get('/categories');
             if (result.success) {
+                const escCSV = val => `"${String(val || '').replace(/"/g, '""')}"`;
                 const headers = ['Name', 'Type', 'Icon', 'Color', 'Description', 'Status', 'Sort Order', 'Subcategories'];
                 const rows = result.data.map(cat => [
                     cat.name, cat.type, cat.icon, cat.color,
                     cat.description || '', cat.status, cat.sort_order || 0,
                     (cat.subcategories || []).map(s => s.name).join('; ')
-                ]);
-                const csv = [headers, ...rows].map(r => r.join(',')).join('\n');
-                const blob = new Blob([csv], { type: 'text/csv' });
+                ].map(escCSV));
+                const csv = '\uFEFF' + [headers.map(escCSV), ...rows].map(r => r.join(',')).join('\r\n');
+                const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
                 const url = URL.createObjectURL(blob);
                 const a = document.createElement('a');
                 a.href = url;

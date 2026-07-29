@@ -168,10 +168,18 @@ try {
             
             if ($method === 'GET' && count($segments) === 1) {
                 $controller->index();
+            } elseif ($method === 'GET' && $resourceId === 'progress' && $action === null) {
+                $controller->progressBatch();
             } elseif ($method === 'GET' && $resourceId !== null && $action === 'progress') {
                 $controller->progress($resourceId);
+            } elseif ($method === 'GET' && $resourceId === 'suggestions') {
+                $controller->suggestions();
+            } elseif ($method === 'GET' && $resourceId === 'copy') {
+                $controller->copyPrevious();
             } elseif ($method === 'GET' && $resourceId !== null) {
                 $controller->show($resourceId);
+            } elseif ($method === 'POST' && $resourceId === 'bulk') {
+                $controller->bulkStore();
             } elseif ($method === 'POST' && count($segments) === 1) {
                 $controller->store();
             } elseif ($method === 'PUT' && $resourceId !== null) {
@@ -182,7 +190,7 @@ try {
                 Response::error('Invalid budgets endpoint', 404);
             }
             break;
-            
+
         case 'goals':
             require_once __DIR__ . '/../controllers/GoalController.php';
             $controller = new GoalController();

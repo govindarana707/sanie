@@ -60,14 +60,14 @@ class Category {
         $query .= " ORDER BY c.sort_order ASC, c.name ASC";
         
         $stmt = $this->conn->prepare($query);
-        $stmt->bindParam(':user_id', $userId);
+        $stmt->bindValue(':user_id', $userId);
         
         if ($type) {
-            $stmt->bindParam(':type', $type);
+            $stmt->bindValue(':type', $type);
         }
         
         if ($status) {
-            $stmt->bindParam(':status', $status);
+            $stmt->bindValue(':status', $status);
         }
         
         $stmt->execute();
@@ -85,10 +85,10 @@ class Category {
         $query .= " LIMIT 1";
         
         $stmt = $this->conn->prepare($query);
-        $stmt->bindParam(':id', $id);
+        $stmt->bindValue(':id', $id, PDO::PARAM_INT);
         
         if ($userId) {
-            $stmt->bindParam(':user_id', $userId);
+            $stmt->bindValue(':user_id', $userId, PDO::PARAM_INT);
         }
         
         $stmt->execute();
@@ -110,15 +110,15 @@ class Category {
         
         $stmt = $this->conn->prepare($query);
         
-        $stmt->bindParam(':id', $id);
-        $stmt->bindParam(':user_id', $userId);
-        $stmt->bindParam(':name', $data['name']);
-        $stmt->bindParam(':type', $data['type']);
-        $stmt->bindParam(':icon', $data['icon']);
-        $stmt->bindParam(':color', $data['color']);
-        $stmt->bindParam(':description', $data['description']);
-        $stmt->bindParam(':status', $data['status']);
-        $stmt->bindParam(':sort_order', $data['sort_order']);
+        $stmt->bindValue(':id', $id, PDO::PARAM_INT);
+        $stmt->bindValue(':user_id', $userId, PDO::PARAM_INT);
+        $stmt->bindValue(':name', $data['name']);
+        $stmt->bindValue(':type', $data['type']);
+        $stmt->bindValue(':icon', $data['icon']);
+        $stmt->bindValue(':color', $data['color']);
+        $stmt->bindValue(':description', $data['description']);
+        $stmt->bindValue(':status', $data['status']);
+        $stmt->bindValue(':sort_order', $data['sort_order'], PDO::PARAM_INT);
         
         return $stmt->execute();
     }
@@ -127,8 +127,8 @@ class Category {
         $query = "DELETE FROM " . $this->table . " WHERE id = :id AND user_id = :user_id AND is_default = FALSE";
         
         $stmt = $this->conn->prepare($query);
-        $stmt->bindParam(':id', $id);
-        $stmt->bindParam(':user_id', $userId);
+        $stmt->bindValue(':id', $id, PDO::PARAM_INT);
+        $stmt->bindValue(':user_id', $userId, PDO::PARAM_INT);
         
         return $stmt->execute();
     }
@@ -141,8 +141,8 @@ class Category {
                   WHERE id = :id AND user_id = :user_id AND is_default = FALSE";
         
         $stmt = $this->conn->prepare($query);
-        $stmt->bindParam(':id', $id);
-        $stmt->bindParam(':user_id', $userId);
+        $stmt->bindValue(':id', $id, PDO::PARAM_INT);
+        $stmt->bindValue(':user_id', $userId, PDO::PARAM_INT);
         
         return $stmt->execute();
     }
@@ -154,8 +154,8 @@ class Category {
                   WHERE id = :id AND user_id = :user_id";
         
         $stmt = $this->conn->prepare($query);
-        $stmt->bindParam(':id', $id);
-        $stmt->bindParam(':user_id', $userId);
+        $stmt->bindValue(':id', $id, PDO::PARAM_INT);
+        $stmt->bindValue(':user_id', $userId, PDO::PARAM_INT);
         
         return $stmt->execute();
     }
@@ -168,8 +168,8 @@ class Category {
                   WHERE id = :id AND user_id = :user_id";
         
         $stmt = $this->conn->prepare($query);
-        $stmt->bindParam(':id', $id);
-        $stmt->bindParam(':user_id', $userId);
+        $stmt->bindValue(':id', $id, PDO::PARAM_INT);
+        $stmt->bindValue(':user_id', $userId, PDO::PARAM_INT);
         
         return $stmt->execute();
     }
@@ -184,7 +184,7 @@ class Category {
                   WHERE user_id = :user_id OR user_id IS NULL";
         
         $stmt = $this->conn->prepare($query);
-        $stmt->bindParam(':user_id', $userId);
+        $stmt->bindValue(':user_id', $userId, PDO::PARAM_INT);
         $stmt->execute();
         
         return $stmt->fetch(PDO::FETCH_ASSOC);
@@ -193,7 +193,7 @@ class Category {
     public function hasTransactions($id) {
         $query = "SELECT COUNT(*) as count FROM transactions WHERE category_id = :id LIMIT 1";
         $stmt = $this->conn->prepare($query);
-        $stmt->bindParam(':id', $id);
+        $stmt->bindValue(':id', $id, PDO::PARAM_INT);
         $stmt->execute();
         
         $result = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -203,7 +203,7 @@ class Category {
 
         $query2 = "SELECT COUNT(*) as count FROM recurring_transactions WHERE category_id = :id LIMIT 1";
         $stmt2 = $this->conn->prepare($query2);
-        $stmt2->bindParam(':id', $id);
+        $stmt2->bindValue(':id', $id, PDO::PARAM_INT);
         $stmt2->execute();
         
         $result2 = $stmt2->fetch(PDO::FETCH_ASSOC);
@@ -213,7 +213,7 @@ class Category {
     public function getTransactionStats($id) {
         $query = "SELECT COUNT(*) AS tx_count, MAX(created_at) AS last_used_at FROM transactions WHERE category_id = :id";
         $stmt = $this->conn->prepare($query);
-        $stmt->bindParam(':id', $id, PDO::PARAM_INT);
+        $stmt->bindValue(':id', $id, PDO::PARAM_INT);
         $stmt->execute();
         return $stmt->fetch(PDO::FETCH_ASSOC);
     }
@@ -226,9 +226,9 @@ class Category {
                 $query = "UPDATE " . $this->table . " SET sort_order = :sort_order, updated_at = CURRENT_TIMESTAMP 
                           WHERE id = :id AND user_id = :user_id";
                 $stmt = $this->conn->prepare($query);
-                $stmt->bindParam(':sort_order', $order['sort_order']);
-                $stmt->bindParam(':id', $order['id']);
-                $stmt->bindParam(':user_id', $userId);
+                $stmt->bindValue(':sort_order', $order['sort_order'], PDO::PARAM_INT);
+                $stmt->bindValue(':id', $order['id'], PDO::PARAM_INT);
+                $stmt->bindValue(':user_id', $userId, PDO::PARAM_INT);
                 $stmt->execute();
             }
             
@@ -267,16 +267,16 @@ class Category {
         $sql .= " ORDER BY c.sort_order ASC, c.name ASC";
         
         $stmt = $this->conn->prepare($sql);
-        $stmt->bindParam(':user_id', $userId);
+        $stmt->bindValue(':user_id', $userId, PDO::PARAM_INT);
         $searchTerm = "%{$query}%";
-        $stmt->bindParam(':query', $searchTerm);
+        $stmt->bindValue(':query', $searchTerm);
         
         if ($type) {
-            $stmt->bindParam(':type', $type);
+            $stmt->bindValue(':type', $type);
         }
         
         if ($status) {
-            $stmt->bindParam(':status', $status);
+            $stmt->bindValue(':status', $status);
         }
         
         $stmt->execute();

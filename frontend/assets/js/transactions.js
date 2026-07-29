@@ -1098,6 +1098,10 @@ class TransactionsManager {
         const card = document.querySelector(`.tx-type-card[data-type="${type}"]`);
         if (card) card.click();
     }
+
+    showAddTransactionModal() {
+        this._openForm();
+    }
 }
 
 window.TransactionsManager = TransactionsManager;

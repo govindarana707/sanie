@@ -322,10 +322,14 @@ class App {
 
     setupQuickAdd() {
         const quickAddBtn = document.getElementById('quick-add-btn');
+        if (!quickAddBtn) return;
 
         quickAddBtn.addEventListener('click', () => {
-            if (transactionsManager) {
-                transactionsManager.showAddTransactionModal();
+            const mgr = window.transactionsManager || transactionsManager;
+            if (mgr && typeof mgr.showAddTransactionModal === 'function') {
+                mgr.showAddTransactionModal();
+            } else {
+                console.warn('[QuickAdd] transactionsManager not available');
             }
         });
     }
@@ -364,16 +368,6 @@ class App {
 document.addEventListener('DOMContentLoaded', () => {
     if (window.DatePickerManager) {
         window.DatePickerManager.destroyAll();
-    }
-
-    if (window.AOS) {
-        AOS.init({
-            duration: 800,
-            easing: 'ease-out-cubic',
-            once: true,
-            offset: 50,
-            delay: 0
-        });
     }
 
     window.app = new App();

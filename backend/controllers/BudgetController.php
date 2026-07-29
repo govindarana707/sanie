@@ -128,4 +128,111 @@ class BudgetController {
         
         Response::notFound('Budget not found');
     }
+
+    public function bulkStore() {
+        $userId = Middleware::auth();
+        $data = json_decode(file_get_contents('php://input'), true);
+        $budgets = $data['budgets'] ?? [];
+
+        if (empty($budgets)) {
+            Response::error('No budgets provided', 422);
+        }
+
+        $errors = [];
+        $valid = [];
+        foreach ($budgets as $i => $b) {
+            $errs = [];
+            if (empty($b['name'])) $errs[] = "Row $i: name required";
+            if (empty($b['amount']) || (float)$b['amount'] <= 0) $errs[] = "Row $i: valid amount required";
+            if (!empty($errs)) {
+                $errors = array_merge($errors, $errs);
+                continue;
+            }
+            $valid[] = [
+                'name' => $b['name'],
+                'amount' => (float)$b['amount'],
+                'period' => $b['period'] ?? 'monthly',
+                'category_id' => $b['category_id'] ?? null,
+                'subcategory_id' => $b['subcategory_id'] ?? null,
+                'start_date' => $b['start_date'] ?? date('Y-m-01'),
+                'end_date' => $b['end_date'] ?? date('Y-m-t'),
+                'alert_threshold' => $b['alert_threshold'] ?? 80,
+                'is_active' => $b['is_active'] ?? true
+            ];
+        }
+
+        if (!empty($errors)) {
+            Response::error('Validation failed', 422, ['details' => $errors]);
+        }
+
+        $insertedIds = $this->budgetModel->bulkCreate($valid, $userId);
+
+        if ($insertedIds === false) {
+            Response::serverError('Bulk budget creation failed');
+        }
+
+        Response::success([
+            'created' => count($insertedIds),
+            'ids' => $insertedIds
+        ], count($insertedIds) . ' budget(s) created successfully', 201);
+    }
+
+    public function suggestions() {
+        $userId = Middleware::auth();
+        $period = $_GET['period'] ?? 'monthly';
+        $months = max(1, min(12, (int)($_GET['months'] ?? 3)));
+        $suggestions = $this->budgetModel->getSuggestions($userId, $period, $months);
+        Response::success($suggestions);
+    }
+
+    public function copyPrevious() {
+        $userId = Middleware::auth();
+        $period = $_GET['period'] ?? 'monthly';
+        $source = $_GET['source'] ?? 'month'; // 'month' or 'year'
+
+        // Calculate source date range (previous month or previous year)
+        if ($source === 'year') {
+            $startDate = date('Y-m-01', strtotime('-1 year'));
+            $endDate = date('Y-m-t', strtotime('-1 year'));
+        } else {
+            $startDate = date('Y-m-01', strtotime('-1 month'));
+            $endDate = date('Y-m-t', strtotime('-1 month'));
+        }
+
+        $budgets = $this->budgetModel->findByPeriod($userId, $period, $startDate, $endDate);
+
+        // Map to current period with adjusted dates
+        $now = new DateTime();
+        $currentStart = $now->format('Y-m-01');
+        $currentEnd = $now->format('Y-m-t');
+        $currentYear = $now->format('Y');
+
+        $result = array_map(function ($b) use ($currentStart, $currentEnd, $period) {
+            return [
+                'name' => $b['name'],
+                'amount' => (float)$b['amount'],
+                'period' => $period,
+                'category_id' => $b['category_id'],
+                'subcategory_id' => $b['subcategory_id'],
+                'category_name' => $b['category_name'] ?? null,
+                'category_icon' => $b['category_icon'] ?? null,
+                'category_color' => $b['category_color'] ?? null,
+                'start_date' => $currentStart,
+                'end_date' => $currentEnd
+            ];
+        }, $budgets);
+
+        Response::success($result);
+    }
+
+    public function progressBatch() {
+        $userId = Middleware::auth();
+        $ids = isset($_GET['ids']) ? array_map('intval', explode(',', $_GET['ids'])) : [];
+        if (empty($ids)) {
+            Response::success([]);
+            return;
+        }
+        $progress = $this->budgetModel->getBatchProgress($ids, $userId);
+        Response::success($progress);
+    }
 }

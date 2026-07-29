@@ -46,6 +46,18 @@ class AjaxService {
         return AjaxService._request('DELETE', endpoint, null, { ...opts, mutate: true });
     }
 
+    /* ---------- debounced data-changed dispatch ---------- */
+
+    static _dataChangedTimer = null;
+
+    static _dispatchDataChanged() {
+        if (AjaxService._dataChangedTimer) return;
+        AjaxService._dataChangedTimer = setTimeout(() => {
+            AjaxService._dataChangedTimer = null;
+            document.dispatchEvent(new CustomEvent('app:data-changed'));
+        }, 50);
+    }
+
     /* ---------- internal ---------- */
 
     static async _request(method, endpoint, body, opts = {}) {
@@ -84,7 +96,7 @@ class AjaxService {
                     NotificationService.success(successMsg);
                 }
                 if (mutate) {
-                    document.dispatchEvent(new CustomEvent('app:data-changed'));
+                    AjaxService._dispatchDataChanged();
                 }
                 return result;
             }

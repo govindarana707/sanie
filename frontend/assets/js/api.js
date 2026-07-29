@@ -20,8 +20,18 @@ function reportMissingApiConfiguration() {
     }
 }
 
-// API Client
+// API Client with Response Cache
 class APIClient {
+    static _cache = new Map();
+    static _CACHE_TTL = 5000;
+
+    static invalidateCache(pattern) {
+        if (!pattern) { APIClient._cache.clear(); return; }
+        for (const key of APIClient._cache.keys()) {
+            if (key.includes(pattern)) APIClient._cache.delete(key);
+        }
+    }
+
     constructor() {
         this.token = localStorage.getItem('token');
     }
@@ -37,6 +47,7 @@ class APIClient {
 
     clearToken() {
         this.token = null;
+        APIClient._cache.clear();
         localStorage.removeItem('token');
     }
 
@@ -65,6 +76,17 @@ class APIClient {
             throw new Error('Authentication required');
         }
 
+        const method = options.method || 'GET';
+        const isGet = method === 'GET';
+        const cacheKey = `${method}:${endpoint}`;
+
+        if (isGet) {
+            const cached = APIClient._cache.get(cacheKey);
+            if (cached && Date.now() - cached.ts < APIClient._CACHE_TTL) {
+                return cached.data;
+            }
+        }
+
         const url = `${apiBase}${endpoint}`;
         const isFormData = typeof FormData !== 'undefined' && options.body instanceof FormData;
         const config = {
@@ -76,7 +98,7 @@ class APIClient {
         };
 
         try {
-            AppLogger.debug('Request', { method: config.method || 'GET', url, apiBase });
+            AppLogger.debug('Request', { method, url, apiBase });
             const response = await fetch(url, config);
             if (response.status === 401) {
                 this.clearToken();
@@ -95,14 +117,19 @@ class APIClient {
             }
 
             if (!response.ok) {
-                AppLogger.error('Response error', { method: config.method || 'GET', url, status: response.status, response: data });
+                AppLogger.error('Response error', { method, url, status: response.status, response: data });
                 throw new Error(data?.message || `Request failed with status ${response.status}`);
             }
 
-            AppLogger.debug('Response', { method: config.method || 'GET', url, status: response.status, response: data });
+            AppLogger.debug('Response', { method, url, status: response.status, response: data });
+
+            if (isGet && data) {
+                APIClient._cache.set(cacheKey, { data, ts: Date.now() });
+            }
+
             return data || {};
         } catch (error) {
-            AppLogger.error('Request failed', { method: config.method || 'GET', url, error: error.message });
+            AppLogger.error('Request failed', { method, url, error: error.message });
             throw error;
         }
     }
@@ -112,6 +139,7 @@ class APIClient {
     }
 
     async post(endpoint, data) {
+        APIClient.invalidateCache(endpoint.split('?')[0]);
         return this.request(endpoint, {
             method: 'POST',
             body: JSON.stringify(data)
@@ -119,6 +147,7 @@ class APIClient {
     }
 
     async put(endpoint, data) {
+        APIClient.invalidateCache(endpoint.split('?')[0]);
         return this.request(endpoint, {
             method: 'PUT',
             body: JSON.stringify(data)
@@ -126,6 +155,7 @@ class APIClient {
     }
 
     async delete(endpoint) {
+        APIClient.invalidateCache(endpoint.split('?')[0]);
         return this.request(endpoint, { method: 'DELETE' });
     }
 
@@ -133,6 +163,7 @@ class APIClient {
         if (typeof FormData === 'undefined' || !(formData instanceof FormData)) {
             throw new TypeError('upload requires a FormData payload');
         }
+        APIClient.invalidateCache(endpoint.split('?')[0]);
         return this.request(endpoint, { method, body: formData });
     }
 }
@@ -289,6 +320,22 @@ const budgetsAPI = {
 
     async getProgress(id) {
         return api.get(`/budgets/${id}/progress`);
+    },
+
+    async getBatchProgress(ids) {
+        return api.get(`/budgets/progress?ids=${ids.join(',')}`);
+    },
+
+    async bulkCreate(budgets) {
+        return api.post('/budgets/bulk', { budgets });
+    },
+
+    async getSuggestions(period = 'monthly', months = 3) {
+        return api.get(`/budgets/suggestions?period=${period}&months=${months}`);
+    },
+
+    async copyPrevious(period = 'monthly', source = 'month') {
+        return api.get(`/budgets/copy?period=${period}&source=${source}`);
     }
 };
 

@@ -48,16 +48,13 @@ class DashboardController {
         $year = (int) date('Y', strtotime($startDate));
         $monthlyData = $this->transactionModel->getMonthlyData($userId, $year);
 
-        $budgets = $this->budgetModel->findAll($userId);
-        $budgetProgress = [];
-        foreach ($budgets as $budget) {
-            if ($budget['is_active']) {
-                $progress = $this->budgetModel->getBudgetProgress($budget['id'], $userId);
-                if ($progress) {
-                    $budgetProgress[] = $progress;
-                }
-            }
-        }
+        $activeBudgets = array_filter(
+            $this->budgetModel->findAll($userId),
+            fn($b) => $b['is_active']
+        );
+        $budgetProgress = !empty($activeBudgets)
+            ? $this->budgetModel->getBatchProgress(array_column($activeBudgets, 'id'), $userId)
+            : [];
 
         $goals = $this->goalModel->findAll($userId);
         $goalProgress = [];

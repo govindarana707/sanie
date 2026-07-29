@@ -379,7 +379,7 @@ class SubcategoriesManager {
             </form>
         `;
 
-        if (window.ModalService) {
+        if (window.modalService && typeof window.modalService.open === 'function') {
             window.modalService.open({
                 title: 'Add Subcategory',
                 subtitle: 'Create a new subcategory',
@@ -388,7 +388,7 @@ class SubcategoriesManager {
                 showFooter: true,
                 onSave: () => this.saveSubcategory()
             });
-        } else if (window.premiumModal) {
+        } else if (window.premiumModal && typeof window.premiumModal.open === 'function') {
             window.premiumModal.setTitle('Add Subcategory');
             window.premiumModal.setSubtitle('Create a new subcategory');
             window.premiumModal.setIcon('fa-layer-group');
@@ -471,8 +471,8 @@ class SubcategoriesManager {
 
             if (result.success) {
                 NotificationService.success('Subcategory created successfully');
-                if (window.modalService) modalService.close();
-                else if (window.premiumModal) premiumModal.close();
+                if (window.modalService) window.modalService.close();
+                else if (window.premiumModal) window.premiumModal.close();
                 this.loadSubcategories();
             } else {
                 NotificationService.error(result.message || 'Failed to create subcategory');
@@ -534,7 +534,7 @@ class SubcategoriesManager {
             </form>
         `;
 
-        if (window.ModalService) {
+        if (window.modalService && typeof window.modalService.open === 'function') {
             window.modalService.open({
                 title: 'Edit Subcategory',
                 subtitle: 'Update subcategory details',
@@ -543,7 +543,7 @@ class SubcategoriesManager {
                 showFooter: true,
                 onSave: () => this.updateSubcategory()
             });
-        } else if (window.premiumModal) {
+        } else if (window.premiumModal && typeof window.premiumModal.open === 'function') {
             window.premiumModal.setTitle('Edit Subcategory');
             window.premiumModal.setSubtitle('Update subcategory details');
             window.premiumModal.setIcon('fa-edit');
@@ -578,8 +578,8 @@ class SubcategoriesManager {
 
             if (result.success) {
                 NotificationService.success('Subcategory updated successfully');
-                if (window.modalService) modalService.close();
-                else if (window.premiumModal) premiumModal.close();
+                if (window.modalService) window.modalService.close();
+                else if (window.premiumModal) window.premiumModal.close();
                 this.loadSubcategories();
             } else {
                 NotificationService.error(result.message || 'Failed to update subcategory');
@@ -644,7 +644,7 @@ class SubcategoriesManager {
                     </div>
                 `;
 
-                if (window.ModalService) {
+                if (window.modalService && typeof window.modalService.open === 'function') {
                     window.modalService.open({
                         title: 'Subcategory Details',
                         subtitle: 'View subcategory information',
@@ -655,7 +655,7 @@ class SubcategoriesManager {
                     });
                     const saveBtn = document.getElementById('modal-save-btn');
                     if (saveBtn) saveBtn.style.display = 'none';
-                } else if (window.premiumModal) {
+                } else if (window.premiumModal && typeof window.premiumModal.open === 'function') {
                     window.premiumModal.setTitle('Subcategory Details');
                     window.premiumModal.setSubtitle('View subcategory information');
                     window.premiumModal.setIcon('fa-eye');
@@ -724,7 +724,12 @@ class SubcategoriesManager {
         this.loadSubcategories();
     }
 
-    async handleSearch(query) {
+    handleSearch(query) {
+        if (this._searchTimer) clearTimeout(this._searchTimer);
+        this._searchTimer = setTimeout(() => this._doSearch(query), 250);
+    }
+
+    async _doSearch(query) {
         if (query.length < 2) {
             this.loadSubcategories();
             return;
@@ -770,7 +775,7 @@ class SubcategoriesManager {
             </div>
         `;
 
-        if (window.ModalService) {
+        if (window.modalService && typeof window.modalService.open === 'function') {
             window.modalService.open({
                 title: 'Import Subcategories',
                 subtitle: 'Import subcategories from CSV or Excel',
@@ -779,7 +784,7 @@ class SubcategoriesManager {
                 showFooter: true,
                 onSave: () => this.importSubcategories()
             });
-        } else if (window.premiumModal) {
+        } else if (window.premiumModal && typeof window.premiumModal.open === 'function') {
             window.premiumModal.setTitle('Import Subcategories');
             window.premiumModal.setSubtitle('Import subcategories from CSV or Excel');
             window.premiumModal.setIcon('fa-file-import');

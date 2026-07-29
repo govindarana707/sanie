@@ -18,13 +18,13 @@ class Subcategory {
         
         $stmt = $this->conn->prepare($query);
         
-        $stmt->bindParam(':category_id', $data['category_id']);
-        $stmt->bindParam(':user_id', $data['user_id']);
-        $stmt->bindParam(':name', $data['name']);
-        $stmt->bindParam(':icon', $data['icon']);
-        $stmt->bindParam(':description', $data['description']);
-        $stmt->bindParam(':status', $data['status']);
-        $stmt->bindParam(':sort_order', $data['sort_order']);
+        $stmt->bindValue(':category_id', $data['category_id'], PDO::PARAM_INT);
+        $stmt->bindValue(':user_id', $data['user_id'], PDO::PARAM_INT);
+        $stmt->bindValue(':name', $data['name']);
+        $stmt->bindValue(':icon', $data['icon']);
+        $stmt->bindValue(':description', $data['description']);
+        $stmt->bindValue(':status', $data['status']);
+        $stmt->bindValue(':sort_order', $data['sort_order'], PDO::PARAM_INT);
         
         if ($stmt->execute()) {
             return $this->conn->lastInsertId();
@@ -50,14 +50,14 @@ class Subcategory {
         $query .= " ORDER BY s.sort_order ASC, s.name ASC";
         
         $stmt = $this->conn->prepare($query);
-        $stmt->bindParam(':user_id', $userId);
+        $stmt->bindValue(':user_id', $userId, PDO::PARAM_INT);
         
         if ($categoryId) {
-            $stmt->bindParam(':category_id', $categoryId);
+            $stmt->bindValue(':category_id', $categoryId, PDO::PARAM_INT);
         }
         
         if ($status) {
-            $stmt->bindParam(':status', $status);
+            $stmt->bindValue(':status', $status);
         }
         
         $stmt->execute();
@@ -78,10 +78,10 @@ class Subcategory {
         $query .= " LIMIT 1";
         
         $stmt = $this->conn->prepare($query);
-        $stmt->bindParam(':id', $id);
+        $stmt->bindValue(':id', $id, PDO::PARAM_INT);
         
         if ($userId) {
-            $stmt->bindParam(':user_id', $userId);
+            $stmt->bindValue(':user_id', $userId, PDO::PARAM_INT);
         }
         
         $stmt->execute();
@@ -102,14 +102,14 @@ class Subcategory {
         
         $stmt = $this->conn->prepare($query);
         
-        $stmt->bindParam(':id', $id);
-        $stmt->bindParam(':user_id', $userId);
-        $stmt->bindParam(':category_id', $data['category_id']);
-        $stmt->bindParam(':name', $data['name']);
-        $stmt->bindParam(':icon', $data['icon']);
-        $stmt->bindParam(':description', $data['description']);
-        $stmt->bindParam(':status', $data['status']);
-        $stmt->bindParam(':sort_order', $data['sort_order']);
+        $stmt->bindValue(':id', $id, PDO::PARAM_INT);
+        $stmt->bindValue(':user_id', $userId, PDO::PARAM_INT);
+        $stmt->bindValue(':category_id', $data['category_id'], PDO::PARAM_INT);
+        $stmt->bindValue(':name', $data['name']);
+        $stmt->bindValue(':icon', $data['icon']);
+        $stmt->bindValue(':description', $data['description']);
+        $stmt->bindValue(':status', $data['status']);
+        $stmt->bindValue(':sort_order', $data['sort_order'], PDO::PARAM_INT);
         
         return $stmt->execute();
     }
@@ -118,8 +118,8 @@ class Subcategory {
         $query = "DELETE FROM " . $this->table . " WHERE id = :id AND user_id = :user_id";
         
         $stmt = $this->conn->prepare($query);
-        $stmt->bindParam(':id', $id);
-        $stmt->bindParam(':user_id', $userId);
+        $stmt->bindValue(':id', $id, PDO::PARAM_INT);
+        $stmt->bindValue(':user_id', $userId, PDO::PARAM_INT);
         
         return $stmt->execute();
     }
@@ -132,8 +132,8 @@ class Subcategory {
                   WHERE id = :id AND user_id = :user_id";
         
         $stmt = $this->conn->prepare($query);
-        $stmt->bindParam(':id', $id);
-        $stmt->bindParam(':user_id', $userId);
+        $stmt->bindValue(':id', $id, PDO::PARAM_INT);
+        $stmt->bindValue(':user_id', $userId, PDO::PARAM_INT);
         
         return $stmt->execute();
     }
@@ -145,8 +145,8 @@ class Subcategory {
                   WHERE id = :id AND user_id = :user_id";
         
         $stmt = $this->conn->prepare($query);
-        $stmt->bindParam(':id', $id);
-        $stmt->bindParam(':user_id', $userId);
+        $stmt->bindValue(':id', $id, PDO::PARAM_INT);
+        $stmt->bindValue(':user_id', $userId, PDO::PARAM_INT);
         
         return $stmt->execute();
     }
@@ -159,8 +159,8 @@ class Subcategory {
                   WHERE id = :id AND user_id = :user_id";
         
         $stmt = $this->conn->prepare($query);
-        $stmt->bindParam(':id', $id);
-        $stmt->bindParam(':user_id', $userId);
+        $stmt->bindValue(':id', $id, PDO::PARAM_INT);
+        $stmt->bindValue(':user_id', $userId, PDO::PARAM_INT);
         
         return $stmt->execute();
     }
@@ -179,14 +179,14 @@ class Subcategory {
         $query .= " ORDER BY sort_order ASC, name ASC";
         
         $stmt = $this->conn->prepare($query);
-        $stmt->bindParam(':category_id', $categoryId);
+        $stmt->bindValue(':category_id', $categoryId, PDO::PARAM_INT);
         
         if ($userId) {
-            $stmt->bindParam(':user_id', $userId);
+            $stmt->bindValue(':user_id', $userId, PDO::PARAM_INT);
         }
         
         if ($status) {
-            $stmt->bindParam(':status', $status);
+            $stmt->bindValue(':status', $status);
         }
         
         $stmt->execute();
@@ -197,7 +197,7 @@ class Subcategory {
     public function getCountByCategory($categoryId) {
         $query = "SELECT COUNT(*) as count FROM " . $this->table . " WHERE category_id = :category_id AND status = 'active'";
         $stmt = $this->conn->prepare($query);
-        $stmt->bindParam(':category_id', $categoryId);
+        $stmt->bindValue(':category_id', $categoryId, PDO::PARAM_INT);
         $stmt->execute();
         
         $result = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -207,7 +207,7 @@ class Subcategory {
     public function hasTransactions($id) {
         $query = "SELECT COUNT(*) as count FROM transactions WHERE subcategory_id = :id LIMIT 1";
         $stmt = $this->conn->prepare($query);
-        $stmt->bindParam(':id', $id);
+        $stmt->bindValue(':id', $id, PDO::PARAM_INT);
         $stmt->execute();
         
         $result = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -222,9 +222,9 @@ class Subcategory {
                 $query = "UPDATE " . $this->table . " SET sort_order = :sort_order, updated_at = CURRENT_TIMESTAMP 
                           WHERE id = :id AND user_id = :user_id";
                 $stmt = $this->conn->prepare($query);
-                $stmt->bindParam(':sort_order', $order['sort_order']);
-                $stmt->bindParam(':id', $order['id']);
-                $stmt->bindParam(':user_id', $userId);
+                $stmt->bindValue(':sort_order', $order['sort_order'], PDO::PARAM_INT);
+                $stmt->bindValue(':id', $order['id'], PDO::PARAM_INT);
+                $stmt->bindValue(':user_id', $userId, PDO::PARAM_INT);
                 $stmt->execute();
             }
             
@@ -254,16 +254,16 @@ class Subcategory {
         $sql .= " ORDER BY s.sort_order ASC, s.name ASC";
         
         $stmt = $this->conn->prepare($sql);
-        $stmt->bindParam(':user_id', $userId);
+        $stmt->bindValue(':user_id', $userId, PDO::PARAM_INT);
         $searchTerm = "%{$query}%";
-        $stmt->bindParam(':query', $searchTerm);
+        $stmt->bindValue(':query', $searchTerm);
         
         if ($categoryId) {
-            $stmt->bindParam(':category_id', $categoryId);
+            $stmt->bindValue(':category_id', $categoryId, PDO::PARAM_INT);
         }
         
         if ($status) {
-            $stmt->bindParam(':status', $status);
+            $stmt->bindValue(':status', $status);
         }
         
         $stmt->execute();
@@ -311,7 +311,7 @@ class Subcategory {
                   WHERE (s.user_id = :user_id OR s.user_id IS NULL)";
         
         $stmt = $this->conn->prepare($query);
-        $stmt->bindParam(':user_id', $userId);
+        $stmt->bindValue(':user_id', $userId, PDO::PARAM_INT);
         $stmt->execute();
         
         return $stmt->fetch(PDO::FETCH_ASSOC);
