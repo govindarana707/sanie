@@ -4,6 +4,7 @@ class GoalsManager {
         this.goals = [];
         this._mounted = false;
         this._listeners = {};
+        this._contributionRequestId = null;
     }
 
     onMount() {
@@ -85,6 +86,9 @@ class GoalsManager {
                 <div class="goal-actions" style="margin-top: 1rem; display: flex; gap: 0.5rem;">
                     <button class="btn btn-primary btn-sm" onclick="goalsManager.showContributeModal(${goal.id})">
                         <i class="fas fa-plus"></i> Add
+                    </button>
+                    <button class="btn btn-outline-secondary btn-sm" onclick="goalsManager.showContributions(${goal.id})">
+                        <i class="fas fa-history"></i> History
                     </button>
                     <button class="btn btn-icon" onclick="goalsManager.deleteGoal(${goal.id})">
                         <i class="fas fa-trash"></i>
@@ -222,6 +226,7 @@ class GoalsManager {
     }
 
     async showContributeModal(goalId) {
+        this._contributionRequestId = null;
         let accounts = [];
         try {
             const res = await accountsAPI.getAll();
@@ -253,6 +258,14 @@ class GoalsManager {
                         <input type="number" id="contribute-amount" step="0.01" placeholder="Rs 5,000" required>
                     </div>
                 </div>
+                <div class="form-group mt-3">
+                    <label>Date</label>
+                    <input type="date" id="contribute-date" class="form-control" value="${new Date().toISOString().slice(0, 10)}" required>
+                </div>
+                <div class="form-group mt-3">
+                    <label>Note (Optional)</label>
+                    <input type="text" id="contribute-description" class="form-control" maxlength="255" placeholder="Contribution note">
+                </div>
             </form>
         `;
 
@@ -283,6 +296,8 @@ class GoalsManager {
 
         const amount = parseFloat(document.getElementById('contribute-amount').value);
         const accountId = document.getElementById('contribute-account').value;
+        const date = document.getElementById('contribute-date').value;
+        const description = (document.getElementById('contribute-description').value || '').trim();
 
         if (!accountId) {
             NotificationService.error('Please select an account');
@@ -292,12 +307,19 @@ class GoalsManager {
         const saveBtn = document.querySelector('#modal-footer .btn-primary');
         AjaxService?.showButtonLoading(saveBtn);
         try {
-            const response = await goalsAPI.contribute(goalId, amount, accountId);
+            const response = await goalsAPI.contribute(goalId, {
+                amount,
+                account_id: parseInt(accountId),
+                date,
+                description,
+                client_request_id: this._contributionRequestId || (this._contributionRequestId = this._createRequestId())
+            });
 
             if (response.success) {
                 if (window.modalService) modalService.close();
                 else if (window.premiumModal) premiumModal.close();
                 NotificationService.success('Contribution added successfully');
+                this._contributionRequestId = null;
                 window.dispatchEvent(new CustomEvent('app:data-changed'));
             }
         } catch (error) {
@@ -305,6 +327,80 @@ class GoalsManager {
             NotificationService.error('Failed to add contribution');
         } finally {
             AjaxService?.hideButtonLoading(saveBtn);
+        }
+    }
+
+    _createRequestId() {
+        if (window.crypto?.randomUUID) return window.crypto.randomUUID();
+        return (`req_goal_${Date.now().toString(36)}_${Math.random().toString(36).slice(2)}`).slice(0, 64);
+    }
+
+    async showContributions(goalId) {
+        try {
+            const response = await goalsAPI.getContributions(goalId);
+            const rows = (response.data || []).map(item => `
+                <tr>
+                    <td>${Formatters.date(item.date)}</td>
+                    <td>${Formatters.escapeHTML(item.account_name || '')}</td>
+                    <td>${Formatters.currency(item.amount)}</td>
+                    <td>${Formatters.escapeHTML(item.description || '')}</td>
+                    <td class="text-nowrap">
+                        <button class="btn btn-sm btn-outline-primary" onclick="goalsManager.editContribution(${goalId}, ${item.id})">Edit</button>
+                        <button class="btn btn-sm btn-outline-danger" onclick="goalsManager.deleteContribution(${goalId}, ${item.id}, ${item.version})">Delete</button>
+                    </td>
+                </tr>`).join('');
+            const html = `<div class="table-responsive"><table class="table"><thead><tr><th>Date</th><th>Account</th><th>Amount</th><th>Note</th><th></th></tr></thead><tbody>${rows || '<tr><td colspan="5" class="text-center text-muted">No contributions yet</td></tr>'}</tbody></table></div>`;
+            if (window.modalService) {
+                modalService.open({ title: 'Contribution History', subtitle: 'Every account-to-goal movement.', icon: 'fa-history', bodyHTML: html, showFooter: false });
+            } else {
+                await Swal.fire({ title: 'Contribution History', html, width: 850, showConfirmButton: false, showCloseButton: true });
+            }
+        } catch (error) {
+            NotificationService.error(error.message || 'Failed to load contributions');
+        }
+    }
+
+    async editContribution(goalId, contributionId) {
+        const response = await goalsAPI.getContributions(goalId);
+        const contribution = (response.data || []).find(item => String(item.id) === String(contributionId));
+        if (!contribution) return NotificationService.error('Contribution not found');
+        const accountsResponse = await accountsAPI.getAll();
+        const options = (accountsResponse.data || []).filter(a => a.is_active).map(a =>
+            `<option value="${a.id}" ${String(a.id) === String(contribution.account_id) ? 'selected' : ''}>${Formatters.escapeHTML(a.name)}</option>`
+        ).join('');
+        const { value } = await Swal.fire({
+            title: 'Edit Contribution',
+            html: `<select id="edit-goal-account" class="swal2-input">${options}</select><input id="edit-goal-amount" type="number" min="0.01" step="0.01" class="swal2-input" value="${contribution.amount}"><input id="edit-goal-date" type="date" class="swal2-input" value="${contribution.date}"><input id="edit-goal-note" class="swal2-input" maxlength="255" value="${Formatters.escapeHTML(contribution.description || '')}">`,
+            showCancelButton: true,
+            preConfirm: () => ({
+                account_id: parseInt(document.getElementById('edit-goal-account').value),
+                amount: document.getElementById('edit-goal-amount').value,
+                date: document.getElementById('edit-goal-date').value,
+                description: document.getElementById('edit-goal-note').value,
+                base_version: parseInt(contribution.version)
+            })
+        });
+        if (!value) return;
+        try {
+            await goalsAPI.updateContribution(goalId, contributionId, value);
+            NotificationService.success('Contribution updated successfully');
+            window.dispatchEvent(new CustomEvent('app:data-changed'));
+            this.showContributions(goalId);
+        } catch (error) {
+            NotificationService.error(error.message || 'Failed to update contribution');
+        }
+    }
+
+    async deleteContribution(goalId, contributionId, version) {
+        const confirmed = await NotificationService.confirm({ title: 'Delete Contribution', text: 'This will restore the source account balance.', confirmButtonText: 'Delete' });
+        if (!confirmed) return;
+        try {
+            await goalsAPI.deleteContribution(goalId, contributionId, version);
+            NotificationService.success('Contribution deleted successfully');
+            window.dispatchEvent(new CustomEvent('app:data-changed'));
+            this.showContributions(goalId);
+        } catch (error) {
+            NotificationService.error(error.message || 'Failed to delete contribution');
         }
     }
 

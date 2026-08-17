@@ -15,12 +15,30 @@ class LedgerManager {
         };
         this.filterData = { accounts: [], categories: [] };
         this.isLoading = false;
+        this.currentPage = 1;
+        this.pageSize = 25;
+        this.pagination = null;
+    }
+
+    _h(value) {
+        return Formatters.escapeHTML(String(value ?? ''));
+    }
+
+    _safeIcon(value, fallback = 'tag') {
+        const icon = String(value ?? '');
+        return /^[a-z0-9-]+$/i.test(icon) ? icon : fallback;
+    }
+
+    _safeColor(value, fallback = '#64748b') {
+        const color = String(value ?? '');
+        return /^#[0-9a-f]{3,8}$/i.test(color) ? color : fallback;
     }
 
     async init() {
         try {
             await this.loadFilterData();
             this.populateFilters();
+            this.applyUrlParams();
             this.setupEventListeners();
             await this.loadLedger();
         } catch (e) {
@@ -85,6 +103,20 @@ class LedgerManager {
         }
     }
 
+    applyUrlParams() {
+        const params = new URLSearchParams(window.location.search);
+        const accountId = params.get('account_id');
+        if (accountId) {
+            const acctSelect = document.getElementById('ledger-account');
+            if (acctSelect) {
+                const option = acctSelect.querySelector(`option[value="${accountId}"]`);
+                if (option) {
+                    acctSelect.value = accountId;
+                }
+            }
+        }
+    }
+
     setupEventListeners() {
         document.getElementById('ledger-type')?.addEventListener('change', () => this.applyFilters());
         document.getElementById('ledger-category')?.addEventListener('change', () => this.applyFilters());
@@ -102,6 +134,7 @@ class LedgerManager {
         document.getElementById('ledger-clear-filters')?.addEventListener('click', () => this.clearFilters());
         document.getElementById('ledger-refresh')?.addEventListener('click', () => this.loadLedger());
         document.getElementById('ledger-export-csv')?.addEventListener('click', () => this.exportCSV());
+        document.getElementById('ledger-page-size')?.addEventListener('change', e => { this.pageSize = parseInt(e.target.value, 10) || 25; this.currentPage = 1; this.loadLedger(); });
         document.getElementById('ledger-print')?.addEventListener('click', () => window.print());
 
         // Init tooltips
@@ -133,10 +166,13 @@ class LedgerManager {
     showLoading(show) {
         const table = document.getElementById('ledger-table');
         const loading = document.getElementById('ledger-loading');
-        this._hideAllStates();
-        if (table && show) table.style.display = 'none';
-        if (loading && show) loading.style.display = 'flex';
-        if (table && !show) table.style.display = '';
+        if (show) {
+            this._hideAllStates();
+            if (table) table.style.display = 'none';
+            if (loading) loading.style.display = 'flex';
+        } else if (loading) {
+            loading.style.display = 'none';
+        }
     }
 
     showError(msg) {
@@ -160,15 +196,15 @@ class LedgerManager {
             this.filters = this.getFilters();
             const params = new URLSearchParams();
             Object.entries(this.filters).forEach(([k, v]) => { if (v) params.set(k, v); });
-            params.set('limit', '2000');
-            params.set('sort', 't.date');
-            params.set('direction', 'DESC');
+            params.set('page', String(this.currentPage));
+            params.set('limit', String(this.pageSize));
 
             const res = await this.api.get('/ledger?' + params.toString());
             if (!res.success) throw new Error(res.message || 'Failed to load ledger');
 
             this.transactions = res.data.transactions || [];
             this.summary = res.data.summary;
+            this.pagination = res.data.pagination || null;
             this.renderSummary();
             this.renderTable();
         } catch (e) {
@@ -188,7 +224,7 @@ class LedgerManager {
             if (el) el.style.color = val >= 0 ? 'var(--sanie-income)' : 'var(--sanie-expense)';
         };
 
-        const ob = byId('ldg-opening-balance'); if (ob) ob.textContent = cur(this.summary.opening_balance);
+        const ob = byId('ldg-opening-balance'); if (ob) ob.textContent = cur(this.summary.range_opening ?? this.summary.opening_balance);
         const cb = byId('ldg-closing-balance'); if (cb) { cb.textContent = cur(this.summary.closing_balance); setColor(cb, this.summary.closing_balance); }
         byId('ldg-period-income') && (byId('ldg-period-income').textContent = cur(this.summary.period_income));
         byId('ldg-period-expense') && (byId('ldg-period-expense').textContent = cur(this.summary.period_expense));
@@ -213,6 +249,7 @@ class LedgerManager {
         if (!this.transactions.length) {
             if (emptyEl) emptyEl.style.display = 'flex';
             table.style.display = 'none';
+            this.renderPagination();
             return;
         }
 
@@ -221,12 +258,13 @@ class LedgerManager {
         const tbody = document.querySelector('#ledger-table tbody');
 
         // Opening balance row
-        if (this.summary && this.summary.opening_balance !== 0) {
+        const pageOpening = this.summary?.page_opening ?? this.summary?.opening_balance ?? 0;
+        if (this.summary) {
             const ob = document.createElement('tr');
             ob.className = 'ldg-row-opening';
-            ob.innerHTML = `<td colspan="5"><strong>Opening Balance</strong></td>
-                            <td class="ldg-amount">${Formatters.currency(this.summary.opening_balance)}</td>
-                            <td class="ldg-balance ${this.summary.opening_balance >= 0 ? 'positive' : 'negative'}">${Formatters.currency(this.summary.opening_balance)}</td>`;
+            ob.innerHTML = `<td colspan="5"><strong>Page Opening Balance</strong></td>
+                            <td class="ldg-amount">${Formatters.currency(pageOpening)}</td>
+                            <td class="ldg-balance ${pageOpening >= 0 ? 'positive' : 'negative'}">${Formatters.currency(pageOpening)}</td>`;
             tbody.appendChild(ob);
         }
 
@@ -234,8 +272,8 @@ class LedgerManager {
             const amount = parseFloat(tx.amount) || 0;
             const rb = parseFloat(tx.running_balance) || 0;
             const type = tx.type || '';
-            const catIcon = tx.category_icon || (type === 'transfer' ? 'arrows-left-right' : 'tag');
-            const catColor = tx.category_color || (type === 'transfer' ? '#6366f1' : '#64748b');
+            const catIcon = this._safeIcon(tx.category_icon, type === 'transfer' ? 'arrows-left-right' : 'tag');
+            const catColor = this._safeColor(tx.category_color, type === 'transfer' ? '#6366f1' : '#64748b');
             const hasKarobar = tx.karobar_id && (tx.karobar_type === 'lent' || tx.karobar_type === 'borrowed');
 
             let accountDisplay = tx.account_name || '';
@@ -244,38 +282,44 @@ class LedgerManager {
             }
 
             const row = document.createElement('tr');
-            row.dataset.txId = tx.id;
+            if (tx.entry_source !== 'karobar') row.dataset.txId = tx.id;
+
+            // Get icon for type badge
+            let typeIcon = '';
+            if (type === 'income') typeIcon = '<i class="bi bi-arrow-down-circle"></i>';
+            else if (type === 'expense') typeIcon = '<i class="bi bi-arrow-up-circle"></i>';
+            else if (type === 'transfer') typeIcon = '<i class="bi bi-arrow-left-right"></i>';
+            else if (type === 'opening') typeIcon = '<i class="bi bi-calculator"></i>';
+
             row.innerHTML = `
-                <td data-order="${tx.date || ''}"><span class="ldg-date">${Formatters.date(tx.date)}</span></td>
-                <td><span class="ldg-badge ${type}">${type}</span></td>
+                <td data-order="${this._h(tx.date || '')}"><span class="ldg-date">${this._h(Formatters.date(tx.date))}</span></td>
+                <td><span class="ldg-badge ${type}">${typeIcon} ${type.charAt(0).toUpperCase() + type.slice(1)}</span></td>
                 <td>
-                    <span class="ldg-desc" title="${(tx.description || '').replace(/"/g, '&quot;')}">${tx.description || '—'}</span>
-                    ${hasKarobar ? `<a href="index.html#karobar-transactions" class="ldg-karobar-link"><i class="bi bi-link-45deg"></i> ${tx.person_name || 'Karobar'}</a>` : ''}
+                    <span class="ldg-desc" title="${this._h(tx.description || '')}">${this._h(tx.description || '—')}</span>
+                    ${tx.entry_source === 'karobar' || hasKarobar ? `<a href="index.html#karobar-transactions" class="ldg-karobar-link"><i class="bi bi-link-45deg"></i> ${this._h(tx.person_name || 'Karobar')}</a>` : ''}
                 </td>
                 <td>
                     <div class="ldg-cat">
                         <span class="ldg-cat-icon" style="background:${catColor}"><i class="bi bi-${catIcon}"></i></span>
-                        <span class="ldg-cat-name">${tx.category_name || (type === 'transfer' ? 'Transfer' : '—')}</span>
+                        <span class="ldg-cat-name">${this._h(tx.category_name || (type === 'transfer' ? 'Transfer' : '—'))}</span>
                     </div>
                 </td>
-                <td><span class="ldg-acct">${accountDisplay || '—'}</span></td>
-                <td class="ldg-amount ${type}" data-order="${amount}">${type === 'expense' ? '-' : ''}${Formatters.currency(amount)}</td>
+                <td><span class="ldg-acct">${this._h(accountDisplay || '—')}</span></td>
+                <td class="ldg-amount ${type}" data-order="${tx.cash_delta ?? amount}">${(tx.cash_delta ?? (type === 'expense' ? -amount : amount)) < 0 ? '-' : ''}${Formatters.currency(amount)}</td>
                 <td class="ldg-balance ${rb >= 0 ? 'positive' : 'negative'}" data-order="${rb}">${Formatters.currency(rb)}</td>
             `;
-            row.addEventListener('click', () => this.showDetail(tx.id));
+            if (tx.entry_source !== 'karobar') row.addEventListener('click', () => this.showDetail(tx.id));
             tbody.appendChild(row);
         });
 
         // Init DataTable with sticky header
         this.dataTable = $('#ledger-table').DataTable({
-            paging: true,
-            pageLength: 25,
-            lengthMenu: [[10, 25, 50, 100, -1], [10, 25, 50, 100, 'All']],
+            paging: false,
             order: [],
             ordering: false,
             scrollY: '55vh',
             scrollCollapse: true,
-            dom: '<"ldg-dt-top"l>rt<"ldg-dt-bottom"ip>',
+            dom: 'rt',
             language: {
                 search: '',
                 searchPlaceholder: 'Search table...',
@@ -299,9 +343,19 @@ class LedgerManager {
                 });
             }
         });
+        this.renderPagination();
     }
 
+    renderPagination() {
+        const info=document.getElementById('ledger-page-info');const previous=document.getElementById('ledger-page-prev');const next=document.getElementById('ledger-page-next');const p=this.pagination||{};
+        if(info)info.textContent=`Page ${p.page||1} of ${p.total_pages||0} · ${(p.total_rows||0).toLocaleString('en-IN')} entries`;
+        if(previous)previous.disabled=!p.has_previous;if(next)next.disabled=!p.has_next;
+    }
+
+    goToPage(page) { if(page<1||this.isLoading)return;this.currentPage=page;this.loadLedger(); }
+
     applyFilters() {
+        this.currentPage = 1;
         this.loadLedger();
     }
 
@@ -333,8 +387,8 @@ class LedgerManager {
 
         const typeLabel = tx.type || '';
         const amount = parseFloat(tx.amount) || 0;
-        const catColor = tx.category_color || (typeLabel === 'transfer' ? '#6366f1' : '#64748b');
-        const catIcon = tx.category_icon || (typeLabel === 'transfer' ? 'arrows-left-right' : 'tag');
+        const catColor = this._safeColor(tx.category_color, typeLabel === 'transfer' ? '#6366f1' : '#64748b');
+        const catIcon = this._safeIcon(tx.category_icon, typeLabel === 'transfer' ? 'arrows-left-right' : 'tag');
 
         let accountDisplay = tx.account_name || '';
         if (typeLabel === 'transfer' && tx.from_account_name && tx.to_account_name) {
@@ -347,7 +401,7 @@ class LedgerManager {
                 <div class="ledger-detail-item">
                     <div class="detail-label">Karobar Link</div>
                     <div class="detail-value" style="color:var(--sanie-secondary);font-size:0.85rem;">
-                        ${tx.karobar_type || 'Linked'} — ${tx.person_name || 'N/A'}
+                        ${this._h(tx.karobar_type || 'Linked')} — ${this._h(tx.person_name || 'N/A')}
                     </div>
                 </div>
             `;
@@ -381,28 +435,28 @@ class LedgerManager {
                                     <div class="detail-value">
                                         <span class="ldg-cat">
                                             <span class="ldg-cat-icon" style="background:${catColor}"><i class="bi bi-${catIcon}"></i></span>
-                                            <span class="ldg-cat-name">${tx.category_name || (typeLabel === 'transfer' ? 'Transfer' : '-')}</span>
+                                             <span class="ldg-cat-name">${this._h(tx.category_name || (typeLabel === 'transfer' ? 'Transfer' : '-'))}</span>
                                         </span>
                                     </div>
                                 </div>
                                 ${tx.subcategory_name ? `
                                 <div class="ledger-detail-item">
                                     <div class="detail-label">Subcategory</div>
-                                    <div class="detail-value">${tx.subcategory_name}</div>
+                                    <div class="detail-value">${this._h(tx.subcategory_name)}</div>
                                 </div>` : ''}
                                 <div class="ledger-detail-item">
                                     <div class="detail-label">Account</div>
-                                    <div class="detail-value" style="font-size:0.85rem;">${accountDisplay || '-'}</div>
+                                    <div class="detail-value" style="font-size:0.85rem;">${this._h(accountDisplay || '-')}</div>
                                 </div>
                                 ${tx.payment_method ? `
                                 <div class="ledger-detail-item">
                                     <div class="detail-label">Payment Method</div>
-                                    <div class="detail-value" style="font-size:0.85rem;text-transform:capitalize;">${tx.payment_method}</div>
+                                    <div class="detail-value" style="font-size:0.85rem;text-transform:capitalize;">${this._h(tx.payment_method)}</div>
                                 </div>` : ''}
                                 ${karobarHtml}
                                 <div class="ledger-detail-item" style="grid-column:1/-1;">
                                     <div class="detail-label">Description</div>
-                                    <div class="detail-value" style="font-size:0.85rem;font-weight:400;">${tx.description || 'No description'}</div>
+                                    <div class="detail-value" style="font-size:0.85rem;font-weight:400;">${this._h(tx.description || 'No description')}</div>
                                 </div>
                             </div>
                         </div>
@@ -419,13 +473,14 @@ class LedgerManager {
         }, { once: true });
     }
 
-    exportCSV() {
+    async exportCSV() {
         const headers = ['Date', 'Type', 'Description', 'Category', 'Account', 'Amount', 'Running Balance'];
         const rows = [headers.join(',')];
-
-        this.transactions.forEach(tx => {
+        const all=[];const totalPages=Math.ceil((this.pagination?.total_rows||0)/100);
+        for(let page=1;page<=totalPages;page++){const params=new URLSearchParams();Object.entries(this.filters).forEach(([k,v])=>{if(v)params.set(k,v);});params.set('page',page);params.set('limit','100');const response=await this.api.get('/ledger?'+params.toString());if(!response.success)throw new Error(response.message||'Could not load complete ledger export');all.push(...(response.data.transactions||[]));}
+        all.forEach(tx => {
             const amount = parseFloat(tx.amount) || 0;
-            const sign = tx.type === 'expense' ? '-' : '';
+            const sign = (tx.cash_delta ?? (tx.type === 'expense' ? -amount : amount)) < 0 ? '-' : '';
             const row = [
                 tx.date || '',
                 tx.type || '',

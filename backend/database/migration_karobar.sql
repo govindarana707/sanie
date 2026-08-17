@@ -29,17 +29,19 @@ CREATE TABLE IF NOT EXISTS karobar_transactions (
     type ENUM('lent', 'borrowed', 'returned', 'repaid', 'adjustment') NOT NULL,
     amount DECIMAL(15, 2) NOT NULL,
     account_id INT NULL,
+    client_request_id VARCHAR(64) NULL,
     description TEXT,
     transaction_date DATE NOT NULL,
     due_date DATE NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-    FOREIGN KEY (person_id) REFERENCES people(id) ON DELETE CASCADE,
+    CONSTRAINT fk_karobar_person FOREIGN KEY (person_id) REFERENCES people(id) ON DELETE RESTRICT,
     FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE SET NULL,
     INDEX idx_user_id (user_id),
     INDEX idx_person_id (person_id),
     INDEX idx_type (type),
     INDEX idx_transaction_date (transaction_date),
-    INDEX idx_due_date (due_date)
+    INDEX idx_due_date (due_date),
+    UNIQUE KEY uq_karobar_user_client_request (user_id, client_request_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Phase 8 storage integration test</title></head>
+<body>
+<pre id="result">RUNNING</pre>
+<script src="../assets/js/offline-storage.js"></script>
+<script>
+(async () => {
+    const output = document.getElementById('result');
+    const transaction = {
+        id: 1,
+        version: 1,
+        date: '2026-08-11',
+        type: 'expense',
+        amount: 25,
+        description: 'Scoped test record'
+    };
+    const dashboard = {
+        statistics: { total_income: 100, total_expense: 25, balance: 75 },
+        recent_transactions: [transaction]
+    };
+    const queueAction = userId => ({
+        userId,
+        entityType: 'transaction',
+        action: 'create',
+        endpoint: '/transactions',
+        method: 'POST',
+        payload: {
+            type: 'expense',
+            amount: 25,
+            account_id: 1,
+            category_id: 1,
+            payment_method: 'cash',
+            date: '2026-08-11',
+            description: 'Scoped pending record'
+        },
+        display: { category_name: 'Test', account_name: 'Cash' }
+    });
+
+    try {
+        const userA = 'phase8-user-a';
+        const userB = 'phase8-user-b';
+        if (!await OfflineStorage.saveDashboardSnapshot(userA, dashboard)) throw new Error('User A snapshot was not committed');
+        if (!await OfflineStorage.saveDashboardSnapshot(userB, dashboard)) throw new Error('User B snapshot was not committed');
+        if (!await OfflineStorage.addPendingAction(queueAction(userA))) throw new Error('User A pending action was not committed');
+        if (!await OfflineStorage.addPendingAction(queueAction(userB))) throw new Error('User B pending action was not committed');
+
+        const visibleToA = await OfflineStorage.getPendingActions(userA);
+        const visibleToB = await OfflineStorage.getPendingActions(userB);
+        if (visibleToA.length !== 1 || visibleToB.length !== 1) throw new Error('Pending actions crossed user scopes');
+
+        if (!await OfflineStorage.clearOfflineUserData(userA)) throw new Error('Disposable cleanup failed');
+        if (await OfflineStorage.getDashboardSnapshot(userA)) throw new Error('User A disposable snapshot survived cleanup');
+        if (!await OfflineStorage.getDashboardSnapshot(userB)) throw new Error('User B snapshot was removed by User A cleanup');
+        if ((await OfflineStorage.getPendingActions(userA)).length !== 1) throw new Error('Cleanup destroyed User A pending action');
+        if ((await OfflineStorage.getPendingActions(userB)).length !== 1) throw new Error('Cleanup changed User B pending action');
+
+        const db = await OfflineStorage.openOfflineDB();
+        db.close();
+        const falseSave = await OfflineStorage.addPendingAction(queueAction('phase8-storage-failure'));
+        if (falseSave !== null) throw new Error('A failed IndexedDB transaction was reported as saved');
+
+        output.textContent = 'PASS: user isolation, pending preservation, commit confirmation, and storage failure handling';
+    } catch (error) {
+        output.textContent = `FAIL: ${error.message}`;
+    }
+})();
+</script>
+</body>
+</html>

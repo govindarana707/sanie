@@ -4,19 +4,25 @@ require_once __DIR__ . '/../includes/cors.php';
 require_once __DIR__ . '/../includes/response.php';
 require_once __DIR__ . '/../includes/middleware.php';
 require_once __DIR__ . '/../includes/jwt.php';
+require_once __DIR__ . '/../includes/rate_limiter.php';
 require_once __DIR__ . '/../models/User.php';
 require_once __DIR__ . '/../models/Account.php';
 require_once __DIR__ . '/../models/Category.php';
+require_once __DIR__ . '/../config/database.php';
+require_once __DIR__ . '/../services/PasswordPolicy.php';
+require_once __DIR__ . '/../services/CredentialService.php';
 
 class AuthController {
     private $userModel;
     private $accountModel;
     private $categoryModel;
+    private $conn;
 
     public function __construct() {
         $this->userModel = new User();
         $this->accountModel = new Account();
         $this->categoryModel = new Category();
+        $this->conn = (new Database())->getConnection();
     }
 
     public function register() {
@@ -27,12 +33,22 @@ class AuthController {
             Response::error('Validation failed', 422, $errors);
         }
 
-        if ($this->userModel->findByEmail($data['email'])) {
+        $email = strtolower(trim((string)$data['email']));
+        if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+            Response::error('Validation failed', 422, ['email' => 'A valid email address is required']);
+        }
+        if ($passwordError=PasswordPolicy::error($data['password']??null)) Response::error('Validation failed',422,['password'=>$passwordError]);
+        $rateKey = 'register:' . ($_SERVER['REMOTE_ADDR'] ?? 'unknown');
+        if (!RateLimiter::hit($rateKey, 5, 3600)) {
+            Response::error('Too many registration attempts. Try again later.', 429);
+        }
+
+        if ($this->userModel->findByEmail($email)) {
             Response::error('Email already exists', 409);
         }
 
         $userData = [
-            'email' => $data['email'],
+            'email' => $email,
             'password' => $data['password'],
             'first_name' => $data['first_name'],
             'last_name' => $data['last_name'] ?? '',
@@ -42,25 +58,38 @@ class AuthController {
             'theme' => $data['theme'] ?? 'light'
         ];
 
-        $userId = $this->userModel->register($userData);
-        
-        if ($userId) {
-            // Create default accounts for new user
-            $this->createDefaultAccounts($userId);
-            
-            // Create default categories for new user
-            $this->createDefaultCategories($userId);
-            
-            $token = JWT::encode(['user_id' => $userId]);
+        try {
+            if (!$this->conn) throw new RuntimeException('Database unavailable.');
+            $this->conn->beginTransaction();
+            $userId = $this->userModel->register($userData);
+            if (!$userId) throw new RuntimeException('Unable to create user.');
+            if (!$this->createDefaultAccounts($userId)) {
+                throw new RuntimeException('Unable to create default accounts.');
+            }
+            if (!$this->createDefaultCategories($userId)) {
+                throw new RuntimeException('Unable to create default categories.');
+            }
+            $this->conn->commit();
+
+            $token = JWT::encode(['user_id' => $userId, 'token_version' => 1]);
             $user = $this->userModel->findById($userId);
-            
+
             Response::success([
                 'user' => $user,
                 'token' => $token
             ], 'Registration successful', 201);
+        } catch (PDOException $e) {
+            if ($this->conn instanceof PDO && $this->conn->inTransaction()) $this->conn->rollBack();
+            if ((string)$e->getCode() === '23000') {
+                Response::error('Email already exists', 409);
+            }
+            error_log('Registration database error: ' . $e->getMessage());
+            Response::serverError();
+        } catch (Throwable $e) {
+            if ($this->conn instanceof PDO && $this->conn->inTransaction()) $this->conn->rollBack();
+            error_log('Registration initialization error: ' . $e->getMessage());
+            Response::serverError();
         }
-        
-        Response::serverError('Registration failed');
     }
 
     private function createDefaultAccounts($userId) {
@@ -102,8 +131,9 @@ class AuthController {
 
         foreach ($defaultAccounts as $accountData) {
             $accountData['user_id'] = $userId;
-            $this->accountModel->create($accountData);
+            if (!$this->accountModel->create($accountData)) return false;
         }
+        return true;
     }
 
     private function createDefaultCategories($userId) {
@@ -234,8 +264,9 @@ class AuthController {
 
         foreach ($defaultCategories as $categoryData) {
             $categoryData['user_id'] = $userId;
-            $this->categoryModel->create($categoryData);
+            if (!$this->categoryModel->create($categoryData)) return false;
         }
+        return true;
     }
 
     public function login() {
@@ -245,14 +276,22 @@ class AuthController {
         if (!empty($errors)) {
             Response::error('Validation failed', 422, $errors);
         }
+        if(!is_string($data['email'])||!is_string($data['password']))Response::error('Validation failed',422,['credentials'=>'Email and password must be strings.']);
 
-        $user = $this->userModel->login($data['email'], $data['password']);
+        $email = strtolower(trim((string)$data['email']));
+        $rateKey = 'login:' . ($_SERVER['REMOTE_ADDR'] ?? 'unknown') . ':' . $email;
+        if (!RateLimiter::hit($rateKey, 5, 300)) {
+            Response::error('Too many login attempts. Try again later.', 429);
+        }
+
+        $user = $this->userModel->login($email, $data['password']);
         
         if ($user) {
-            $token = JWT::encode(['user_id' => $user['id']]);
+            RateLimiter::clear($rateKey);
+            $token = JWT::encode(['user_id' => $user['id'], 'token_version' => (int)$user['token_version']]);
             
             // Remove password from response
-            unset($user['password']);
+            unset($user['password'],$user['token_version'],$user['password_changed_at']);
             
             Response::success([
                 'user' => $user,
@@ -260,7 +299,7 @@ class AuthController {
             ], 'Login successful');
         }
         
-        Response::error('Invalid credentials', 401);
+        Response::error('Invalid email or password.', 401);
     }
 
     public function me() {
@@ -277,17 +316,19 @@ class AuthController {
     public function update() {
         $userId = Middleware::auth();
         $data = json_decode(file_get_contents('php://input'), true);
+        $existing = $this->userModel->findById($userId);
+        if (!$existing) Response::notFound('User not found');
         
         $userData = [
-            'first_name' => $data['first_name'] ?? '',
-            'last_name' => $data['last_name'] ?? '',
-            'phone' => $data['phone'] ?? '',
-            'avatar' => $data['avatar'] ?? '',
-            'currency' => $data['currency'] ?? 'NPR',
-            'language' => $data['language'] ?? 'en',
-            'theme' => $data['theme'] ?? 'light',
-            'notification_preferences' => json_encode($data['notification_preferences'] ?? []),
-            'settings' => json_encode($data['settings'] ?? [])
+            'first_name' => $data['first_name'] ?? $existing['first_name'],
+            'last_name' => $data['last_name'] ?? $existing['last_name'],
+            'phone' => $data['phone'] ?? $existing['phone'],
+            'avatar' => $data['avatar'] ?? $existing['avatar'],
+            'currency' => $data['currency'] ?? $existing['currency'],
+            'language' => $data['language'] ?? $existing['language'],
+            'theme' => $data['theme'] ?? $existing['theme'],
+            'notification_preferences' => array_key_exists('notification_preferences', $data) ? json_encode($data['notification_preferences']) : ($existing['notification_preferences'] ?: '[]'),
+            'settings' => array_key_exists('settings', $data) ? json_encode($data['settings']) : ($existing['settings'] ?: '[]')
         ];
 
         if ($this->userModel->update($userId, $userData)) {
@@ -298,25 +339,42 @@ class AuthController {
         Response::serverError('Update failed');
     }
 
+    public function uploadAvatar() {
+        $userId = Middleware::auth();
+        if (!isset($_FILES['avatar']) || $_FILES['avatar']['error'] !== UPLOAD_ERR_OK) {
+            Response::error('Please choose a valid profile photo.', 422);
+        }
+
+        $file = $_FILES['avatar'];
+        if ($file['size'] > 2 * 1024 * 1024) Response::error('Profile photo must be smaller than 2 MB.', 422);
+
+        $mime = (new finfo(FILEINFO_MIME_TYPE))->file($file['tmp_name']);
+        $extensions = ['image/jpeg' => 'jpg', 'image/png' => 'png', 'image/webp' => 'webp'];
+        if (!isset($extensions[$mime])) Response::error('Only JPG, PNG or WebP images are allowed.', 422);
+
+        $directory = __DIR__ . '/../uploads/avatars';
+        if (!is_dir($directory) && !mkdir($directory, 0755, true)) Response::serverError('Unable to save profile photo.');
+
+        $filename = 'user_' . $userId . '_' . bin2hex(random_bytes(8)) . '.' . $extensions[$mime];
+        if (!move_uploaded_file($file['tmp_name'], $directory . '/' . $filename)) Response::serverError('Unable to save profile photo.');
+
+        $avatar = 'uploads/avatars/' . $filename;
+        if (!$this->userModel->updateAvatar($userId, $avatar)) {
+            @unlink($directory . '/' . $filename);
+            Response::serverError('Unable to update profile photo.');
+        }
+
+        Response::success($this->userModel->findById($userId), 'Profile photo updated successfully');
+    }
+
     public function changePassword() {
         $userId = Middleware::auth();
         $data = json_decode(file_get_contents('php://input'), true);
-        
-        $errors = Middleware::validateRequired($data, ['current_password', 'new_password']);
-        if (!empty($errors)) {
-            Response::error('Validation failed', 422, $errors);
-        }
-
-        $user = $this->userModel->findById($userId);
-        
-        if (!password_verify($data['current_password'], $user['password'])) {
-            Response::error('Current password is incorrect', 401);
-        }
-
-        if ($this->userModel->updatePassword($userId, $data['new_password'])) {
-            Response::success(null, 'Password changed successfully');
-        }
-        
-        Response::serverError('Password change failed');
+        if(!is_array($data))Response::error('Validation failed',422,['request'=>'A valid JSON object is required']);
+        $rateKey='password-change:'.$userId.':'.($_SERVER['REMOTE_ADDR']??'unknown');
+        if(!RateLimiter::hit($rateKey,10,900))Response::error('Too many password change attempts. Try again later.',429);
+        try{$result=(new CredentialService($this->conn))->changePassword($userId,$data);RateLimiter::clear($rateKey);$token=JWT::encode(['user_id'=>$userId,'token_version'=>$result['token_version']]);Response::success(['token'=>$token,'session_policy'=>'other_sessions_revoked'],'Password changed successfully');}
+        catch(CredentialValidationException$e){Response::error($e->getMessage(),$e->status,$e->errors);}
+        catch(Throwable$e){error_log('Password change failed for authenticated user ID '.$userId);Response::serverError('Password change failed');}
     }
 }

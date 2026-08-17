@@ -1,5 +1,13 @@
 // Karobar API Module
 const karobarAPI = {
+    invalidatePersonCaches() {
+        ['/people', '/karobar', '/dashboard', '/reports']
+            .forEach(pattern => api.constructor.invalidateCache(pattern));
+    },
+    invalidateCreditPurchaseCaches() {
+        ['/karobar', '/people', '/transactions', '/accounts', '/dashboard', '/reports', '/ledger', '/budgets']
+            .forEach(pattern => api.constructor.invalidateCache(pattern));
+    },
     async getPeople(filters = {}) {
         const params = new URLSearchParams(filters);
         return api.get(`/people?${params}`);
@@ -10,19 +18,25 @@ const karobarAPI = {
     },
 
     async createPerson(data) {
-        return api.post('/people', data);
+        const result=await api.post('/people', data);
+        this.invalidatePersonCaches();
+        return result;
     },
 
     async updatePerson(id, data) {
-        return api.put(`/people/${id}`, data);
+        const result=await api.put(`/people/${id}`, data);
+        this.invalidatePersonCaches();
+        return result;
     },
 
     async deletePerson(id) {
-        return api.delete(`/people/${id}`);
+        const result=await api.delete(`/people/${id}`);
+        this.invalidatePersonCaches();
+        return result;
     },
 
-    async getPersonLedger(personId) {
-        return api.get(`/people/${personId}/ledger`);
+    async getPersonLedger(personId, options = {}) {
+        return api.get(`/people/${personId}/ledger`, options);
     },
 
     async getTransactions(filters = {}) {
@@ -35,15 +49,21 @@ const karobarAPI = {
     },
 
     async createTransaction(data) {
-        return api.post('/karobar', data);
+        const result = await api.post('/karobar', data);
+        this.invalidateCreditPurchaseCaches();
+        return result;
     },
 
     async updateTransaction(id, data) {
-        return api.put(`/karobar/${id}`, data);
+        const result = await api.put(`/karobar/${id}`, data);
+        this.invalidateCreditPurchaseCaches();
+        return result;
     },
 
-    async deleteTransaction(id) {
-        return api.delete(`/karobar/${id}`);
+    async deleteTransaction(id, version = null) {
+        const result = await api.delete(`/karobar/${id}`, version ? { base_version: version } : null);
+        this.invalidateCreditPurchaseCaches();
+        return result;
     },
 
     async getDashboard() {
@@ -65,11 +85,15 @@ const karobarAPI = {
     },
 
     async createRepayment(data) {
-        return api.post('/karobar/repayment', data);
+        const result = await api.post('/karobar/repayment', data);
+        this.invalidateCreditPurchaseCaches();
+        return result;
     },
 
     async createReceiving(data) {
-        return api.post('/karobar/receiving', data);
+        const result = await api.post('/karobar/receiving', data);
+        this.invalidateCreditPurchaseCaches();
+        return result;
     }
 };
 

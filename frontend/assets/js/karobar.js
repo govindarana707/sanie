@@ -11,6 +11,13 @@ class KarobarManager {
         this.dataTable = null;
         this._editingPersonId = null;
         this._editingTxId = null;
+        this._transactionSubmitting = false;
+        this._paymentRequestId = null;
+        this._profileRequestController = null;
+        this._profileRequestSequence = 0;
+        this._profileRouteSignal = null;
+        this._profileRouteAbortHandler = null;
+        this._requestedPersonId = null;
     }
 
     onMount() {
@@ -23,6 +30,9 @@ class KarobarManager {
             else if (page === 'karobar-people') this.loadPeople();
             else if (page === 'karobar-person-profile' && this.currentPerson?.id) this.loadPersonProfile(this.currentPerson.id);
             else if (page === 'karobar-transactions') this.loadTransactions();
+            else if (page === 'karobar-reports') this.loadReports();
+            else if (page === 'karobar-credit-reports') this.loadCreditReports();
+            else if (page === 'karobar-ai-analysis') this.loadAIAnalysis();
         });
         this.loadOverview();
     }
@@ -66,6 +76,17 @@ class KarobarManager {
     formatDate(dateStr) {
         if (!dateStr) return 'N/A';
         return Formatters ? Formatters.date(dateStr) : dateStr;
+    }
+
+    getLocalDateValue() {
+        const now = new Date();
+        const offset = now.getTimezoneOffset() * 60000;
+        return new Date(now.getTime() - offset).toISOString().slice(0, 10);
+    }
+
+    createClientRequestId() {
+        if (window.crypto?.randomUUID) return window.crypto.randomUUID();
+        return `karobar-${Date.now()}-${Math.random().toString(16).slice(2)}`;
     }
 
     getPersonInitials(name) {
@@ -139,6 +160,9 @@ class KarobarManager {
         const net = parseFloat(data.net_karobar) || 0;
         const peopleCount = parseInt(data.people_count) || 0;
         const overdue = parseFloat(data.overdue_amount) || 0;
+        const overdueCount = parseInt(data.overdue_count) || 0;
+        const overdueReceivable = parseFloat(data.overdue_receivable) || 0;
+        const overduePayable = parseFloat(data.overdue_payable) || 0;
         const largestDebtor = data.largest_debtor || null;
         const largestCreditor = data.largest_creditor || null;
         const recentTx = data.recent_transactions || [];
@@ -169,6 +193,14 @@ class KarobarManager {
                         <p class="stat-label">Net Karobar</p>
                         <p class="stat-value" style="color:${net >= 0 ? '#10B981' : '#EF4444'};">${this.formatCurrency(Math.abs(net))}</p>
                         <p class="stat-sub">${net >= 0 ? 'Net you will receive' : 'Net you need to pay'}</p>
+                    </div>
+                </div>
+                <div class="karobar-stat-card">
+                    <div class="karobar-stat-icon payable"><i class="fas fa-clock"></i></div>
+                    <div class="karobar-stat-content">
+                        <p class="stat-label">Overdue Outstanding</p>
+                        <p class="stat-value" style="color:#EF4444;">${this.formatCurrency(overdue)}</p>
+                        <p class="stat-sub">${overdueCount} item${overdueCount === 1 ? '' : 's'} · receive ${this.formatCurrency(overdueReceivable)} · pay ${this.formatCurrency(overduePayable)}</p>
                     </div>
                 </div>
             </div>
@@ -223,8 +255,8 @@ class KarobarManager {
         }
 
         return people.slice(0, 6).map(p => {
-            const balance = parseFloat(p.balance) || 0;
-            const balClass = this.getBalanceClass(balance);
+            const receivable = parseFloat(p.receivable_outstanding) || 0;
+            const payable = parseFloat(p.payable_outstanding) || 0;
             return `
                 <div class="d-flex align-items-center justify-content-between py-2 border-bottom" style="cursor:pointer;" onclick="window.karobarManager?.showPersonLedger(${p.id})">
                     <div class="d-flex align-items-center gap-2">
@@ -233,7 +265,10 @@ class KarobarManager {
                         </div>
                         <span class="fw-semibold" style="font-size:0.9rem;">${Formatters.escapeHTML(p.name)}</span>
                     </div>
-                    <span class="person-balance ${balClass}" style="font-size:0.95rem;">${this.formatCurrency(Math.abs(balance))}</span>
+                    <span class="text-end" style="font-size:0.85rem;">
+                        <span class="d-block balance-positive">Receive ${this.formatCurrency(receivable)}</span>
+                        <span class="d-block balance-negative">Pay ${this.formatCurrency(payable)}</span>
+                    </span>
                 </div>
             `;
         }).join('');
@@ -375,12 +410,16 @@ class KarobarManager {
 
         this.people.forEach(person => {
             const balance = parseFloat(person.balance) || 0;
-            const balClass = this.getBalanceClass(balance);
+            const receivable = parseFloat(person.receivable_outstanding) || 0;
+            const payable = parseFloat(person.payable_outstanding) || 0;
             const txCount = parseInt(person.transaction_count) || 0;
+            const positionStatus = receivable > 0 || payable > 0
+                ? '<span class="karobar-status-badge receivable"><i class="fas fa-circle" style="font-size:0.5rem;"></i> Active</span>'
+                : this.getStatusBadge(0);
 
             html += `
                 <div class="karobar-person-card" onclick="window.appRouter?.navigate('karobar-person-profile?id=${person.id}')">
-                    <div class="karobar-person-card person-status-badge">${this.getStatusBadge(balance)}</div>
+                    <div class="karobar-person-card person-status-badge">${positionStatus}</div>
                     <div class="d-flex align-items-center gap-3 mb-3">
                         <div class="person-avatar">${this.getPersonInitials(person.name)}</div>
                         <div>
@@ -393,8 +432,10 @@ class KarobarManager {
                     </div>
                     <div class="d-flex justify-content-between align-items-end">
                         <div>
-                            <div class="text-muted small">Outstanding Amount</div>
-                            <div class="person-balance ${balClass}">${this.formatCurrency(Math.abs(balance))}</div>
+                            <div class="text-muted small">Receivable</div>
+                            <div class="person-balance balance-positive">${this.formatCurrency(receivable)}</div>
+                            <div class="text-muted small mt-1">Payable</div>
+                            <div class="person-balance balance-negative">${this.formatCurrency(payable)}</div>
                         </div>
                         <div class="text-end">
                             <div class="text-muted small">${txCount} transaction${txCount !== 1 ? 's' : ''}</div>
@@ -569,20 +610,20 @@ class KarobarManager {
 
     async deletePerson(id) {
         const confirmed = await NotificationService.confirm({
-            title: 'Delete Person',
-            text: 'This will also delete all their transactions. Are you sure?',
-            confirmButtonText: 'Yes, Delete'
+            title: 'Remove Person',
+            text: 'If financial history exists, the person will be archived and all history and balances will be preserved. People without history are permanently deleted.',
+            confirmButtonText: 'Yes, Remove'
         });
         if (!confirmed) return;
 
         try {
             const result = await karobarAPI.deletePerson(id);
             if (result.success) {
-                NotificationService.success('Person deleted');
+                NotificationService.success(result.message || (result.data?.action === 'archived' ? 'Person archived; financial history preserved' : 'Person deleted'));
                 window.dispatchEvent(new CustomEvent('app:data-changed'));
             }
         } catch (error) {
-            NotificationService.error('Failed to delete person');
+            NotificationService.error(error?.message || 'Failed to remove person');
         }
     }
 
@@ -601,7 +642,8 @@ class KarobarManager {
             const ledger = result.data.ledger || [];
             const balance = parseFloat(result.data.balance) || 0;
             const person = this.currentPerson;
-            const balClass = this.getBalanceClass(balance);
+            const receivable = parseFloat(person.receivable_outstanding) || 0;
+            const payable = parseFloat(person.payable_outstanding) || 0;
 
             const ledgerRows = ledger.map(tx => {
                 const isDebit = ['lent', 'repaid'].includes(tx.type);
@@ -633,8 +675,12 @@ class KarobarManager {
                         </div>
                         <div class="d-flex gap-3 mt-3 flex-wrap">
                             <div>
-                                <span class="text-muted small">Outstanding Amount</span>
-                                <div class="person-balance ${balClass}" style="font-size:1.5rem;">${this.formatCurrency(Math.abs(balance))}</div>
+                                <span class="text-muted small">Receivable</span>
+                                <div class="person-balance balance-positive" style="font-size:1.25rem;">${this.formatCurrency(receivable)}</div>
+                            </div>
+                            <div>
+                                <span class="text-muted small">Payable</span>
+                                <div class="person-balance balance-negative" style="font-size:1.25rem;">${this.formatCurrency(payable)}</div>
                             </div>
                             <div>
                                 <span class="text-muted small">Total Lent</span>
@@ -663,7 +709,7 @@ class KarobarManager {
                 <div class="karobar-chart-container">
                     <div class="d-flex justify-content-between align-items-center mb-3">
                         <h5 class="mb-0"><i class="fas fa-book me-2 text-primary"></i>Ledger - ${Formatters.escapeHTML(person.name)}</h5>
-                        ${this.getStatusBadge(balance)}
+                        ${receivable > 0 || payable > 0 ? '<span class="karobar-status-badge receivable">Active</span>' : this.getStatusBadge(0)}
                     </div>
                     <div class="table-responsive">
                         <table class="karobar-ledger-table">
@@ -698,15 +744,59 @@ class KarobarManager {
     // ========================
     // PERSON PROFILE PAGE
     // ========================
-    async loadPersonProfile(personId) {
-        console.log('[Karobar] loadPersonProfile called with id:', personId);
+    cancelPersonProfileRequest(clearState = true) {
+        this._profileRequestSequence++;
+        if (this._profileRouteSignal && this._profileRouteAbortHandler) {
+            this._profileRouteSignal.removeEventListener?.('abort', this._profileRouteAbortHandler);
+        }
+        this._profileRequestController?.abort();
+        this._profileRequestController = null;
+        this._profileRouteAbortHandler = null;
+        if (clearState) {
+            this.currentPerson = null;
+            this._profileLedger = [];
+            this._profileBalance = 0;
+            this._requestedPersonId = null;
+        }
+    }
+
+    async loadPersonProfile(personId, routeContext = null) {
+        this.cancelPersonProfileRequest(true);
+        const requestedPersonId = String(Number(personId) || '');
+        const container = document.getElementById('karobar-person-profile-content');
+        this._requestedPersonId = requestedPersonId;
+        this._profileRouteSignal = routeContext?.signal || this._profileRouteSignal;
+        const isRouteCurrent = routeContext?.isCurrent || (() => window.appRouter?.currentPage === 'karobar-person-profile');
+        if (!requestedPersonId) {
+            if (container) container.innerHTML = '<div class="text-center py-5"><i class="fas fa-user-slash fa-2x text-warning mb-3"></i><p class="text-muted">Person not found.</p></div>';
+            return;
+        }
+        if (container) {
+            container.innerHTML = '<div class="text-center py-5" role="status"><div class="spinner-border text-primary" aria-hidden="true"></div><p class="text-muted mt-3">Loading person profile…</p></div>';
+        }
+        const controller = new AbortController();
+        this._profileRequestController = controller;
+        const sequence = ++this._profileRequestSequence;
+        if (this._profileRouteSignal?.aborted) controller.abort();
+        else if (this._profileRouteSignal) {
+            this._profileRouteAbortHandler = () => controller.abort();
+            this._profileRouteSignal.addEventListener('abort', this._profileRouteAbortHandler, { once: true });
+        }
+        const isCurrent = () => sequence === this._profileRequestSequence
+            && requestedPersonId === this._requestedPersonId
+            && !controller.signal.aborted
+            && isRouteCurrent();
         try {
-            const result = await karobarAPI.getPersonLedger(personId);
-            console.log('[Karobar] API result:', result);
+            const result = await karobarAPI.getPersonLedger(personId, { signal: controller.signal });
+            if (!isCurrent()) return;
             if (!result.success || !result.data) {
-                console.warn('[Karobar] No data returned, redirecting to people');
-                NotificationService.error('Person not found');
-                window.appRouter?.navigate('karobar-people');
+                this.currentPerson = null;
+                if (container) container.innerHTML = '<div class="text-center py-5"><i class="fas fa-user-slash fa-2x text-warning mb-3"></i><p class="text-muted">Person not found.</p></div>';
+                return;
+            }
+            if (String(result.data?.person?.id) !== requestedPersonId) {
+                this.currentPerson = null;
+                if (container) container.innerHTML = '<div class="text-center py-5"><i class="fas fa-user-slash fa-2x text-warning mb-3"></i><p class="text-muted">Person not found.</p></div>';
                 return;
             }
             this.currentPerson = result.data.person;
@@ -714,13 +804,21 @@ class KarobarManager {
             this._profileBalance = parseFloat(result.data.balance) || 0;
             this._profileSearch = '';
             this._profileFilter = 'all';
-            console.log('[Karobar] Rendering profile for:', this.currentPerson?.name);
             this.renderPersonProfile();
         } catch (error) {
-            console.error('[Karobar] Failed to load profile:', error);
-            const container = document.getElementById('karobar-person-profile-content');
+            if (!isCurrent() || error?.category === 'aborted_error' || error?.code === 'ABORTED_ERROR') return;
+            this.currentPerson = null;
             if (container) {
-                container.innerHTML = '<div class="text-center py-5"><i class="fas fa-exclamation-triangle fa-2x text-warning mb-3"></i><p class="text-muted">Failed to load profile. Please try again.</p><button class="btn btn-sm btn-outline-primary mt-2" onclick="window.appRouter?.navigate(\'karobar-people\')">Go Back</button></div>';
+                const message = [403, 404].includes(Number(error?.status)) ? 'Person not found.' : 'Failed to load profile. Please try again.';
+                container.innerHTML = `<div class="text-center py-5"><i class="fas fa-exclamation-triangle fa-2x text-warning mb-3"></i><p class="text-muted">${message}</p><button class="btn btn-sm btn-outline-primary mt-2" onclick="window.appRouter?.navigate('karobar-people')">Go Back</button></div>`;
+            }
+        } finally {
+            if (this._profileRequestController === controller) {
+                if (this._profileRouteSignal && this._profileRouteAbortHandler) {
+                    this._profileRouteSignal.removeEventListener?.('abort', this._profileRouteAbortHandler);
+                }
+                this._profileRequestController = null;
+                this._profileRouteAbortHandler = null;
             }
         }
     }
@@ -735,8 +833,9 @@ class KarobarManager {
 
         const balance = this._profileBalance;
         const ledger = this._profileLedger;
-        const balClass = this.getBalanceClass(balance);
-        const absBalance = Math.abs(balance);
+        const receivable = parseFloat(person.receivable_outstanding) || 0;
+        const payable = parseFloat(person.payable_outstanding) || 0;
+        const hasOutstanding = receivable > 0 || payable > 0;
 
         const totalBorrowed = parseFloat(person.total_borrowed) || 0;
         const totalLent = parseFloat(person.total_lent) || 0;
@@ -744,27 +843,23 @@ class KarobarManager {
         const totalRepaid = parseFloat(person.total_repaid) || 0;
         const txCount = parseInt(person.transaction_count) || 0;
 
-        let statusHTML = '';
-        if (balance > 0) statusHTML = '<span class="karobar-status-badge payable"><i class="fas fa-circle" style="font-size:0.5rem;"></i> Need to Pay</span>';
-        else if (balance < 0) statusHTML = '<span class="karobar-status-badge receivable"><i class="fas fa-circle" style="font-size:0.5rem;"></i> Will Receive</span>';
-        else statusHTML = '<span class="karobar-status-badge settled"><i class="fas fa-circle" style="font-size:0.5rem;"></i> Settled</span>';
+        const statusHTML = hasOutstanding
+            ? '<span class="karobar-status-badge receivable"><i class="fas fa-circle" style="font-size:0.5rem;"></i> Active</span>'
+            : '<span class="karobar-status-badge settled"><i class="fas fa-circle" style="font-size:0.5rem;"></i> Settled</span>';
 
-        let balanceMsg = '';
-        if (balance > 0) balanceMsg = `<div class="d-flex align-items-center gap-2 p-3 rounded-3" style="background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.15);"><span style="font-size:1.5rem;">&#x1F534;</span><span class="fw-semibold" style="color:#DC2626;">You need to pay ${this.formatCurrency(absBalance)} to this person.</span></div>`;
-        else if (balance < 0) balanceMsg = `<div class="d-flex align-items-center gap-2 p-3 rounded-3" style="background:rgba(16,185,129,0.08);border:1px solid rgba(16,185,129,0.15);"><span style="font-size:1.5rem;">&#x1F7E2;</span><span class="fw-semibold" style="color:#059669;">You will receive ${this.formatCurrency(absBalance)} from this person.</span></div>`;
-        else balanceMsg = `<div class="d-flex align-items-center gap-2 p-3 rounded-3" style="background:rgba(156,163,175,0.08);border:1px solid rgba(156,163,175,0.15);"><span style="font-size:1.5rem;">&#x26AA;</span><span class="fw-semibold text-muted">All balances have been settled.</span></div>`;
+        const balanceMsg = hasOutstanding
+            ? `<div class="d-flex gap-4 flex-wrap p-3 rounded-3" style="background:rgba(99,102,241,0.06);border:1px solid rgba(99,102,241,0.15);"><span class="fw-semibold" style="color:#059669;">You will receive ${this.formatCurrency(receivable)}.</span><span class="fw-semibold" style="color:#DC2626;">You need to pay ${this.formatCurrency(payable)}.</span></div>`
+            : `<div class="d-flex align-items-center gap-2 p-3 rounded-3" style="background:rgba(156,163,175,0.08);border:1px solid rgba(156,163,175,0.15);"><span style="font-size:1.5rem;">&#x26AA;</span><span class="fw-semibold text-muted">All balances have been settled.</span></div>`;
 
-        const outstandingCard = balance > 0
-            ? `<div class="profile-outstanding-card payable">
-                    <div class="outstanding-label"><i class="fas fa-arrow-up me-1"></i> You Need to Pay</div>
-                    <div class="outstanding-amount" style="color:#DC2626;">${this.formatCurrency(absBalance)}</div>
-                    <button class="btn btn-danger btn-lg w-100 mt-3" onclick="window.karobarManager?.showRepaymentModal(${person.id}, ${absBalance})"><i class="fas fa-paper-plane me-2"></i>Pay Now</button>
-               </div>`
-            : balance < 0
+        const outstandingCard = hasOutstanding
             ? `<div class="profile-outstanding-card receivable">
                     <div class="outstanding-label"><i class="fas fa-arrow-down me-1"></i> You Will Receive</div>
-                    <div class="outstanding-amount" style="color:#059669;">${this.formatCurrency(absBalance)}</div>
-                    <button class="btn btn-success btn-lg w-100 mt-3" onclick="window.karobarManager?.showReceivingModal(${person.id}, ${absBalance})"><i class="fas fa-hand-holding-usd me-2"></i>Receive Payment</button>
+                    <div class="outstanding-amount" style="color:#059669;">${this.formatCurrency(receivable)}</div>
+                    ${receivable > 0 ? `<button class="btn btn-success w-100 mt-3" onclick="window.karobarManager?.showReceivingModal(${person.id}, ${receivable})"><i class="fas fa-hand-holding-usd me-2"></i>Receive Payment</button>` : ''}
+                    <hr>
+                    <div class="outstanding-label"><i class="fas fa-arrow-up me-1"></i> You Need to Pay</div>
+                    <div class="outstanding-amount" style="color:#DC2626;">${this.formatCurrency(payable)}</div>
+                    ${payable > 0 ? `<button class="btn btn-danger w-100 mt-3" onclick="window.karobarManager?.showRepaymentModal(${person.id}, ${payable})"><i class="fas fa-paper-plane me-2"></i>Pay Now</button>` : ''}
                </div>`
             : `<div class="profile-outstanding-card settled">
                     <div class="outstanding-label"><i class="fas fa-check-circle me-1"></i> Settled</div>
@@ -778,8 +873,8 @@ class KarobarManager {
             const isDebit = ['lent', 'repaid'].includes(tx.type);
             const isCredit = ['borrowed', 'returned'].includes(tx.type);
             runningBal = parseFloat(tx.running_balance) || 0;
-            const rbClass = runningBal > 0 ? 'text-danger fw-bold' : (runningBal < 0 ? 'text-success fw-bold' : 'text-muted fw-bold');
-            const statusLabel = runningBal > 0 ? '<span class="badge bg-danger-subtle text-danger">Need to Pay</span>' : (runningBal < 0 ? '<span class="badge bg-success-subtle text-success">Will Receive</span>' : '<span class="badge bg-secondary-subtle text-secondary">Settled</span>');
+            const rbClass = runningBal > 0 ? 'text-success fw-bold' : (runningBal < 0 ? 'text-danger fw-bold' : 'text-muted fw-bold');
+            const statusLabel = runningBal > 0 ? '<span class="badge bg-success-subtle text-success">Will Receive</span>' : (runningBal < 0 ? '<span class="badge bg-danger-subtle text-danger">Need to Pay</span>' : '<span class="badge bg-secondary-subtle text-secondary">Settled</span>');
 
             return `
                 <tr class="profile-ledger-row">
@@ -840,17 +935,17 @@ class KarobarManager {
 
             <div class="row g-3 mb-4">
                 <div class="col-md-3 col-6">
-                    <div class="profile-stat-card ${balClass}">
+                    <div class="profile-stat-card balance-positive">
                         <div class="profile-stat-icon"><i class="fas fa-wallet"></i></div>
-                        <div class="profile-stat-value ${balClass}">${this.formatCurrency(Math.abs(balance))}</div>
-                        <div class="profile-stat-label">${balance > 0 ? 'They need to pay you' : (balance < 0 ? 'You need to pay them' : 'Settled')}</div>
+                        <div class="profile-stat-value balance-positive">${this.formatCurrency(receivable)}</div>
+                        <div class="profile-stat-label">Outstanding Receivable</div>
                     </div>
                 </div>
                 <div class="col-md-3 col-6">
                     <div class="profile-stat-card borrowed">
                         <div class="profile-stat-icon"><i class="fas fa-arrow-down"></i></div>
-                        <div class="profile-stat-value">${this.formatCurrency(totalBorrowed)}</div>
-                        <div class="profile-stat-label">Money Taken From Them</div>
+                        <div class="profile-stat-value">${this.formatCurrency(payable)}</div>
+                        <div class="profile-stat-label">Outstanding Payable</div>
                     </div>
                 </div>
                 <div class="col-md-3 col-6">
@@ -876,8 +971,8 @@ class KarobarManager {
                     <div class="profile-quick-actions mb-4">
                         <button class="btn btn-primary" onclick="window.karobarManager?.showQuickTxModal(${person.id}, 'borrowed')"><i class="fas fa-plus me-1"></i> Money Taken</button>
                         <button class="btn btn-success" onclick="window.karobarManager?.showQuickTxModal(${person.id}, 'lent')"><i class="fas fa-plus me-1"></i> Money Given</button>
-                        <button class="btn btn-info text-white" onclick="window.karobarManager?.showReceivingModal(${person.id}, ${Math.abs(balance < 0 ? balance : 0)})"><i class="fas fa-hand-holding-usd me-1"></i> Receive Payment</button>
-                        <button class="btn btn-warning" onclick="window.karobarManager?.showRepaymentModal(${person.id}, ${Math.abs(balance > 0 ? balance : 0)})"><i class="fas fa-paper-plane me-1"></i> Paid Back</button>
+                        <button class="btn btn-info text-white" onclick="window.karobarManager?.showReceivingModal(${person.id}, ${receivable})" ${receivable <= 0 ? 'disabled' : ''}><i class="fas fa-hand-holding-usd me-1"></i> Receive Payment</button>
+                        <button class="btn btn-warning" onclick="window.karobarManager?.showRepaymentModal(${person.id}, ${payable})" ${payable <= 0 ? 'disabled' : ''}><i class="fas fa-paper-plane me-1"></i> Paid Back</button>
                     </div>
 
                     <div class="profile-chart-card mb-4">
@@ -1077,6 +1172,13 @@ class KarobarManager {
     }
 
     showRepaymentModal(personId, outstandingAmount) {
+        outstandingAmount = Number(outstandingAmount);
+        if (!Number.isFinite(outstandingAmount) || outstandingAmount <= 0) {
+            NotificationService.error('There is no outstanding debt to repay.');
+            return;
+        }
+        const clientRequestId = this.createClientRequestId();
+        let submitting = false;
         if (!this.people || this.people.length === 0) {
             karobarAPI.getPeople().then(r => { if (r.success) this.people = r.data; });
         }
@@ -1099,7 +1201,7 @@ class KarobarManager {
                     <div class="col-md-6">
                         <div class="form-group">
                             <label class="form-label fw-semibold">Date</label>
-                            <input type="date" id="profile-repay-date" class="form-control" value="${new Date().toISOString().split('T')[0]}">
+                            <input type="date" id="profile-repay-date" class="form-control" value="${this.getLocalDateValue()}" required>
                         </div>
                     </div>
                     <div class="col-12">
@@ -1120,15 +1222,26 @@ class KarobarManager {
                 showFooter: true,
                 saveText: '<i class="fas fa-check me-1"></i> Confirm Payment',
                 onSave: async () => {
+                    if (submitting) return;
+                    const form = document.getElementById('profile-repay-form');
+                    if (!form?.checkValidity()) { form?.reportValidity(); return; }
                     const amount = parseFloat(document.getElementById('profile-repay-amount')?.value);
-                    if (!amount || amount <= 0) { NotificationService.error('Enter valid amount'); return; }
+                    if (!Number.isFinite(amount) || amount <= 0 || amount > outstandingAmount) {
+                        NotificationService.error(amount > outstandingAmount ? 'Payment exceeds the outstanding balance.' : 'Enter a valid positive amount.');
+                        return;
+                    }
                     const data = {
                         person_id: personId,
                         amount,
                         account_id: document.getElementById('profile-repay-account')?.value ? parseInt(document.getElementById('profile-repay-account').value) : null,
-                        transaction_date: document.getElementById('profile-repay-date')?.value || new Date().toISOString().split('T')[0],
-                        description: document.getElementById('profile-repay-desc')?.value || 'Paid Back'
+                        transaction_date: document.getElementById('profile-repay-date')?.value || this.getLocalDateValue(),
+                        description: document.getElementById('profile-repay-desc')?.value || 'Paid Back',
+                        client_request_id: clientRequestId,
                     };
+                    if (!data.account_id) { NotificationService.error('Select a payment account.'); return; }
+                    const saveBtn = document.getElementById('modal-save-btn');
+                    submitting = true;
+                    AjaxService?.showButtonLoading(saveBtn);
                     try {
                         const result = await karobarAPI.createRepayment(data);
                         if (result.success) {
@@ -1139,7 +1252,12 @@ class KarobarManager {
                         } else {
                             NotificationService.error(result.message || 'Payment failed');
                         }
-                    } catch (e) { NotificationService.error('Payment failed'); }
+                    } catch (e) {
+                        NotificationService.error(e?.message || 'Payment failed');
+                    } finally {
+                        submitting = false;
+                        AjaxService?.hideButtonLoading(saveBtn);
+                    }
                 }
             });
             this.loadAccountsForKarobarForm('profile-repay-account');
@@ -1147,6 +1265,13 @@ class KarobarManager {
     }
 
     showReceivingModal(personId, outstandingAmount) {
+        outstandingAmount = Number(outstandingAmount);
+        if (!Number.isFinite(outstandingAmount) || outstandingAmount <= 0) {
+            NotificationService.error('There is no outstanding receivable to collect.');
+            return;
+        }
+        const clientRequestId = this.createClientRequestId();
+        let submitting = false;
         if (!this.people || this.people.length === 0) {
             karobarAPI.getPeople().then(r => { if (r.success) this.people = r.data; });
         }
@@ -1169,7 +1294,7 @@ class KarobarManager {
                     <div class="col-md-6">
                         <div class="form-group">
                             <label class="form-label fw-semibold">Date</label>
-                            <input type="date" id="profile-receive-date" class="form-control" value="${new Date().toISOString().split('T')[0]}">
+                            <input type="date" id="profile-receive-date" class="form-control" value="${this.getLocalDateValue()}" required>
                         </div>
                     </div>
                     <div class="col-12">
@@ -1190,15 +1315,26 @@ class KarobarManager {
                 showFooter: true,
                 saveText: '<i class="fas fa-check me-1"></i> Confirm Receipt',
                 onSave: async () => {
+                    if (submitting) return;
+                    const form = document.getElementById('profile-receive-form');
+                    if (!form?.checkValidity()) { form?.reportValidity(); return; }
                     const amount = parseFloat(document.getElementById('profile-receive-amount')?.value);
-                    if (!amount || amount <= 0) { NotificationService.error('Enter valid amount'); return; }
+                    if (!Number.isFinite(amount) || amount <= 0 || amount > outstandingAmount) {
+                        NotificationService.error(amount > outstandingAmount ? 'Receiving amount exceeds the outstanding balance.' : 'Enter a valid positive amount.');
+                        return;
+                    }
                     const data = {
                         person_id: personId,
                         amount,
                         account_id: document.getElementById('profile-receive-account')?.value ? parseInt(document.getElementById('profile-receive-account').value) : null,
-                        transaction_date: document.getElementById('profile-receive-date')?.value || new Date().toISOString().split('T')[0],
-                        description: document.getElementById('profile-receive-desc')?.value || 'Payment received'
+                        transaction_date: document.getElementById('profile-receive-date')?.value || this.getLocalDateValue(),
+                        description: document.getElementById('profile-receive-desc')?.value || 'Payment received',
+                        client_request_id: clientRequestId,
                     };
+                    if (!data.account_id) { NotificationService.error('Select a deposit account.'); return; }
+                    const saveBtn = document.getElementById('modal-save-btn');
+                    submitting = true;
+                    AjaxService?.showButtonLoading(saveBtn);
                     try {
                         const result = await karobarAPI.createReceiving(data);
                         if (result.success) {
@@ -1209,7 +1345,12 @@ class KarobarManager {
                         } else {
                             NotificationService.error(result.message || 'Failed');
                         }
-                    } catch (e) { NotificationService.error('Failed'); }
+                    } catch (e) {
+                        NotificationService.error(e?.message || 'Receiving failed');
+                    } finally {
+                        submitting = false;
+                        AjaxService?.hideButtonLoading(saveBtn);
+                    }
                 }
             });
             this.loadAccountsForKarobarForm('profile-receive-account');
@@ -1374,6 +1515,7 @@ class KarobarManager {
 
     async showAddTransactionModal(personId = null) {
         this._editingTxId = null;
+        this._paymentRequestId = this.createClientRequestId();
 
         if (!this.people || this.people.length === 0) {
             try {
@@ -1410,6 +1552,8 @@ class KarobarManager {
             }
             const tx = result.data;
             this._editingTxId = id;
+            this._editingTxVersion = Number(tx.version) || null;
+            this._editingCreditPurchase = Boolean(tx.payment_method === 'credit' && tx.expense_transaction_id);
 
             if (!this.people || this.people.length === 0) {
                 try {
@@ -1441,10 +1585,13 @@ class KarobarManager {
     }
 
     _getTransactionFormHTML(personId = null, tx = null) {
-        const personOptions = (this.people || []).map(p => {
+        let personOptions = (this.people || []).map(p => {
             const selected = (tx && tx.person_id == p.id) || (personId && personId == p.id) ? 'selected' : '';
             return `<option value="${p.id}" ${selected}>${Formatters.escapeHTML(p.name)}</option>`;
         }).join('');
+        if(tx&&!(this.people||[]).some(p=>p.id==tx.person_id)){
+            personOptions+=`<option value="${tx.person_id}" selected>${Formatters.escapeHTML(tx.person_name||'Archived person')} (Archived)</option>`;
+        }
 
         return `
             <form id="karobar-tx-form">
@@ -1461,7 +1608,7 @@ class KarobarManager {
                     <div class="col-md-6">
                         <div class="form-group">
                             <label class="form-label fw-semibold">Type <span class="text-danger">*</span></label>
-                            <select id="kt-type" class="form-select" required>
+                            <select id="kt-type" class="form-select" required ${tx && tx.payment_method === 'credit' && tx.expense_transaction_id ? 'disabled' : ''}>
                                 <option value="lent" ${tx && tx.type === 'lent' ? 'selected' : ''}>Money Lent (I gave)</option>
                                 <option value="borrowed" ${tx && tx.type === 'borrowed' ? 'selected' : ''}>Money Borrowed (I received)</option>
                                 <option value="returned" ${tx && tx.type === 'returned' ? 'selected' : ''}>Money Returned (They gave back)</option>
@@ -1481,16 +1628,16 @@ class KarobarManager {
                     </div>
                     <div class="col-md-6">
                         <div class="form-group">
-                            <label class="form-label fw-semibold">Account</label>
-                            <select id="kt-account" class="form-select">
-                                <option value="">Select account (optional)</option>
+                            <label class="form-label fw-semibold">Account ${tx && tx.payment_method === 'credit' && tx.expense_transaction_id ? '' : '<span class="text-danger">*</span>'}</label>
+                            <select id="kt-account" class="form-select" ${tx && tx.payment_method === 'credit' && tx.expense_transaction_id ? 'disabled' : 'required'}>
+                                <option value="">Select account</option>
                             </select>
                         </div>
                     </div>
                     <div class="col-md-6">
                         <div class="form-group">
                             <label class="form-label fw-semibold">Transaction Date <span class="text-danger">*</span></label>
-                            <input type="date" id="kt-date" class="form-control" value="${tx ? tx.transaction_date : new Date().toISOString().split('T')[0]}" required>
+                            <input type="date" id="kt-date" class="form-control" value="${tx ? tx.transaction_date : this.getLocalDateValue()}" required>
                         </div>
                     </div>
                     <div class="col-md-6">
@@ -1533,6 +1680,7 @@ class KarobarManager {
     }
 
     async saveTransaction() {
+        if (this._transactionSubmitting) return;
         const form = document.getElementById('karobar-tx-form');
         if (!form.checkValidity()) { form.reportValidity(); return; }
 
@@ -1545,8 +1693,17 @@ class KarobarManager {
             due_date: document.getElementById('kt-due-date')?.value || null,
             description: document.getElementById('kt-description').value.trim()
         };
+        if (!this._editingTxId && ['repaid', 'returned'].includes(data.type)) {
+            data.client_request_id = this._paymentRequestId || (this._paymentRequestId = this.createClientRequestId());
+        }
+        if (this._editingTxId && this._editingCreditPurchase) {
+            data.base_version = this._editingTxVersion;
+            data.payment_method = 'credit';
+            data.account_id = null;
+        }
 
         const saveBtn = document.querySelector('#modal-footer .btn-primary');
+        this._transactionSubmitting = true;
         AjaxService?.showButtonLoading(saveBtn);
         try {
             let result;
@@ -1558,20 +1715,34 @@ class KarobarManager {
 
             if (result.success) {
                 NotificationService.success(this._editingTxId ? 'Transaction updated' : 'Transaction recorded');
+                if (!this._editingTxId && ['repaid', 'returned'].includes(data.type)) this._paymentRequestId = null;
                 this._editingTxId = null;
+                this._editingTxVersion = null;
+                this._editingCreditPurchase = false;
                 if (window.modalService) modalService.close();
                 window.dispatchEvent(new CustomEvent('app:data-changed'));
             } else {
                 NotificationService.error(result.message || 'Failed to save transaction');
             }
         } catch (error) {
-            NotificationService.error('Failed to save transaction');
+            NotificationService.error(error?.message || 'Failed to save transaction');
         } finally {
+            this._transactionSubmitting = false;
             AjaxService?.hideButtonLoading(saveBtn);
         }
     }
 
     async deleteTransaction(id) {
+        let version = null;
+        try {
+            const current = await karobarAPI.getTransaction(id);
+            if (current.success && current.data?.payment_method === 'credit' && current.data?.expense_transaction_id) {
+                version = Number(current.data.version) || null;
+            }
+        } catch (error) {
+            NotificationService.error('Failed to load the latest transaction');
+            return;
+        }
         const confirmed = await NotificationService.confirm({
             title: 'Delete Transaction',
             text: 'Are you sure you want to delete this transaction?',
@@ -1580,13 +1751,13 @@ class KarobarManager {
         if (!confirmed) return;
 
         try {
-            const result = await karobarAPI.deleteTransaction(id);
+            const result = await karobarAPI.deleteTransaction(id, version);
             if (result.success) {
                 NotificationService.success('Transaction deleted');
                 window.dispatchEvent(new CustomEvent('app:data-changed'));
             }
         } catch (error) {
-            NotificationService.error('Failed to delete transaction');
+            NotificationService.error(error?.message || 'Failed to delete transaction');
         }
     }
 
@@ -1623,18 +1794,18 @@ class KarobarManager {
         const outstanding = data.outstanding_report || [];
         const monthly = data.monthly_credit_report || [];
 
-        const totalRecAmt = receivable.reduce((s, r) => s + parseFloat(r.amount || 0), 0);
-        const totalPayAmt = payable.reduce((s, r) => s + parseFloat(r.amount || 0), 0);
+        const totalRecAmt = receivable.reduce((s, r) => s + parseFloat(r.outstanding_amount || 0), 0);
+        const totalPayAmt = payable.reduce((s, r) => s + parseFloat(r.outstanding_amount || 0), 0);
 
         let html = `
             <div class="karobar-report-summary mb-4">
                 <div class="karobar-report-card">
                     <div class="report-value" style="color:#EF4444;">${this.formatCurrency(totalRecAmt)}</div>
-                    <div class="report-label">Total Lent (Receivable)</div>
+                    <div class="report-label">Outstanding Receivable</div>
                 </div>
                 <div class="karobar-report-card">
                     <div class="report-value" style="color:#10B981;">${this.formatCurrency(totalPayAmt)}</div>
-                    <div class="report-label">Total Borrowed (Payable)</div>
+                    <div class="report-label">Outstanding Payable</div>
                 </div>
                 <div class="karobar-report-card">
                     <div class="report-value">${receivable.length + payable.length}</div>
@@ -1660,7 +1831,7 @@ class KarobarManager {
                                             <td>${this.formatDate(tx.transaction_date)}</td>
                                             <td class="fw-semibold">${Formatters.escapeHTML(tx.person_name || 'Unknown')}</td>
                                             <td><span class="badge bg-secondary">${tx.person_type || 'person'}</span></td>
-                                            <td class="fw-bold" style="color:#EF4444;">${this.formatCurrency(tx.amount)}</td>
+                                            <td class="fw-bold" style="color:#EF4444;" title="Original: ${this.formatCurrency(tx.original_amount)}">${this.formatCurrency(tx.outstanding_amount)}</td>
                                             <td>${tx.is_overdue ? '<span class="badge bg-danger">Overdue</span>' : '<span class="badge bg-success">Active</span>'}</td>
                                         </tr>
                                     `).join('')}
@@ -1682,7 +1853,7 @@ class KarobarManager {
                                             <td>${this.formatDate(tx.transaction_date)}</td>
                                             <td class="fw-semibold">${Formatters.escapeHTML(tx.person_name || 'Unknown')}</td>
                                             <td><span class="badge bg-secondary">${tx.person_type || 'person'}</span></td>
-                                            <td class="fw-bold" style="color:#10B981;">${this.formatCurrency(tx.amount)}</td>
+                                            <td class="fw-bold" style="color:#10B981;" title="Original: ${this.formatCurrency(tx.original_amount)}">${this.formatCurrency(tx.outstanding_amount)}</td>
                                             <td>${tx.is_overdue ? '<span class="badge bg-danger">Overdue</span>' : '<span class="badge bg-warning text-dark">Pending</span>'}</td>
                                         </tr>
                                     `).join('')}
@@ -1763,6 +1934,10 @@ class KarobarManager {
     // AI ANALYSIS
     // ========================
     async loadAIAnalysis() {
+        const container = document.getElementById('karobar-ai-analysis-content');
+        if (container) {
+            container.innerHTML = '<div class="text-center py-5"><div class="spinner-border text-primary" role="status"></div><p class="text-muted mt-3">Analyzing your karobar data...</p></div>';
+        }
         try {
             const result = await karobarAPI.getAIAnalysis();
             if (result.success) {
@@ -1860,14 +2035,14 @@ class KarobarManager {
                     <div class="karobar-chart-container">
                         <h5><i class="fas fa-lightbulb me-2 text-warning"></i>AI Insights</h5>
                         ${insights.length === 0 ? '<p class="text-muted text-center py-3">No insights available yet</p>' :
-                        insights.map(i => `<div class="d-flex align-items-start gap-2 mb-3"><i class="fas fa-info-circle text-primary mt-1"></i><p class="mb-0">${i}</p></div>`).join('')}
+                        insights.map(i => `<div class="d-flex align-items-start gap-2 mb-3"><i class="fas fa-info-circle text-primary mt-1"></i><p class="mb-0">${Formatters.escapeHTML(i)}</p></div>`).join('')}
                     </div>
                 </div>
                 <div class="col-lg-6">
                     <div class="karobar-chart-container">
                         <h5><i class="fas fa-rocket me-2 text-primary"></i>Recommendations</h5>
                         ${recommendations.length === 0 ? '<p class="text-muted text-center py-3">No recommendations yet</p>' :
-                        recommendations.map(r => `<div class="d-flex align-items-start gap-2 mb-3"><i class="fas fa-check-circle text-success mt-1"></i><p class="mb-0">${r}</p></div>`).join('')}
+                        recommendations.map(r => `<div class="d-flex align-items-start gap-2 mb-3"><i class="fas fa-check-circle text-success mt-1"></i><p class="mb-0">${Formatters.escapeHTML(r)}</p></div>`).join('')}
                     </div>
                 </div>
             </div>
@@ -1904,13 +2079,13 @@ class KarobarManager {
     // ========================
     async loadReports() {
         try {
-            const [dashboardResult, txResult] = await Promise.all([
+            const [dashboardResult, reportResult] = await Promise.all([
                 karobarAPI.getDashboard(),
-                karobarAPI.getTransactions({})
+                karobarAPI.getCreditReports({ report_type: 'all' })
             ]);
 
             const data = dashboardResult.success ? dashboardResult.data : null;
-            const transactions = txResult.success ? txResult.data : [];
+            const transactions = reportResult.success ? reportResult.data : null;
 
             this.renderReportsPage(data, transactions);
         } catch (error) {
@@ -1928,8 +2103,8 @@ class KarobarManager {
         const net = dashData ? parseFloat(dashData.net_karobar) || 0 : 0;
         const peopleCount = dashData ? parseInt(dashData.people_count) || 0 : 0;
 
-        const receivableTx = transactions.filter(t => t.type === 'lent');
-        const payableTx = transactions.filter(t => t.type === 'borrowed');
+        const receivableTx = transactions?.receivable_report || [];
+        const payableTx = transactions?.payable_report || [];
         const monthlyData = dashData?.monthly_data || [];
         const peopleBalances = dashData?.people_balances || [];
 
@@ -1967,8 +2142,8 @@ class KarobarManager {
                                         <tr>
                                             <td>${this.formatDate(tx.transaction_date)}</td>
                                             <td class="fw-semibold">${Formatters.escapeHTML(tx.person_name || 'Unknown')}</td>
-                                            <td class="fw-bold" style="color:#EF4444;">${this.formatCurrency(tx.amount)}</td>
-                                            <td>${tx.due_date && new Date(tx.due_date) < new Date() ? '<span class="badge bg-danger">Overdue</span>' : '<span class="badge bg-success">Active</span>'}</td>
+                                            <td class="fw-bold" style="color:#EF4444;" title="Original: ${this.formatCurrency(tx.original_amount)}">${this.formatCurrency(tx.outstanding_amount)}</td>
+                                            <td>${tx.is_overdue ? '<span class="badge bg-danger">Overdue</span>' : '<span class="badge bg-success">Active</span>'}</td>
                                         </tr>
                                     `).join('')}
                                 </tbody>
@@ -1989,8 +2164,8 @@ class KarobarManager {
                                         <tr>
                                             <td>${this.formatDate(tx.transaction_date)}</td>
                                             <td class="fw-semibold">${Formatters.escapeHTML(tx.person_name || 'Unknown')}</td>
-                                            <td class="fw-bold" style="color:#10B981;">${this.formatCurrency(tx.amount)}</td>
-                                            <td>${tx.due_date && new Date(tx.due_date) < new Date() ? '<span class="badge bg-danger">Overdue</span>' : '<span class="badge bg-warning text-dark">Pending</span>'}</td>
+                                            <td class="fw-bold" style="color:#10B981;" title="Original: ${this.formatCurrency(tx.original_amount)}">${this.formatCurrency(tx.outstanding_amount)}</td>
+                                            <td>${tx.is_overdue ? '<span class="badge bg-danger">Overdue</span>' : '<span class="badge bg-warning text-dark">Pending</span>'}</td>
                                         </tr>
                                     `).join('')}
                                 </tbody>
@@ -2052,9 +2227,9 @@ class KarobarManager {
                 });
             }
 
-            const positiveCount = peopleBalances.filter(p => parseFloat(p.balance) > 0).length;
-            const negativeCount = peopleBalances.filter(p => parseFloat(p.balance) < 0).length;
-            const settledCount = peopleBalances.filter(p => parseFloat(p.balance) === 0).length;
+            const positiveCount = peopleBalances.filter(p => parseFloat(p.receivable_outstanding) > 0).length;
+            const negativeCount = peopleBalances.filter(p => parseFloat(p.payable_outstanding) > 0).length;
+            const settledCount = peopleBalances.filter(p => parseFloat(p.receivable_outstanding) === 0 && parseFloat(p.payable_outstanding) === 0).length;
 
             ChartService.create('#karobar-report-dist-chart', {
                 series: [positiveCount, negativeCount, settledCount],

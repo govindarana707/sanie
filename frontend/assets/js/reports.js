@@ -3,6 +3,9 @@ class ReportsManager {
         this._mounted = false;
         this._data = null;
         this._loading = false;
+        this._incomeExpensePage = 1;
+        this._incomeExpenseLimit = 50;
+        this._reportRange = { start_date: '2026-01-01', end_date: '2026-12-31' };
     }
 
     onMount() {
@@ -37,13 +40,12 @@ class ReportsManager {
         showLoading();
 
         try {
-            const startDate = '2026-01-01';
-            const endDate = '2026-12-31';
-            const params = new URLSearchParams({ start_date: startDate, end_date: endDate });
+            const params = new URLSearchParams({ ...this._reportRange, page: this._incomeExpensePage, limit: this._incomeExpenseLimit });
+            const aggregateParams = new URLSearchParams(this._reportRange);
 
             const [ieRes, cbRes, bhRes] = await Promise.all([
                 api.get(`/reports/income-expense?${params}`),
-                api.get(`/reports/category-breakdown?${params}`),
+                api.get(`/reports/category-breakdown?${aggregateParams}`),
                 api.get(`/reports/budget-health`)
             ]);
 
@@ -214,8 +216,36 @@ class ReportsManager {
             </tr>`;
         });
 
-        html += `</tbody></table></div>`;
+        const pagination = data.pagination || {};
+        html += `</tbody></table></div>
+            <div class="d-flex align-items-center justify-content-between mt-3" id="income-expense-pagination">
+                <small class="text-muted">Page ${pagination.page || 1} of ${pagination.total_pages || 0} · ${(pagination.total_rows || 0).toLocaleString('en-IN')} matching rows</small>
+                <div class="btn-group btn-group-sm">
+                    <button class="btn btn-outline-secondary" ${pagination.has_previous ? '' : 'disabled'} onclick="reportsManager.goToIncomeExpensePage(${(pagination.page || 1) - 1})">Previous</button>
+                    <button class="btn btn-outline-secondary" ${pagination.has_next ? '' : 'disabled'} onclick="reportsManager.goToIncomeExpensePage(${(pagination.page || 1) + 1})">Next</button>
+                </div>
+            </div>`;
         el.innerHTML = html;
+    }
+
+    async goToIncomeExpensePage(page) {
+        if (page < 1 || this._loading) return;
+        this._incomeExpensePage = page;
+        await this.loadReportData();
+    }
+
+    async _allIncomeExpenseData() {
+        const current = this._data?.incomeExpense;
+        if (!current) return null;
+        const totalPages = Math.ceil((current.pagination?.total_rows || 0) / 200);
+        const rows = [];
+        for (let page = 1; page <= totalPages; page++) {
+            const params = new URLSearchParams({ ...this._reportRange, page, limit: 200 });
+            const response = await api.get(`/reports/income-expense?${params}`);
+            if (!response.success) throw new Error(response.message || 'Could not load complete report export');
+            rows.push(...(response.data.rows || []));
+        }
+        return { ...current, rows };
     }
 
     renderCategoryBreakdown() {
@@ -335,7 +365,7 @@ class ReportsManager {
                     <div class="d-flex align-items-center justify-content-between mb-2">
                         <div>
                             <span class="fw-semibold">${this._esc(b.name)}</span>
-                            <small class="text-muted d-block">${this._esc(b.category_name)} - ${b.period}</small>
+                            <small class="text-muted d-block">${this._esc(b.scope_label || b.category_name || 'All expenses')} - ${b.period}</small>
                         </div>
                         <span class="badge ${statusBadge}">${b.status}</span>
                     </div>
@@ -355,7 +385,7 @@ class ReportsManager {
         el.innerHTML = html;
     }
 
-    printReport(type) {
+    async printReport(type) {
         const data = this._data;
         if (!data) {
             NotificationService.warning('Report data not loaded yet');
@@ -370,7 +400,7 @@ class ReportsManager {
         const dateRange = `<p style="color:#64748b;font-size:13px;text-align:center;margin:0 0 20px 0;">Period: January 1, 2026 - December 31, 2026</p>`;
 
         if (type === 'income-expense') {
-            const ie = data.incomeExpense;
+            const ie = await this._allIncomeExpenseData();
             title = 'Income & Expense Report';
 
             if (!ie || !ie.rows || ie.rows.length === 0) {
@@ -496,7 +526,7 @@ class ReportsManager {
 
             budgetHtml += `<table style="width:100%;border-collapse:collapse;"><thead><tr style="background:#f8fafc;"><th style="padding:8px;border:1px solid #e2e8f0;font-size:12px;text-align:left;">Budget Name</th><th style="padding:8px;border:1px solid #e2e8f0;font-size:12px;text-align:right;">Limit</th><th style="padding:8px;border:1px solid #e2e8f0;font-size:12px;text-align:right;">Spent</th><th style="padding:8px;border:1px solid #e2e8f0;font-size:12px;text-align:right;">Remaining</th><th style="padding:8px;border:1px solid #e2e8f0;font-size:12px;text-align:center;">Status</th></tr></thead><tbody>`;
             bh.budgets.forEach(b => {
-                budgetHtml += `<tr><td style="padding:8px;border:1px solid #e2e8f0;font-size:12px;">${this._esc(b.name)} <small style="color:#64748b;">(${this._esc(b.category_name)})</small></td><td style="padding:8px;border:1px solid #e2e8f0;font-size:12px;text-align:right;">Rs ${this._fmt(b.amount)}</td><td style="padding:8px;border:1px solid #e2e8f0;font-size:12px;text-align:right;color:#EF4444;">Rs ${this._fmt(b.spent)}</td><td style="padding:8px;border:1px solid #e2e8f0;font-size:12px;text-align:right;${b.remaining >= 0 ? 'color:#10B981;' : 'color:#EF4444;'}">Rs ${this._fmt(Math.abs(b.remaining))}</td><td style="padding:8px;border:1px solid #e2e8f0;font-size:12px;text-align:center;"><span style="font-weight:600;">${b.status}</span> (${b.percentage}%)</td></tr>`;
+                budgetHtml += `<tr><td style="padding:8px;border:1px solid #e2e8f0;font-size:12px;">${this._esc(b.name)} <small style="color:#64748b;">(${this._esc(b.scope_label || b.category_name)})</small></td><td style="padding:8px;border:1px solid #e2e8f0;font-size:12px;text-align:right;">Rs ${this._fmt(b.amount)}</td><td style="padding:8px;border:1px solid #e2e8f0;font-size:12px;text-align:right;color:#EF4444;">Rs ${this._fmt(b.spent)}</td><td style="padding:8px;border:1px solid #e2e8f0;font-size:12px;text-align:right;${b.remaining >= 0 ? 'color:#10B981;' : 'color:#EF4444;'}">Rs ${this._fmt(Math.abs(b.remaining))}</td><td style="padding:8px;border:1px solid #e2e8f0;font-size:12px;text-align:center;"><span style="font-weight:600;">${b.status}</span> (${b.percentage}%)</td></tr>`;
             });
             budgetHtml += `</tbody></table>`;
 
@@ -543,7 +573,7 @@ class ReportsManager {
         printWindow.document.close();
     }
 
-    exportCSV(type) {
+    async exportCSV(type) {
         const data = this._data;
         if (!data) {
             NotificationService.warning('Report data not loaded yet');
@@ -555,7 +585,7 @@ class ReportsManager {
         let filename = '';
 
         if (type === 'income-expense') {
-            const ie = data.incomeExpense;
+            const ie = await this._allIncomeExpenseData();
             if (!ie || !ie.rows || ie.rows.length === 0) {
                 NotificationService.warning('No transaction data to export');
                 return;
@@ -599,7 +629,7 @@ class ReportsManager {
             headers = ['Budget Name', 'Category', 'Limit', 'Spent', 'Remaining', 'Percentage', 'Status'];
             rows = bh.budgets.map(b => [
                 `"${b.name}"`,
-                `"${b.category_name}"`,
+                `"${b.scope_label || b.category_name}"`,
                 b.amount,
                 b.spent,
                 b.remaining,

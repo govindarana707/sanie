@@ -4,12 +4,15 @@ require_once __DIR__ . '/../includes/cors.php';
 require_once __DIR__ . '/../includes/response.php';
 require_once __DIR__ . '/../includes/middleware.php';
 require_once __DIR__ . '/../models/Subcategory.php';
+require_once __DIR__ . '/../models/Category.php';
 
 class SubcategoryController {
     private $subcategoryModel;
+    private $categoryModel;
 
     public function __construct() {
         $this->subcategoryModel = new Subcategory();
+        $this->categoryModel = new Category();
     }
 
     public function index() {
@@ -25,7 +28,7 @@ class SubcategoryController {
         $subcategory = $this->subcategoryModel->findById($id, $userId);
         
         if ($subcategory) {
-            $subcategory['has_transactions'] = $this->subcategoryModel->hasTransactions($id);
+            $subcategory['has_transactions'] = $this->subcategoryModel->hasTransactions($id, $userId);
             Response::success($subcategory);
         }
         
@@ -40,6 +43,8 @@ class SubcategoryController {
         if (!empty($errors)) {
             Response::error('Validation failed', 422, $errors);
         }
+        $parent=$this->categoryModel->findById($data['category_id'],$userId);
+        if(!$parent||$parent['status']!=='active')Response::error('Selected parent category is unavailable.',422);
 
         $maxSortOrder = $this->getMaxSortOrder($userId, $data['category_id']);
 
@@ -71,6 +76,9 @@ class SubcategoryController {
         if (!$existingSubcategory) {
             Response::notFound('Subcategory not found');
         }
+        $parentId=$data['category_id']??$existingSubcategory['category_id'];
+        $parent=$this->categoryModel->findById($parentId,$userId);
+        if(!$parent||$parent['status']!=='active')Response::error('Selected parent category is unavailable.',422);
 
         $subcategoryData = [
             'category_id' => $data['category_id'] ?? $existingSubcategory['category_id'],
@@ -97,8 +105,8 @@ class SubcategoryController {
             Response::notFound('Subcategory not found');
         }
         
-        if ($this->subcategoryModel->hasTransactions($id)) {
-            Response::error('Cannot delete subcategory with existing transactions. Consider archiving instead.', 409);
+        if ($this->subcategoryModel->hasTransactions($id)||$this->subcategoryModel->hasBudgets($id)) {
+            Response::error('Cannot delete subcategory with existing transactions or budgets. Consider archiving instead.', 409);
         }
         
         if ($this->subcategoryModel->delete($id, $userId)) {
@@ -188,7 +196,7 @@ class SubcategoryController {
                 
                 switch ($action) {
                     case 'delete':
-                        if (!$this->subcategoryModel->hasTransactions($id)) {
+                        if (!$this->subcategoryModel->hasTransactions($id)&&!$this->subcategoryModel->hasBudgets($id)) {
                             $this->subcategoryModel->delete($id, $userId);
                         }
                         break;

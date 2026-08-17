@@ -37,7 +37,8 @@ class Subcategory {
         $query = "SELECT s.*, c.name as category_name, c.type as category_type, c.color as category_color 
                   FROM " . $this->table . " s
                   LEFT JOIN categories c ON s.category_id = c.id
-                  WHERE (s.user_id = :user_id OR s.user_id IS NULL)";
+                  WHERE (s.user_id = :user_id OR s.user_id IS NULL)
+                    AND (c.user_id = :category_user_id OR c.user_id IS NULL)";
         
         if ($categoryId) {
             $query .= " AND s.category_id = :category_id";
@@ -51,6 +52,7 @@ class Subcategory {
         
         $stmt = $this->conn->prepare($query);
         $stmt->bindValue(':user_id', $userId, PDO::PARAM_INT);
+        $stmt->bindValue(':category_user_id', $userId, PDO::PARAM_INT);
         
         if ($categoryId) {
             $stmt->bindValue(':category_id', $categoryId, PDO::PARAM_INT);
@@ -72,7 +74,8 @@ class Subcategory {
                   WHERE s.id = :id";
         
         if ($userId) {
-            $query .= " AND (s.user_id = :user_id OR s.user_id IS NULL)";
+            $query .= " AND (s.user_id = :user_id OR s.user_id IS NULL)
+                        AND (c.user_id = :category_user_id OR c.user_id IS NULL)";
         }
         
         $query .= " LIMIT 1";
@@ -82,6 +85,7 @@ class Subcategory {
         
         if ($userId) {
             $stmt->bindValue(':user_id', $userId, PDO::PARAM_INT);
+            $stmt->bindValue(':category_user_id', $userId, PDO::PARAM_INT);
         }
         
         $stmt->execute();
@@ -166,23 +170,24 @@ class Subcategory {
     }
 
     public function getByCategory($categoryId, $userId = null, $status = 'active') {
-        $query = "SELECT * FROM " . $this->table . " WHERE category_id = :category_id";
+        $query = "SELECT s.* FROM " . $this->table . " s JOIN categories c ON c.id=s.category_id WHERE s.category_id = :category_id";
         
         if ($userId) {
-            $query .= " AND (user_id = :user_id OR user_id IS NULL)";
+            $query .= " AND (s.user_id = :user_id OR s.user_id IS NULL) AND (c.user_id = :category_user_id OR c.user_id IS NULL)";
         }
         
         if ($status) {
-            $query .= " AND status = :status";
+            $query .= " AND s.status = :status";
         }
         
-        $query .= " ORDER BY sort_order ASC, name ASC";
+        $query .= " ORDER BY s.sort_order ASC, s.name ASC";
         
         $stmt = $this->conn->prepare($query);
         $stmt->bindValue(':category_id', $categoryId, PDO::PARAM_INT);
         
         if ($userId) {
             $stmt->bindValue(':user_id', $userId, PDO::PARAM_INT);
+            $stmt->bindValue(':category_user_id', $userId, PDO::PARAM_INT);
         }
         
         if ($status) {
@@ -204,14 +209,19 @@ class Subcategory {
         return $result['count'];
     }
 
-    public function hasTransactions($id) {
-        $query = "SELECT COUNT(*) as count FROM transactions WHERE subcategory_id = :id LIMIT 1";
+    public function hasTransactions($id, $userId = null) {
+        $query = "SELECT COUNT(*) as count FROM transactions WHERE subcategory_id = :id" . ($userId ? " AND user_id = :user_id" : "") . " LIMIT 1";
         $stmt = $this->conn->prepare($query);
         $stmt->bindValue(':id', $id, PDO::PARAM_INT);
+        if ($userId) $stmt->bindValue(':user_id', $userId, PDO::PARAM_INT);
         $stmt->execute();
         
         $result = $stmt->fetch(PDO::FETCH_ASSOC);
         return $result['count'] > 0;
+    }
+
+    public function hasBudgets($id):bool {
+        $stmt=$this->conn->prepare('SELECT COUNT(*) FROM budgets WHERE subcategory_id=:id');$stmt->execute([':id'=>(int)$id]);return(int)$stmt->fetchColumn()>0;
     }
 
     public function updateSortOrder($orders, $userId) {
@@ -240,7 +250,8 @@ class Subcategory {
         $sql = "SELECT s.*, c.name as category_name, c.type as category_type, c.color as category_color 
                 FROM " . $this->table . " s
                 LEFT JOIN categories c ON s.category_id = c.id
-                WHERE (s.user_id = :user_id OR s.user_id IS NULL) 
+                WHERE (s.user_id = :user_id OR s.user_id IS NULL)
+                AND (c.user_id = :category_user_id OR c.user_id IS NULL)
                 AND (s.name LIKE :query OR s.description LIKE :query)";
         
         if ($categoryId) {
@@ -255,6 +266,7 @@ class Subcategory {
         
         $stmt = $this->conn->prepare($sql);
         $stmt->bindValue(':user_id', $userId, PDO::PARAM_INT);
+        $stmt->bindValue(':category_user_id', $userId, PDO::PARAM_INT);
         $searchTerm = "%{$query}%";
         $stmt->bindValue(':query', $searchTerm);
         
@@ -275,20 +287,20 @@ class Subcategory {
         if (empty($categoryIds)) return [];
 
         $placeholders = implode(',', array_fill(0, count($categoryIds), '?'));
-        $query = "SELECT * FROM " . $this->table . " WHERE category_id IN ($placeholders)";
+        $query = "SELECT s.* FROM " . $this->table . " s JOIN categories c ON c.id=s.category_id WHERE s.category_id IN ($placeholders)";
 
         if ($userId) {
-            $query .= " AND (user_id = ? OR user_id IS NULL)";
+            $query .= " AND (s.user_id = ? OR s.user_id IS NULL) AND (c.user_id = ? OR c.user_id IS NULL)";
         }
         if ($status) {
-            $query .= " AND status = ?";
+            $query .= " AND s.status = ?";
         }
 
-        $query .= " ORDER BY sort_order ASC, name ASC";
+        $query .= " ORDER BY s.sort_order ASC, s.name ASC";
         $stmt = $this->conn->prepare($query);
 
         $params = $categoryIds;
-        if ($userId) $params[] = $userId;
+        if ($userId) {$params[] = $userId;$params[]=$userId;}
         if ($status) $params[] = $status;
         $stmt->execute($params);
 
@@ -308,10 +320,12 @@ class Subcategory {
                     SUM(CASE WHEN s.status != 'active' THEN 1 ELSE 0 END) as inactive_count
                   FROM " . $this->table . " s
                   LEFT JOIN categories c ON s.category_id = c.id
-                  WHERE (s.user_id = :user_id OR s.user_id IS NULL)";
+                  WHERE (s.user_id = :user_id OR s.user_id IS NULL)
+                    AND (c.user_id = :category_user_id OR c.user_id IS NULL)";
         
         $stmt = $this->conn->prepare($query);
         $stmt->bindValue(':user_id', $userId, PDO::PARAM_INT);
+        $stmt->bindValue(':category_user_id', $userId, PDO::PARAM_INT);
         $stmt->execute();
         
         return $stmt->fetch(PDO::FETCH_ASSOC);

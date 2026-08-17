@@ -112,15 +112,11 @@ class User {
         return $stmt->execute();
     }
 
-    public function updatePassword($id, $newPassword) {
-        $query = "UPDATE " . $this->table . " SET password = :password WHERE id = :id";
-        
+    public function updateAvatar($id, $avatar) {
+        $query = "UPDATE " . $this->table . " SET avatar = :avatar, updated_at = CURRENT_TIMESTAMP WHERE id = :id";
         $stmt = $this->conn->prepare($query);
-        $hashedPassword = password_hash($newPassword, PASSWORD_DEFAULT);
-        
-        $stmt->bindParam(':password', $hashedPassword);
-        $stmt->bindParam(':id', $id);
-        
+        $stmt->bindValue(':id', $id, PDO::PARAM_INT);
+        $stmt->bindValue(':avatar', $avatar);
         return $stmt->execute();
     }
 

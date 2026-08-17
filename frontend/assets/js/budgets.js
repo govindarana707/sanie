@@ -65,11 +65,20 @@ class BudgetsManager {
     async renderBudgets() {
         const container = document.getElementById('budgets-grid');
         container.innerHTML = '';
+        this._setOverview(0, 0);
 
         if (this.budgets.length === 0) {
-            container.innerHTML = '<p class="no-data">No budgets set. Click "Add Budget" to create one.</p>';
+            container.innerHTML = `
+                <div class="budget-empty-state">
+                    <span><i class="bi bi-pie-chart"></i></span>
+                    <h3>Plan your spending</h3>
+                    <p>Create your first budget to track expenses and avoid overspending.</p>
+                    <button class="btn btn-primary" onclick="budgetsManager.showAddBudgetModal()"><i class="fas fa-plus"></i> Create Budget</button>
+                </div>`;
             return;
         }
+
+        this._setOverview(this.budgets.reduce((sum, b) => sum + Number(b.amount || 0), 0), 0);
 
         this.budgets.forEach(budget => {
             const card = document.createElement('div');
@@ -78,16 +87,29 @@ class BudgetsManager {
 
             card.innerHTML = `
                 <div class="budget-header">
-                    <p class="budget-name">${Formatters.escapeHTML(budget.name)}</p>
-                    <button class="btn btn-icon" onclick="budgetsManager.deleteBudget(${budget.id})">
+                    <div class="budget-title-wrap">
+                        <span class="budget-card-icon"><i class="bi bi-pie-chart-fill"></i></span>
+                        <div>
+                            <p class="budget-name">${Formatters.escapeHTML(budget.name)}</p>
+                            <span class="budget-category">${Formatters.escapeHTML(budget.scope_label || budget.category_name || 'All expenses')}</span>
+                        </div>
+                    </div>
+                    <button class="budget-delete-btn" title="Delete budget" aria-label="Delete ${Formatters.escapeHTML(budget.name)}" onclick="budgetsManager.deleteBudget(${budget.id})">
                         <i class="fas fa-trash"></i>
                     </button>
                 </div>
-                <p class="budget-amount">${Formatters.currency(budget.amount)} / ${budget.period}</p>
+                <div class="budget-limit-row">
+                    <div><small>Budget limit</small><p class="budget-amount">${Formatters.currency(budget.amount)}</p></div>
+                    <span class="budget-period">${Formatters.escapeHTML(budget.period || 'monthly')}</span>
+                </div>
+                <div class="budget-progress-meta"><span>Spent</span><strong class="budget-progress-rate">0%</strong></div>
                 <div class="budget-progress-bar">
                     <div class="budget-progress-fill" style="width: 0%"></div>
                 </div>
-                <p class="budget-percentage">Loading progress...</p>
+                <div class="budget-card-footer">
+                    <span class="budget-percentage">Loading progress...</span>
+                    <span class="budget-remaining">Calculating...</span>
+                </div>
             `;
 
             container.appendChild(card);
@@ -98,6 +120,9 @@ class BudgetsManager {
         try {
             const response = await budgetsAPI.getBatchProgress(ids);
             if (response.success) {
+                const totalSpent = response.data.reduce((sum, p) => sum + Number(p.spent || 0), 0);
+                const totalLimit = this.budgets.reduce((sum, b) => sum + Number(b.amount || 0), 0);
+                this._setOverview(totalLimit, totalSpent);
                 response.data.forEach(progress => {
                     const card = container.querySelector(`[data-budget-id="${progress.budget_id}"]`);
                     if (card) this._updateProgressCard(card, progress);
@@ -119,7 +144,24 @@ class BudgetsManager {
         progressBar.className = `budget-progress-fill ${progressClass}`;
 
         const percentageText = card.querySelector('.budget-percentage');
-        percentageText.textContent = `${Formatters.currency(progress.spent)} spent (${percentage.toFixed(1)}%)`;
+        percentageText.textContent = `${Formatters.currency(progress.spent)} spent`;
+        card.querySelector('.budget-progress-rate').textContent = `${percentage.toFixed(0)}%`;
+        const remaining = Number(progress.budget_amount || progress.amount || 0) - Number(progress.spent || 0);
+        const fallbackLimit = Number(this.budgets.find(b => String(b.id) === String(progress.budget_id))?.amount || 0);
+        const finalRemaining = Number(progress.remaining ?? (fallbackLimit - Number(progress.spent || 0)));
+        const remainingEl = card.querySelector('.budget-remaining');
+        remainingEl.textContent = finalRemaining >= 0 ? `${Formatters.currency(finalRemaining)} left` : `${Formatters.currency(Math.abs(finalRemaining))} over`;
+        remainingEl.classList.toggle('is-over', finalRemaining < 0);
+    }
+
+    _setOverview(limit, spent) {
+        const remaining = Number(limit) - Number(spent);
+        const set = (id, value) => { const el = document.getElementById(id); if (el) el.textContent = value; };
+        set('budget-total-limit', Formatters.currency(limit));
+        set('budget-total-spent', Formatters.currency(spent));
+        set('budget-total-remaining', Formatters.currency(remaining));
+        set('budget-active-count', String(this.budgets.length));
+        document.getElementById('budget-total-remaining')?.classList.toggle('text-danger', remaining < 0);
     }
 
     showAddBudgetModal() {
@@ -165,6 +207,17 @@ class BudgetsManager {
                                 <i class="fas fa-folder-open"></i>
                                 <select id="budget-category">
                                     <option value="">All categories</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-lg-6">
+                        <div class="form-group">
+                            <label>Subcategory (Optional)</label>
+                            <div class="form-control-icon">
+                                <i class="fas fa-sitemap"></i>
+                                <select id="budget-subcategory" disabled>
+                                    <option value="">All subcategories</option>
                                 </select>
                             </div>
                         </div>
@@ -239,11 +292,26 @@ class BudgetsManager {
                         option.textContent = category.name;
                         select.appendChild(option);
                     });
+                    select.addEventListener('change',()=>this.loadSubcategoriesForForm(select.value));
                 }
             }
         } catch (error) {
             console.error('Failed to load categories:', error);
         }
+    }
+
+    async loadSubcategoriesForForm(categoryId){
+        const select=document.getElementById('budget-subcategory');
+        if(!select)return;
+        select.innerHTML='<option value="">All subcategories</option>';
+        select.disabled=!categoryId;
+        if(!categoryId)return;
+        try{
+            const response=await categoriesAPI.getSubcategories(categoryId);
+            if(response.success)response.data.forEach(subcategory=>{
+                const option=document.createElement('option');option.value=subcategory.id;option.textContent=subcategory.name;select.appendChild(option);
+            });
+        }catch(error){console.error('Failed to load budget subcategories:',error);}
     }
 
     async handleBudgetSubmit() {
@@ -258,6 +326,7 @@ class BudgetsManager {
             amount: parseFloat(document.getElementById('budget-amount').value),
             period: document.getElementById('budget-period').value,
             category_id: document.getElementById('budget-category')?.value ? parseInt(document.getElementById('budget-category').value) : null,
+            subcategory_id: document.getElementById('budget-subcategory')?.value ? parseInt(document.getElementById('budget-subcategory').value) : null,
             start_date: document.getElementById('budget-start-date').value,
             end_date: document.getElementById('budget-end-date').value,
             alert_threshold: parseFloat(document.getElementById('budget-alert-threshold').value)

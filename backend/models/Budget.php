@@ -2,6 +2,8 @@
 
 require_once __DIR__ . '/../config/database.php';
 
+class BudgetValidationException extends InvalidArgumentException {}
+
 class Budget {
     private $conn;
     private $table = 'budgets';
@@ -12,6 +14,7 @@ class Budget {
     }
 
     public function create($data) {
+        $data=$this->normalize($data,(int)$data['user_id']);
         $query = "INSERT INTO " . $this->table . " 
                   (user_id, category_id, subcategory_id, name, amount, period, start_date, end_date, alert_threshold, is_active) 
                   VALUES (:user_id, :category_id, :subcategory_id, :name, :amount, :period, :start_date, :end_date, :alert_threshold, :is_active)";
@@ -42,7 +45,7 @@ class Budget {
                   sc.name as subcategory_name
                   FROM " . $this->table . " b
                   LEFT JOIN categories c ON b.category_id = c.id
-                  LEFT JOIN categories sc ON b.subcategory_id = sc.id
+                  LEFT JOIN subcategories sc ON b.subcategory_id = sc.id
                   WHERE b.user_id = :user_id
                   ORDER BY b.is_active DESC, b.created_at DESC";
         
@@ -50,7 +53,9 @@ class Budget {
         $stmt->bindParam(':user_id', $userId);
         $stmt->execute();
         
-        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+        $rows=$stmt->fetchAll(PDO::FETCH_ASSOC);
+        foreach($rows as&$row)$row['scope_label']=$this->scopeLabel($row['category_name'],$row['subcategory_name']);
+        return$rows;
     }
 
     public function findById($id, $userId) {
@@ -59,7 +64,7 @@ class Budget {
                   sc.name as subcategory_name
                   FROM " . $this->table . " b
                   LEFT JOIN categories c ON b.category_id = c.id
-                  LEFT JOIN categories sc ON b.subcategory_id = sc.id
+                  LEFT JOIN subcategories sc ON b.subcategory_id = sc.id
                   WHERE b.id = :id AND b.user_id = :user_id LIMIT 1";
         
         $stmt = $this->conn->prepare($query);
@@ -67,10 +72,13 @@ class Budget {
         $stmt->bindParam(':user_id', $userId);
         $stmt->execute();
         
-        return $stmt->fetch(PDO::FETCH_ASSOC);
+        $row=$stmt->fetch(PDO::FETCH_ASSOC);
+        if($row)$row['scope_label']=$this->scopeLabel($row['category_name'],$row['subcategory_name']);
+        return$row;
     }
 
     public function update($id, $userId, $data) {
+        $data=$this->normalize($data,(int)$userId);
         $query = "UPDATE " . $this->table . " SET 
                   category_id = :category_id,
                   subcategory_id = :subcategory_id,
@@ -113,62 +121,17 @@ class Budget {
 
     public function getBudgetProgress($budgetId, $userId) {
         $budget = $this->findById($budgetId, $userId);
-        
-        if (!$budget) {
-            return null;
-        }
-        
-        $startDate = $budget['start_date'];
-        $endDate = $budget['end_date'];
-        $categoryId = $budget['category_id'];
-        $subcategory_id = $budget['subcategory_id'];
-        
-        $query = "SELECT SUM(amount) as spent FROM transactions 
-                  WHERE user_id = :user_id 
-                  AND type = 'expense' 
-                  AND date BETWEEN :start_date AND :end_date";
-        
-        if ($categoryId) {
-            $query .= " AND category_id = :category_id";
-        }
-        
-        if ($subcategory_id) {
-            $query .= " AND subcategory_id = :subcategory_id";
-        }
-        
-        $stmt = $this->conn->prepare($query);
-        $stmt->bindParam(':user_id', $userId);
-        $stmt->bindParam(':start_date', $startDate);
-        $stmt->bindParam(':end_date', $endDate);
-        
-        if ($categoryId) {
-            $stmt->bindParam(':category_id', $categoryId);
-        }
-        
-        if ($subcategory_id) {
-            $stmt->bindParam(':subcategory_id', $subcategory_id);
-        }
-        
-        $stmt->execute();
-        
-        $result = $stmt->fetch(PDO::FETCH_ASSOC);
-        $spent = $result['spent'] ?? 0;
-        
-        $remaining = $budget['amount'] - $spent;
-        $percentage = ($budget['amount'] > 0) ? ($spent / $budget['amount']) * 100 : 0;
-        
-        return [
-            'budget' => $budget,
-            'spent' => $spent,
-            'remaining' => $remaining,
-            'percentage' => $percentage,
-            'is_over_budget' => $spent > $budget['amount'],
-            'is_near_limit' => $percentage >= $budget['alert_threshold']
-        ];
+        if(!$budget)return null;
+        $rows=$this->getBatchProgress([(int)$budgetId],$userId);
+        if(!$rows)return null;
+        $row=$rows[0];$row['budget']=$budget;
+        return$row;
     }
 
     public function bulkCreate($entries, $userId) {
         if (empty($entries)) return [];
+
+        $entries=array_map(fn($entry)=>$this->normalize(array_merge($entry,['user_id'=>$userId]),(int)$userId),$entries);
 
         $this->conn->beginTransaction();
         try {
@@ -218,8 +181,10 @@ class Budget {
                   LEFT JOIN transactions t
                     ON t.category_id = c.id
                     AND t.user_id = ?
+                    AND t.type = 'expense'
                     AND t.date BETWEEN ? AND ?
                   WHERE (c.user_id = ? OR c.user_id IS NULL)
+                    AND c.type = 'expense' AND c.status = 'active' AND c.parent_id IS NULL
                   GROUP BY c.id
                   ORDER BY avg_spent DESC, c.name ASC";
 
@@ -236,9 +201,11 @@ class Budget {
 
     public function findByPeriod($userId, $period, $startDate, $endDate) {
         $query = "SELECT b.*,
-                         c.name AS category_name, c.icon AS category_icon, c.color AS category_color
+                         c.name AS category_name, c.icon AS category_icon, c.color AS category_color,
+                         sc.name AS subcategory_name
                   FROM {$this->table} b
                   LEFT JOIN categories c ON b.category_id = c.id
+                  LEFT JOIN subcategories sc ON b.subcategory_id = sc.id
                   WHERE b.user_id = :user_id
                     AND b.period = :period
                     AND b.start_date >= :start_date
@@ -251,10 +218,13 @@ class Budget {
         $stmt->bindValue(':start_date', $startDate);
         $stmt->bindValue(':end_date', $endDate);
         $stmt->execute();
-        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+        $rows=$stmt->fetchAll(PDO::FETCH_ASSOC);
+        foreach($rows as&$row)$row['scope_label']=$this->scopeLabel($row['category_name'],$row['subcategory_name']);
+        return$rows;
     }
 
     public function getBatchProgress($ids, $userId, $periodStart = null, $periodEnd = null) {
+        $ids=array_values(array_unique(array_filter(array_map('intval',(array)$ids),fn($id)=>$id>0)));
         if (empty($ids)) return [];
 
         $placeholders = implode(',', array_fill(0, count($ids), '?'));
@@ -263,6 +233,7 @@ class Budget {
                     b.id AS budget_id,
                     b.name AS budget_name,
                     b.amount AS budget_amount,
+                    b.category_id,b.subcategory_id,b.period,b.start_date,b.end_date,
                     b.alert_threshold,
                     c.name AS category_name,
                     c.icon AS category_icon,
@@ -271,26 +242,26 @@ class Budget {
                     COALESCE(SUM(t.amount), 0) AS spent
                   FROM budgets b
                   LEFT JOIN categories c ON b.category_id = c.id
-                  LEFT JOIN categories sc ON b.subcategory_id = sc.id
+                  LEFT JOIN subcategories sc ON b.subcategory_id = sc.id
                   LEFT JOIN transactions t
                     ON t.user_id = b.user_id
                     AND t.type = 'expense'
                     AND t.date BETWEEN b.start_date AND b.end_date
                     AND (b.category_id IS NULL OR t.category_id = b.category_id)
-                    AND (b.subcategory_id IS NULL OR t.subcategory_id = b.subcategory_id)
-                  WHERE b.id IN ($placeholders) AND b.user_id = ?";
-        $params = array_merge($ids, [$userId]);
+                    AND (b.subcategory_id IS NULL OR t.subcategory_id = b.subcategory_id)";
+        $params = [];
 
         if ($periodStart) {
-            $query .= " AND (t.date IS NULL OR t.date >= ?)";
+            $query .= " AND t.date >= ?";
             $params[] = $periodStart;
         }
         if ($periodEnd) {
-            $query .= " AND (t.date IS NULL OR t.date <= ?)";
+            $query .= " AND t.date <= ?";
             $params[] = $periodEnd;
         }
 
-        $query .= " GROUP BY b.id";
+        $query .= " WHERE b.id IN ($placeholders) AND b.user_id = ? GROUP BY b.id";
+        $params = array_merge($params, $ids, [$userId]);
 
         $stmt = $this->conn->prepare($query);
         $stmt->execute($params);
@@ -305,14 +276,18 @@ class Budget {
 
             $progress[] = [
                 'budget_id' => $r['budget_id'],
+                'budget_amount' => $r['budget_amount'],
                 'budget' => [
                     'id' => $r['budget_id'],
                     'name' => $r['budget_name'],
                     'amount' => $r['budget_amount'],
+                    'category_id'=>$r['category_id'],'subcategory_id'=>$r['subcategory_id'],
+                    'period'=>$r['period'],'start_date'=>$r['start_date'],'end_date'=>$r['end_date'],
                     'category_name' => $r['category_name'],
                     'category_icon' => $r['category_icon'],
                     'category_color' => $r['category_color'],
                     'subcategory_name' => $r['subcategory_name'],
+                    'scope_label' => $this->scopeLabel($r['category_name'],$r['subcategory_name']),
                 ],
                 'spent' => $spent,
                 'remaining' => $remaining,
@@ -323,5 +298,48 @@ class Budget {
         }
 
         return $progress;
+    }
+
+    private function normalize(array$data,int$userId):array {
+        $name=trim((string)($data['name']??''));
+        if($name===''||strlen($name)>100)throw new BudgetValidationException('Budget name is required and must be 100 characters or fewer.');
+        if(!isset($data['amount'])||!is_numeric($data['amount']))throw new BudgetValidationException('Budget amount must be a positive number.');
+        $amount=(float)$data['amount'];
+        if(!is_finite($amount)||$amount<=0||$amount>999999999999.99||abs($amount-round($amount,2))>.0000001)throw new BudgetValidationException('Budget amount must be positive and use no more than two decimal places.');
+        $period=(string)($data['period']??'monthly');
+        if(!in_array($period,['daily','weekly','monthly','yearly'],true))throw new BudgetValidationException('Unsupported budget period.');
+        $start=$this->dateValue($data['start_date']??date('Y-m-01'),'start date');$end=$this->dateValue($data['end_date']??date('Y-m-t'),'end date');
+        if($start>$end)throw new BudgetValidationException('Budget start date cannot be after the end date.');
+        $threshold=$data['alert_threshold']??80;
+        if(!is_numeric($threshold)||!is_finite((float)$threshold)||(float)$threshold<0||(float)$threshold>100)throw new BudgetValidationException('Alert threshold must be between 0 and 100.');
+        $categoryId=$this->nullableId($data['category_id']??null,'category');$subcategoryId=$this->nullableId($data['subcategory_id']??null,'subcategory');
+        if($categoryId===null&&$subcategoryId!==null)throw new BudgetValidationException('A subcategory budget requires its parent category.');
+        if($categoryId!==null){
+            $stmt=$this->conn->prepare("SELECT id FROM categories WHERE id=:id AND type='expense' AND status='active' AND parent_id IS NULL AND (user_id=:uid OR user_id IS NULL) LIMIT 1");
+            $stmt->execute([':id'=>$categoryId,':uid'=>$userId]);
+            if(!$stmt->fetchColumn())throw new BudgetValidationException('Selected category is unavailable.');
+        }
+        if($subcategoryId!==null){
+            $stmt=$this->conn->prepare("SELECT sc.id FROM subcategories sc JOIN categories c ON c.id=sc.category_id WHERE sc.id=:id AND sc.category_id=:category_id AND sc.status='active' AND c.status='active' AND c.type='expense' AND (sc.user_id=:suid OR sc.user_id IS NULL) AND (c.user_id=:cuid OR c.user_id IS NULL) LIMIT 1");
+            $stmt->execute([':id'=>$subcategoryId,':category_id'=>$categoryId,':suid'=>$userId,':cuid'=>$userId]);
+            if(!$stmt->fetchColumn())throw new BudgetValidationException('Selected subcategory does not belong to the selected category or is unavailable.');
+        }
+        $active=array_key_exists('is_active',$data)?(!empty($data['is_active'])?1:0):1;
+        return array_merge($data,['user_id'=>$userId,'name'=>$name,'amount'=>round($amount,2),'period'=>$period,'start_date'=>$start,'end_date'=>$end,'category_id'=>$categoryId,'subcategory_id'=>$subcategoryId,'alert_threshold'=>round((float)$threshold,2),'is_active'=>$active]);
+    }
+
+    private function nullableId($value,string$label):?int {
+        if($value===null||$value==='')return null;$id=filter_var($value,FILTER_VALIDATE_INT);
+        if($id===false||$id<1)throw new BudgetValidationException("Invalid {$label}.");return(int)$id;
+    }
+
+    private function dateValue($value,string$label):string {
+        $raw=(string)$value;$date=DateTime::createFromFormat('!Y-m-d',$raw);
+        if(!$date||$date->format('Y-m-d')!==$raw)throw new BudgetValidationException("Invalid budget {$label}.");return$raw;
+    }
+
+    private function scopeLabel($category,$subcategory):string {
+        if($subcategory)return(string)$category.' / '.(string)$subcategory;
+        return$category?(string)$category:'All expenses';
     }
 }

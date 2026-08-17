@@ -18,15 +18,15 @@ class Category {
         
         $stmt = $this->conn->prepare($query);
         
-        $stmt->bindValue(':user_id', $data['user_id']);
+        $stmt->bindValue(':user_id', (int)$data['user_id'], PDO::PARAM_INT);
         $stmt->bindValue(':name', $data['name']);
         $stmt->bindValue(':type', $data['type']);
         $stmt->bindValue(':icon', $data['icon'] ?? null);
         $stmt->bindValue(':color', $data['color'] ?? '#6B7280');
         $stmt->bindValue(':description', $data['description'] ?? '');
-        $stmt->bindValue(':is_default', $data['is_default'] ?? 0);
+        $stmt->bindValue(':is_default', (int)(bool)($data['is_default'] ?? false), PDO::PARAM_INT);
         $stmt->bindValue(':status', $data['status'] ?? 'active');
-        $stmt->bindValue(':sort_order', $data['sort_order'] ?? 0);
+        $stmt->bindValue(':sort_order', (int)($data['sort_order'] ?? 0), PDO::PARAM_INT);
         
         if ($stmt->execute()) {
             return $this->conn->lastInsertId();
@@ -45,6 +45,7 @@ class Category {
                            COUNT(*) AS tx_count,
                            MAX(created_at) AS last_used_at
                     FROM transactions
+                    WHERE user_id = :transaction_user_id
                     GROUP BY category_id
                   ) t ON t.category_id = c.id
                   WHERE (c.user_id = :user_id OR c.user_id IS NULL)";
@@ -61,6 +62,7 @@ class Category {
         
         $stmt = $this->conn->prepare($query);
         $stmt->bindValue(':user_id', $userId);
+        $stmt->bindValue(':transaction_user_id', $userId, PDO::PARAM_INT);
         
         if ($type) {
             $stmt->bindValue(':type', $type);
@@ -190,10 +192,11 @@ class Category {
         return $stmt->fetch(PDO::FETCH_ASSOC);
     }
 
-    public function hasTransactions($id) {
-        $query = "SELECT COUNT(*) as count FROM transactions WHERE category_id = :id LIMIT 1";
+    public function hasTransactions($id, $userId = null) {
+        $query = "SELECT COUNT(*) as count FROM transactions WHERE category_id = :id" . ($userId ? " AND user_id = :user_id" : "") . " LIMIT 1";
         $stmt = $this->conn->prepare($query);
         $stmt->bindValue(':id', $id, PDO::PARAM_INT);
+        if ($userId) $stmt->bindValue(':user_id', $userId, PDO::PARAM_INT);
         $stmt->execute();
         
         $result = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -210,10 +213,15 @@ class Category {
         return $result2['count'] > 0;
     }
 
-    public function getTransactionStats($id) {
-        $query = "SELECT COUNT(*) AS tx_count, MAX(created_at) AS last_used_at FROM transactions WHERE category_id = :id";
+    public function hasBudgets($id):bool {
+        $stmt=$this->conn->prepare('SELECT COUNT(*) FROM budgets WHERE category_id=:id');$stmt->execute([':id'=>(int)$id]);return(int)$stmt->fetchColumn()>0;
+    }
+
+    public function getTransactionStats($id, $userId = null) {
+        $query = "SELECT COUNT(*) AS tx_count, MAX(created_at) AS last_used_at FROM transactions WHERE category_id = :id" . ($userId ? " AND user_id = :user_id" : "");
         $stmt = $this->conn->prepare($query);
         $stmt->bindValue(':id', $id, PDO::PARAM_INT);
+        if ($userId) $stmt->bindValue(':user_id', $userId, PDO::PARAM_INT);
         $stmt->execute();
         return $stmt->fetch(PDO::FETCH_ASSOC);
     }
@@ -250,6 +258,7 @@ class Category {
                            COUNT(*) AS tx_count,
                            MAX(created_at) AS last_used_at
                     FROM transactions
+                    WHERE user_id = :transaction_user_id
                     GROUP BY category_id
                 ) t ON t.category_id = c.id
                 LEFT JOIN subcategories sc ON sc.category_id = c.id AND sc.status = 'active'
@@ -268,6 +277,7 @@ class Category {
         
         $stmt = $this->conn->prepare($sql);
         $stmt->bindValue(':user_id', $userId, PDO::PARAM_INT);
+        $stmt->bindValue(':transaction_user_id', $userId, PDO::PARAM_INT);
         $searchTerm = "%{$query}%";
         $stmt->bindValue(':query', $searchTerm);
         

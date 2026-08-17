@@ -38,6 +38,9 @@ class KarobarController {
         $transaction = $this->karobarModel->findById($id, $userId);
         
         if ($transaction) {
+            if ($transaction['payment_method'] === 'credit' && !empty($transaction['expense_transaction_id'])) {
+                $transaction['linked_credit_purchase'] = $this->karobarService->getCreditPurchaseResource($id, $userId);
+            }
             Response::success($transaction);
         }
         
@@ -53,6 +56,13 @@ class KarobarController {
             Response::error('Validation failed', 422, $errors);
         }
 
+        if (in_array($data['type'] ?? '', ['repaid', 'returned'], true) && empty($data['client_request_id'])) {
+            Response::error('Validation failed', 422, ['client_request_id' => 'Client request ID is required for payments']);
+        }
+        if (in_array($data['type'] ?? '', ['repaid', 'returned'], true) && empty($data['account_id'])) {
+            Response::error('Validation failed', 422, ['account_id' => 'Account is required for payments']);
+        }
+
         try {
             $transactionId = $this->karobarService->createTransaction($data, $userId);
             
@@ -62,9 +72,7 @@ class KarobarController {
             }
             
             Response::serverError('Transaction creation failed');
-        } catch (\Throwable $e) {
-            Response::serverError($e->getMessage());
-        }
+        } catch (\Throwable $e) { $this->respondToServiceException($e); }
     }
 
     public function update($id) {
@@ -83,19 +91,29 @@ class KarobarController {
             'account_id' => $data['account_id'] ?? $existingTransaction['account_id'],
             'description' => $data['description'] ?? $existingTransaction['description'],
             'transaction_date' => $data['transaction_date'] ?? $existingTransaction['transaction_date'],
-            'due_date' => $data['due_date'] ?? $existingTransaction['due_date']
+            'due_date' => array_key_exists('due_date', $data) ? $data['due_date'] : $existingTransaction['due_date']
         ];
 
-        if ($this->karobarModel->update($id, $userId, $karobarData)) {
-            $transaction = $this->karobarModel->findById($id, $userId);
-            Response::success($transaction, 'Transaction updated successfully');
+        $karobarData['payment_method'] = $data['payment_method'] ?? $existingTransaction['payment_method'];
+        foreach (['category_id', 'subcategory_id', 'creditor_id', 'date'] as $field) {
+            if (array_key_exists($field, $data)) $karobarData[$field] = $data[$field];
         }
-        
-        Response::serverError('Transaction update failed');
+        $baseVersion = $data['base_version'] ?? null;
+
+        try {
+            $updated = $this->karobarService->updateTransaction($id, $karobarData, $userId, $baseVersion);
+            if ($updated) {
+                if (is_array($updated)) Response::success($updated, 'Credit purchase updated successfully');
+                $transaction = $this->karobarModel->findById($id, $userId);
+                Response::success($transaction, 'Transaction updated successfully');
+            }
+            Response::serverError('Transaction update failed');
+        } catch (\Throwable $e) { $this->respondToServiceException($e); }
     }
 
     public function destroy($id) {
         $userId = Middleware::auth();
+        $data = json_decode(file_get_contents('php://input'), true) ?: [];
         $transaction = $this->karobarModel->findById($id, $userId);
         
         if (!$transaction) {
@@ -103,11 +121,9 @@ class KarobarController {
         }
 
         try {
-            $this->karobarService->deleteTransaction($id, $userId);
+            $this->karobarService->deleteTransaction($id, $userId, $data['base_version'] ?? null);
             Response::success(null, 'Transaction deleted successfully');
-        } catch (\Throwable $e) {
-            Response::serverError($e->getMessage());
-        }
+        } catch (\Throwable $e) { $this->respondToServiceException($e); }
     }
 
     public function dashboard() {
@@ -120,7 +136,7 @@ class KarobarController {
         $userId = Middleware::auth();
         $data = json_decode(file_get_contents('php://input'), true);
         
-        $errors = Middleware::validateRequired($data, ['person_id', 'amount', 'transaction_date']);
+        $errors = Middleware::validateRequired($data, ['person_id', 'amount', 'account_id', 'transaction_date', 'client_request_id']);
         if (!empty($errors)) {
             Response::error('Validation failed', 422, $errors);
         }
@@ -130,20 +146,19 @@ class KarobarController {
             
             if ($result) {
                 $transaction = $this->karobarModel->findById($result, $userId);
+                $transaction = array_merge($transaction, $this->karobarService->getPaymentState($result, $userId));
                 Response::success($transaction, 'Repayment recorded successfully', 201);
             }
             
             Response::serverError('Repayment failed');
-        } catch (\Throwable $e) {
-            Response::serverError($e->getMessage());
-        }
+        } catch (\Throwable $e) { $this->respondToServiceException($e); }
     }
 
     public function receiving() {
         $userId = Middleware::auth();
         $data = json_decode(file_get_contents('php://input'), true);
         
-        $errors = Middleware::validateRequired($data, ['person_id', 'amount', 'transaction_date']);
+        $errors = Middleware::validateRequired($data, ['person_id', 'amount', 'account_id', 'transaction_date', 'client_request_id']);
         if (!empty($errors)) {
             Response::error('Validation failed', 422, $errors);
         }
@@ -153,13 +168,12 @@ class KarobarController {
             
             if ($result) {
                 $transaction = $this->karobarModel->findById($result, $userId);
+                $transaction = array_merge($transaction, $this->karobarService->getPaymentState($result, $userId));
                 Response::success($transaction, 'Receiving recorded successfully', 201);
             }
             
             Response::serverError('Receiving failed');
-        } catch (\Throwable $e) {
-            Response::serverError($e->getMessage());
-        }
+        } catch (\Throwable $e) { $this->respondToServiceException($e); }
     }
 
     public function creditReports() {
@@ -182,5 +196,21 @@ class KarobarController {
         
         $analysis = $this->karobarService->getAIAnalysis($userId);
         Response::success($analysis);
+    }
+
+    private function respondToServiceException(\Throwable $error): void {
+        if ($error instanceof KarobarAuthorizationException) {
+            Response::forbidden($error->getMessage());
+        }
+        if ($error instanceof KarobarNotFoundException) {
+            Response::notFound($error->getMessage());
+        }
+        if ($error instanceof KarobarConflictException) {
+            Response::error($error->getMessage(), 409);
+        }
+        if ($error instanceof KarobarValidationException) {
+            Response::error($error->getMessage(), 422);
+        }
+        Response::serverError();
     }
 }

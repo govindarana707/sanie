@@ -12,15 +12,16 @@ class Goal {
     }
 
     public function create($data) {
-        $query = "INSERT INTO " . $this->table . " 
-                  (user_id, name, target_amount, current_amount, deadline, icon, color, description, status) 
-                  VALUES (:user_id, :name, :target_amount, :current_amount, :deadline, :icon, :color, :description, :status)";
+        $query = "INSERT INTO " . $this->table . "
+                  (user_id, name, target_amount, initial_amount, current_amount, deadline, icon, color, description, status)
+                  VALUES (:user_id, :name, :target_amount, :initial_amount, :current_amount, :deadline, :icon, :color, :description, :status)";
         
         $stmt = $this->conn->prepare($query);
         
         $stmt->bindParam(':user_id', $data['user_id']);
         $stmt->bindParam(':name', $data['name']);
         $stmt->bindParam(':target_amount', $data['target_amount']);
+        $stmt->bindValue(':initial_amount', $data['initial_amount'] ?? $data['current_amount'] ?? 0);
         $stmt->bindParam(':current_amount', $data['current_amount']);
         $stmt->bindParam(':deadline', $data['deadline']);
         $stmt->bindParam(':icon', $data['icon']);
@@ -60,12 +61,12 @@ class Goal {
         $query = "UPDATE " . $this->table . " SET 
                   name = :name,
                   target_amount = :target_amount,
-                  current_amount = :current_amount,
                   deadline = :deadline,
                   icon = :icon,
                   color = :color,
                   description = :description,
                   status = :status,
+                  version = version + 1,
                   updated_at = CURRENT_TIMESTAMP
                   WHERE id = :id AND user_id = :user_id";
         
@@ -75,7 +76,6 @@ class Goal {
         $stmt->bindParam(':user_id', $userId);
         $stmt->bindParam(':name', $data['name']);
         $stmt->bindParam(':target_amount', $data['target_amount']);
-        $stmt->bindParam(':current_amount', $data['current_amount']);
         $stmt->bindParam(':deadline', $data['deadline']);
         $stmt->bindParam(':icon', $data['icon']);
         $stmt->bindParam(':color', $data['color']);
@@ -95,15 +95,51 @@ class Goal {
         return $stmt->execute();
     }
 
-    public function addContribution($id, $userId, $amount) {
-        $query = "UPDATE " . $this->table . " SET current_amount = current_amount + :amount WHERE id = :id AND user_id = :user_id";
-        
-        $stmt = $this->conn->prepare($query);
-        $stmt->bindParam(':amount', $amount);
-        $stmt->bindParam(':id', $id);
-        $stmt->bindParam(':user_id', $userId);
-        
-        return $stmt->execute();
+    public function findByIdForUpdate($id, $userId) {
+        $stmt = $this->conn->prepare(
+            "SELECT * FROM {$this->table} WHERE id = :id AND user_id = :user_id LIMIT 1 FOR UPDATE"
+        );
+        $stmt->execute([':id' => $id, ':user_id' => $userId]);
+        return $stmt->fetch(PDO::FETCH_ASSOC);
+    }
+
+    public function recalculateCurrentAmount($id, $userId): bool {
+        $stmt = $this->conn->prepare(
+            "UPDATE {$this->table} g
+             SET g.current_amount = g.initial_amount + COALESCE((
+                 SELECT SUM(t.amount) FROM transactions t
+                 WHERE t.goal_id = g.id AND t.user_id = g.user_id AND t.type = 'goal_contribution'
+             ), 0), g.updated_at = CURRENT_TIMESTAMP
+             WHERE g.id = :id AND g.user_id = :user_id"
+        );
+        return $stmt->execute([':id' => $id, ':user_id' => $userId]);
+    }
+
+    public function findContributions($goalId, $userId): array {
+        $stmt = $this->conn->prepare(
+            "SELECT t.*, a.name AS account_name
+             FROM transactions t
+             JOIN accounts a ON a.id = t.account_id AND a.user_id = t.user_id
+             WHERE t.goal_id = :goal_id AND t.user_id = :user_id AND t.type = 'goal_contribution'
+             ORDER BY t.date DESC, t.created_at DESC"
+        );
+        $stmt->execute([':goal_id' => $goalId, ':user_id' => $userId]);
+        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    }
+
+    public function countContributions($goalId, $userId): int {
+        $stmt = $this->conn->prepare(
+            "SELECT COUNT(*) FROM transactions
+             WHERE goal_id = :goal_id AND user_id = :user_id AND type = 'goal_contribution'"
+        );
+        $stmt->execute([':goal_id' => $goalId, ':user_id' => $userId]);
+        return (int)$stmt->fetchColumn();
+    }
+
+    public function getTotalSaved($userId): float {
+        $stmt = $this->conn->prepare('SELECT COALESCE(SUM(current_amount), 0) FROM goals WHERE user_id = :user_id');
+        $stmt->execute([':user_id' => $userId]);
+        return (float)$stmt->fetchColumn();
     }
 
     public function getGoalProgress($id, $userId) {

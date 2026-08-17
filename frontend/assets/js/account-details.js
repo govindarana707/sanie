@@ -4,13 +4,34 @@ class AccountDetailsManager {
         this.accountData = null;
         this.statementData = null;
         this.filters = {};
+        this.currentPage = 1;
+        this.pageSize = 20;
         this._eventHandler = null;
+        this.routeQueryKeys = ['id', 'page', 'limit', 'type', 'search', 'start_date', 'end_date'];
+        this._requestController = null;
+        this._requestSequence = 0;
+        this._routeSignal = null;
+        this._routeAbortHandler = null;
+        this._isRouteCurrent = () => true;
     }
 
-    async onMount() {
+    async onMount(routeContext = null) {
         const hashParts = window.location.hash.split('?');
-        const params = new URLSearchParams(hashParts[1] || '');
-        this.accountId = params.get('id');
+        const params = routeContext?.query || new URLSearchParams(hashParts[1] || '');
+        const nextAccountId = params.get('id');
+
+        this._cancelActiveRequest();
+        this.accountId = nextAccountId;
+        this.accountData = null;
+        this.statementData = null;
+        this.currentPage = Math.max(1, Number(params.get('page')) || 1);
+        this.pageSize = Math.max(1, Math.min(200, Number(params.get('limit')) || 20));
+        this.filters = {};
+        ['type', 'search', 'start_date', 'end_date'].forEach(key => {
+            if (params.get(key)) this.filters[key] = params.get(key);
+        });
+        this._routeSignal = routeContext?.signal || null;
+        this._isRouteCurrent = routeContext?.isCurrent || (() => true);
 
         if (!this.accountId) {
             this.renderError('Account ID not found');
@@ -18,15 +39,19 @@ class AccountDetailsManager {
         }
 
         this.showSkeleton();
-        await this.loadAccountStatement();
-
+        if (this._eventHandler) document.removeEventListener('app:data-changed', this._eventHandler);
         this._eventHandler = () => {
             this.loadAccountStatement();
         };
         document.addEventListener('app:data-changed', this._eventHandler);
+        await this.loadAccountStatement();
     }
 
     onUnmount() {
+        this._requestSequence++;
+        this._cancelActiveRequest();
+        this.accountData = null;
+        this.statementData = null;
         if (window.ChartService) {
             ChartService.destroy('#accountCashFlowChart');
             ChartService.destroy('#accountIncomeExpenseChart');
@@ -57,13 +82,44 @@ class AccountDetailsManager {
         `;
     }
 
+    _cancelActiveRequest() {
+        if (this._routeSignal && this._routeAbortHandler) {
+            this._routeSignal.removeEventListener?.('abort', this._routeAbortHandler);
+        }
+        this._requestController?.abort();
+        this._requestController = null;
+        this._routeAbortHandler = null;
+    }
+
     async loadAccountStatement() {
         const container = document.getElementById('account-details-content');
         if (!container) return;
 
+        this._cancelActiveRequest();
+        const controller = new AbortController();
+        this._requestController = controller;
+        const requestedAccountId = String(this.accountId);
+        const requestSequence = ++this._requestSequence;
+        if (this._routeSignal?.aborted) controller.abort();
+        else if (this._routeSignal) {
+            this._routeAbortHandler = () => controller.abort();
+            this._routeSignal.addEventListener('abort', this._routeAbortHandler, { once: true });
+        }
+        const isCurrent = () => requestSequence === this._requestSequence
+            && requestedAccountId === String(this.accountId)
+            && !controller.signal.aborted
+            && this._isRouteCurrent();
+
         try {
-            const response = await accountsAPI.getStatement(this.accountId, this.filters);
+            const response = await accountsAPI.getStatement(this.accountId, {
+                ...this.filters, page: this.currentPage, limit: this.pageSize
+            }, { signal: controller.signal });
+            if (!isCurrent()) return;
             if (response.success) {
+                if (String(response.data?.account?.id) !== requestedAccountId) {
+                    this.renderError('Account not found');
+                    return;
+                }
                 this.accountData = response.data.account;
                 this.statementData = response.data;
                 this.renderAccountDetails(response.data);
@@ -71,8 +127,20 @@ class AccountDetailsManager {
                 this.renderError(response.message || 'Failed to load account');
             }
         } catch (error) {
-            console.error('Failed to load account statement:', error);
-            this.renderError('Failed to load account details. Please try again.');
+            if (!isCurrent() || error?.category === 'aborted_error' || error?.code === 'ABORTED_ERROR') return;
+            this.accountData = null;
+            this.statementData = null;
+            this.renderError(error?.status === 404 || error?.status === 403
+                ? 'Account not found'
+                : 'Failed to load account details. Please try again.');
+        } finally {
+            if (this._requestController === controller) {
+                if (this._routeSignal && this._routeAbortHandler) {
+                    this._routeSignal.removeEventListener?.('abort', this._routeAbortHandler);
+                }
+                this._requestController = null;
+                this._routeAbortHandler = null;
+            }
         }
     }
 
@@ -102,17 +170,17 @@ class AccountDetailsManager {
         const container = document.getElementById('account-details-content');
         if (!container) return;
 
-        const { account, statement, summary, analytics, cash_flow, calculated_balance } = data;
+        const { account, statement, summary, analytics, cash_flow, calculated_balance, pagination = {} } = data;
         const balance = calculated_balance !== undefined ? parseFloat(calculated_balance) : (parseFloat(account.calculated_balance) || parseFloat(account.balance) || 0);
         const storedBalance = parseFloat(account.balance) || 0;
-        const openingBalance = parseFloat(account.opening_balance) || 0;
+        const openingBalance = parseFloat(data.opening_balance) || 0;
         const totalIncome = parseFloat(summary.total_income) || 0;
         const totalExpense = parseFloat(summary.total_expense) || 0;
         const transferIn = parseFloat(summary.transfer_in) || 0;
         const transferOut = parseFloat(summary.transfer_out) || 0;
         const karobarReceived = parseFloat(summary.karobar_received) || 0;
         const karobarPaid = parseFloat(summary.karobar_paid) || 0;
-        const netCashFlow = totalIncome + transferIn - totalExpense - transferOut;
+        const netCashFlow = parseFloat(data.net_change) || 0;
         const txCount = parseInt(summary.transaction_count) || 0;
 
         const accountTypeLabels = {
@@ -138,9 +206,16 @@ class AccountDetailsManager {
                 <!-- Premium Header -->
                 <div class="acct-header-premium" style="border-left: 4px solid ${color};">
                     <div class="acct-header-top">
-                        <button class="btn btn-light btn-sm rounded-pill" onclick="window.appRouter?.navigate('dashboard')" id="acct-back-btn">
-                            <i class="bi bi-arrow-left me-1"></i> Dashboard
-                        </button>
+                        <div class="acct-header-top-left">
+                            <button class="btn btn-light btn-sm rounded-pill" onclick="window.appRouter?.navigate('dashboard')" id="acct-back-btn">
+                                <i class="bi bi-arrow-left me-1"></i> Dashboard
+                            </button>
+                        </div>
+                        <div class="acct-header-top-right">
+                            <a href="transaction.php?account_id=${account.id}" class="btn btn-outline-primary btn-sm rounded-pill" target="_blank">
+                                <i class="bi bi-journal-text me-1"></i> Show Ledger
+                            </a>
+                        </div>
                     </div>
                     <div class="acct-header-body">
                         <div class="acct-header-icon" style="background:${color}15;color:${color}">
@@ -179,7 +254,7 @@ class AccountDetailsManager {
                     <div class="acct-summary-card">
                         <div class="acct-summary-icon" style="background:rgba(99,102,241,0.1);color:#6366F1;"><i class="bi bi-hourglass-split"></i></div>
                         <div class="acct-summary-body">
-                            <span class="acct-summary-label">Opening Balance</span>
+                            <span class="acct-summary-label">Statement Opening</span>
                             <span class="acct-summary-value">${Formatters.currency(openingBalance)}</span>
                         </div>
                     </div>
@@ -323,26 +398,28 @@ class AccountDetailsManager {
                     <div class="acct-filters">
                         <div class="acct-search-wrapper">
                             <i class="bi bi-search"></i>
-                            <input type="search" id="acct-search-input" placeholder="Search description, category..." class="acct-search">
+                            <input type="search" id="acct-search-input" placeholder="Search description, category..." class="acct-search" value="${Formatters.escapeHTML(this.filters.search || '')}">
                         </div>
                         <select id="acct-filter-type" class="form-select form-select-sm">
                             <option value="">All Types</option>
-                            <option value="income">Income</option>
-                            <option value="expense">Expense</option>
-                            <option value="transfer">Transfer</option>
+                            <option value="income" ${this.filters.type === 'income' ? 'selected' : ''}>Income</option>
+                            <option value="expense" ${this.filters.type === 'expense' ? 'selected' : ''}>Expense</option>
+                            <option value="transfer" ${this.filters.type === 'transfer' ? 'selected' : ''}>Transfer</option>
+                            <option value="goal_contribution" ${this.filters.type === 'goal_contribution' ? 'selected' : ''}>Goal Contribution</option>
+                            <option value="karobar" ${this.filters.type === 'karobar' ? 'selected' : ''}>Karobar Cash Movement</option>
                         </select>
                         <select id="acct-filter-period" class="form-select form-select-sm">
-                            <option value="">All Time</option>
+                            <option value="" ${!this.filters.start_date && !this.filters.end_date ? 'selected' : ''}>All Time</option>
                             <option value="today">Today</option>
                             <option value="week">This Week</option>
                             <option value="month">This Month</option>
                             <option value="year">This Year</option>
-                            <option value="custom">Custom Range</option>
+                            <option value="custom" ${this.filters.start_date || this.filters.end_date ? 'selected' : ''}>Custom Range</option>
                         </select>
-                        <div class="acct-date-range" id="acct-date-range" style="display:none;">
-                            <input type="date" id="acct-filter-start" class="form-control form-control-sm">
+                        <div class="acct-date-range" id="acct-date-range" style="display:${this.filters.start_date || this.filters.end_date ? 'flex' : 'none'};">
+                            <input type="date" id="acct-filter-start" class="form-control form-control-sm" value="${this.filters.start_date || ''}">
                             <span class="mx-1">to</span>
-                            <input type="date" id="acct-filter-end" class="form-control form-control-sm">
+                            <input type="date" id="acct-filter-end" class="form-control form-control-sm" value="${this.filters.end_date || ''}">
                         </div>
                         <button class="btn btn-sm btn-primary" id="acct-apply-filters"><i class="bi bi-funnel"></i> Apply</button>
                         <button class="btn btn-sm btn-outline-secondary" id="acct-clear-filters"><i class="bi bi-x-lg"></i> Clear</button>
@@ -383,6 +460,14 @@ class AccountDetailsManager {
                             <button class="btn btn-primary" onclick="window.appRouter?.navigate('transactions')"><i class="bi bi-plus-lg me-1"></i> Add Transaction</button>
                         </div>
                     ` : ''}
+                    ${pagination.total_pages > 1 ? `
+                        <div class="d-flex justify-content-between align-items-center p-3 border-top">
+                            <span class="text-muted small">Page ${pagination.page} of ${pagination.total_pages} · ${pagination.total_rows} rows</span>
+                            <div class="btn-group btn-group-sm">
+                                <button id="acct-page-previous" data-page="${pagination.page - 1}" class="btn btn-outline-secondary" ${pagination.page <= 1 ? 'disabled' : ''}>Previous</button>
+                                <button id="acct-page-next" data-page="${pagination.page + 1}" class="btn btn-outline-secondary" ${pagination.page >= pagination.total_pages ? 'disabled' : ''}>Next</button>
+                            </div>
+                        </div>` : ''}
                 </div>
             </div>
         `;
@@ -393,6 +478,7 @@ class AccountDetailsManager {
         this.renderRunningBalanceChart(statement);
         this.setupFilterListeners();
         this.setupExportListeners();
+        this.setupPaginationListeners();
     }
 
     renderStatementRows(rows) {
@@ -403,6 +489,11 @@ class AccountDetailsManager {
             income: '<span class="acct-type-badge acct-type-income">Income</span>',
             expense: '<span class="acct-type-badge acct-type-expense">Expense</span>',
             transfer: '<span class="acct-type-badge acct-type-transfer">Transfer</span>',
+            goal_contribution: '<span class="acct-type-badge acct-type-transfer">Goal Contribution</span>',
+            karobar_borrowed: '<span class="acct-type-badge acct-type-income">Borrowed</span>',
+            karobar_returned: '<span class="acct-type-badge acct-type-income">Received Back</span>',
+            karobar_lent: '<span class="acct-type-badge acct-type-expense">Lent</span>',
+            karobar_repaid: '<span class="acct-type-badge acct-type-expense">Repaid</span>',
             opening: '<span class="acct-type-badge acct-type-opening">Opening</span>',
         };
 
@@ -428,7 +519,7 @@ class AccountDetailsManager {
 
             return `
                 <tr class="${rowClass}">
-                    <td class="text-muted">${idx}</td>
+                    <td class="text-muted">${(this.statementData?.pagination?.offset || 0) + idx}</td>
                     <td><span class="acct-date-text">${dateStr}</span></td>
                     <td>${typeBadges[row.type] || typeBadges.opening}</td>
                     <td>${Formatters.escapeHTML(row.category_name || '--')}</td>
@@ -619,12 +710,14 @@ class AccountDetailsManager {
             }
         }
 
+        this.currentPage = 1;
         this.showSkeleton();
         this.loadAccountStatement();
     }
 
     clearFilters() {
         this.filters = {};
+        this.currentPage = 1;
         const typeEl = document.getElementById('acct-filter-type');
         const periodEl = document.getElementById('acct-filter-period');
         const searchEl = document.getElementById('acct-search-input');
@@ -633,6 +726,20 @@ class AccountDetailsManager {
         if (searchEl) searchEl.value = '';
         this.showSkeleton();
         this.loadAccountStatement();
+    }
+
+    goToPage(page) {
+        const total = Number(this.statementData?.pagination?.total_pages || 1);
+        this.currentPage = Math.max(1, Math.min(total, Number(page) || 1));
+        this.showSkeleton();
+        this.loadAccountStatement();
+    }
+
+    setupPaginationListeners() {
+        ['acct-page-previous', 'acct-page-next'].forEach(id => {
+            const button = document.getElementById(id);
+            if (button) button.addEventListener('click', () => this.goToPage(button.dataset.page));
+        });
     }
 
     setupExportListeners() {

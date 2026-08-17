@@ -7,9 +7,27 @@ class DashboardManager {
         this.hasData = false;
         this._periodHandler = null;
         this._isLoading = false;
+        this._reloadPending = false;
+        this._customApplyHandler = null;
+    }
+
+    adjustMobileNavPadding() {
+        const update = () => {
+            const nav = document.querySelector('.top-nav');
+            const main = document.querySelector('.main-content');
+            if (nav && window.innerWidth < 992) {
+                main.style.setProperty('--mobile-nav-height', nav.offsetHeight + 'px');
+            } else if (main) {
+                main.style.removeProperty('--mobile-nav-height');
+            }
+        };
+        update();
+        window.addEventListener('resize', update);
+        window.addEventListener('orientationchange', update);
     }
 
     onMount() {
+        this.adjustMobileNavPadding();
         this.setupEventListeners();
         this.setDashboardGreeting();
         this.initCharts();
@@ -32,6 +50,11 @@ class DashboardManager {
         if (this._dataChangeHandler) {
             document.removeEventListener('app:data-changed', this._dataChangeHandler);
             this._dataChangeHandler = null;
+        }
+        const applyBtn = document.getElementById('apply-custom-date');
+        if (applyBtn && this._customApplyHandler) {
+            applyBtn.removeEventListener('click', this._customApplyHandler);
+            this._customApplyHandler = null;
         }
         if (window.ChartService) {
             ChartService.destroy('#incomeExpenseChart');
@@ -76,7 +99,8 @@ class DashboardManager {
         // Custom date apply
         const applyBtn = document.getElementById('apply-custom-date');
         if (applyBtn) {
-            applyBtn.addEventListener('click', () => {
+            if (this._customApplyHandler) applyBtn.removeEventListener('click', this._customApplyHandler);
+            this._customApplyHandler = () => {
                 const startInput = document.getElementById('custom-start-date');
                 const endInput = document.getElementById('custom-end-date');
                 const errorEl = document.getElementById('custom-date-error');
@@ -104,7 +128,8 @@ class DashboardManager {
                 this.updatePeriodLabel();
                 bootstrap.Modal.getInstance(document.getElementById('customDateModal')).hide();
                 this.loadDashboardData();
-            });
+            };
+            applyBtn.addEventListener('click', this._customApplyHandler);
         }
     }
 
@@ -235,32 +260,38 @@ class DashboardManager {
 
         const now = new Date();
         let startDate, endDate;
+        const localDate = (date) => {
+            const year = date.getFullYear();
+            const month = String(date.getMonth() + 1).padStart(2, '0');
+            const day = String(date.getDate()).padStart(2, '0');
+            return `${year}-${month}-${day}`;
+        };
 
         switch (this.currentPeriod) {
             case 'today':
-                startDate = endDate = now.toISOString().split('T')[0];
+                startDate = endDate = localDate(now);
                 break;
             case 'week': {
                 const weekStart = new Date(now);
                 const dow = now.getDay();
                 weekStart.setDate(now.getDate() - (dow === 0 ? 6 : dow - 1));
-                startDate = weekStart.toISOString().split('T')[0];
+                startDate = localDate(weekStart);
                 const weekEnd = new Date(weekStart);
                 weekEnd.setDate(weekStart.getDate() + 6);
-                endDate = weekEnd.toISOString().split('T')[0];
+                endDate = localDate(weekEnd);
                 break;
             }
             case 'month':
-                startDate = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0];
-                endDate = new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().split('T')[0];
+                startDate = localDate(new Date(now.getFullYear(), now.getMonth(), 1));
+                endDate = localDate(new Date(now.getFullYear(), now.getMonth() + 1, 0));
                 break;
             case 'year':
-                startDate = new Date(now.getFullYear(), 0, 1).toISOString().split('T')[0];
-                endDate = new Date(now.getFullYear(), 11, 31).toISOString().split('T')[0];
+                startDate = localDate(new Date(now.getFullYear(), 0, 1));
+                endDate = localDate(new Date(now.getFullYear(), 11, 31));
                 break;
             default:
-                startDate = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0];
-                endDate = new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().split('T')[0];
+                startDate = localDate(new Date(now.getFullYear(), now.getMonth(), 1));
+                endDate = localDate(new Date(now.getFullYear(), now.getMonth() + 1, 0));
         }
 
         return { startDate, endDate };
@@ -305,7 +336,10 @@ class DashboardManager {
             return;
         }
 
-        if (this._isLoading) return;
+        if (this._isLoading) {
+            this._reloadPending = true;
+            return;
+        }
         this._isLoading = true;
         this.showLoading(true);
 
@@ -313,17 +347,18 @@ class DashboardManager {
             const { startDate, endDate } = this.getPeriodDates();
             const response = await dashboardAPI.getData(startDate, endDate);
 
-            if (response.success) {
-                this.updateStatistics(response.data.statistics, response.data.total_balance, response.data.savings_balance);
-                this.updateCreditCards(response.data.total_receivable, response.data.total_payable, response.data.net_worth);
-                this.updateHealthScore(response.data.financial_health_score);
-                this.updateRecentTransactions(response.data.recent_transactions);
-                this.updateBudgetProgress(response.data.budget_progress);
-                this.updateGoalProgress(response.data.goal_progress);
-                this.updateIncomeSources(response.data.income_breakdown);
-                this.updateAccountsOverview(response.data.accounts_overview);
-                this.updateCharts(response.data);
-                this.handleEmptyStates(response.data);
+            if (response.success && response.data && typeof response.data === 'object') {
+                const userId = window.authManager?.getCurrentUser()?.id;
+                const adjusted = userId !== undefined && userId !== null
+                    ? await window.OfflineStorage?.applyPendingDashboardAdjustments(userId, response.data)
+                    : { data: response.data, pendingCount: 0 };
+                this.renderDashboardData(adjusted?.data || response.data);
+                this.setOfflineSnapshotStatus(adjusted?.pendingCount > 0
+                    ? { pendingOnly: true, pendingCount: adjusted.pendingCount }
+                    : null);
+                if (userId !== undefined && userId !== null) {
+                    window.OfflineStorage?.saveDashboardSnapshot(userId, response.data);
+                }
             } else {
                 console.error('Dashboard API error:', response.message);
                 NotificationService.error('Dashboard API error: ' + (response.message || 'Unknown error'));
@@ -331,17 +366,92 @@ class DashboardManager {
             }
         } catch (error) {
             console.error('Failed to load dashboard data:', error);
-            NotificationService.error('Failed to load dashboard data: ' + error.message);
-            this.handleEmptyStates(null);
+            const authFailure = [401, 403, 419].includes(Number(error?.status));
+            const usedSnapshot = authFailure ? false : await this.loadOfflineSnapshot();
+            if (!usedSnapshot) {
+                this.handleEmptyStates(null);
+                this.setOfflineSnapshotStatus(authFailure ? null : { empty: true });
+            }
         } finally {
             this._isLoading = false;
             this.showLoading(false);
+            if (this._reloadPending) {
+                this._reloadPending = false;
+                this.loadDashboardData();
+            }
         }
+    }
+
+    renderDashboardData(data) {
+        this.updateStatistics(data.statistics, data.total_balance, data.savings_balance);
+        this.updateCreditCards(data.total_receivable, data.total_payable, data.net_worth);
+        this.updateHealthScore(data.financial_health_score);
+        this.updateRecentTransactions(data.recent_transactions);
+        this.updateBudgetProgress(data.budget_progress);
+        this.updateGoalProgress(data.goal_progress);
+        this.updateIncomeSources(data.income_breakdown);
+        this.updateAccountsOverview(data.accounts_overview);
+        this.updateCharts(data);
+        this.handleEmptyStates(data);
+    }
+
+    async loadOfflineSnapshot() {
+        const userId = window.authManager?.getCurrentUser()?.id;
+        if (userId === undefined || userId === null || !window.OfflineStorage) return false;
+        const snapshot = await window.OfflineStorage.getDashboardSnapshot(userId);
+        if (!snapshot?.data || !snapshot.cachedAt) return false;
+        const adjusted = await window.OfflineStorage.applyPendingDashboardAdjustments(userId, snapshot.data);
+        const pendingCount = adjusted.pendingCount;
+        this.renderDashboardData(adjusted.data);
+        this.setOfflineSnapshotStatus({ cachedAt: snapshot.cachedAt, pendingCount });
+        return true;
+    }
+
+    setOfflineSnapshotStatus(state) {
+        const page = document.getElementById('dashboard-page');
+        if (!page) return;
+        let status = document.getElementById('dashboard-offline-data-status');
+
+        if (!state) {
+            status?.remove();
+            return;
+        }
+
+        if (!status) {
+            status = document.createElement('div');
+            status.id = 'dashboard-offline-data-status';
+            status.className = 'alert alert-warning py-2 px-3 mb-3';
+            status.setAttribute('role', 'status');
+            page.prepend(status);
+        }
+
+        if (state.empty) {
+            status.textContent = 'Offline — no saved dashboard data is available yet. Connect to the internet and open the dashboard once.';
+            return;
+        }
+
+        if (state.pendingOnly) {
+            status.textContent = `Includes ${state.pendingCount} pending change${state.pendingCount === 1 ? '' : 's'}. Server totals will replace these estimates after synchronization.`;
+            return;
+        }
+
+        const cachedAt = new Date(state.cachedAt);
+        const timestamp = Number.isNaN(cachedAt.getTime())
+            ? 'an earlier time'
+            : cachedAt.toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' });
+        const mode = navigator.onLine ? 'Saved data — server unavailable' : 'Offline';
+        const pendingText = state.pendingCount > 0
+            ? ` Includes ${state.pendingCount} pending change${state.pendingCount === 1 ? '' : 's'}.`
+            : '';
+        status.textContent = `${mode} — showing saved dashboard data. Last updated: ${timestamp}.${pendingText}`;
     }
 
     showLoading(show) {
         const overlay = document.getElementById('dashboard-loading-overlay');
-        if (overlay) overlay.style.display = show ? 'flex' : 'none';
+        if (overlay) {
+            overlay.style.display = show ? 'flex' : 'none';
+            overlay.setAttribute('aria-busy', show ? 'true' : 'false');
+        }
     }
 
     updateCreditCards(receivable, payable, netWorth) {
@@ -353,18 +463,6 @@ class DashboardManager {
             const element = document.getElementById(elementId);
             if (!element) return;
             const numericValue = parseFloat(endValue) || 0;
-            const CountUpCtor = window.CountUp || window.countUp?.CountUp || window.countUp;
-            if (CountUpCtor) {
-                const countUp = new CountUpCtor(element, numericValue, {
-                    duration: 1.5,
-                    decimalPlaces: 2,
-                    prefix: prefix
-                });
-                if (!countUp.error) {
-                    countUp.start();
-                    return;
-                }
-            }
             element.textContent = Formatters.currency(numericValue);
         };
 
@@ -412,7 +510,7 @@ class DashboardManager {
         container.innerHTML = breakdown.map(d => {
             const amount = parseFloat(d.total_amount) || 0;
             const pct = totalIncome > 0 ? ((amount / totalIncome) * 100).toFixed(1) : 0;
-            const color = d.category_color || '#10B981';
+            const color = Formatters.safeColor(d.category_color, '#10B981');
             return `
                 <div class="income-source-item">
                     <div class="income-source-info">
@@ -470,8 +568,9 @@ class DashboardManager {
             const totalExpense = parseFloat(account.total_expense) || 0;
             const lastTxDate = account.last_transaction_date;
             const icon = accountTypeIcons[account.type] || 'bi-wallet2';
-            const typeLabel = accountTypeLabels[account.type] || account.type;
-            const color = account.color || '#10B981';
+            const typeLabel = accountTypeLabels[account.type] || 'Account';
+            const color = Formatters.safeColor(account.color, '#10B981');
+            const accountId = Number.isInteger(Number(account.id)) && Number(account.id) > 0 ? Number(account.id) : 0;
 
             let lastTransactionText = 'No transactions';
             if (lastTxDate) {
@@ -486,7 +585,7 @@ class DashboardManager {
             }
 
             return `
-                <div class="account-card" onclick="window.appRouter?.navigate('account-details?id=${account.id}')" style="cursor:pointer;">
+                <div class="account-card" onclick="window.appRouter?.navigate('account-details?id=${accountId}')" style="cursor:pointer;">
                     <div class="account-card-header">
                         <div class="account-card-icon" style="background:${color}15;color:${color}">
                             <i class="bi ${icon}"></i>
@@ -599,19 +698,6 @@ class DashboardManager {
             if (!element) return;
 
             const numericValue = parseFloat(endValue) || 0;
-            const CountUpCtor = window.CountUp || window.countUp?.CountUp || window.countUp;
-
-            if (CountUpCtor) {
-                const countUp = new CountUpCtor(element, numericValue, {
-                    duration: 1.5,
-                    decimalPlaces: 2,
-                    prefix: prefix
-                });
-                if (!countUp.error) {
-                    countUp.start();
-                    return;
-                }
-            }
             element.textContent = Formatters.currency(numericValue);
         };
 
@@ -764,7 +850,7 @@ class DashboardManager {
 
             item.innerHTML = `
                 <div class="budget-header">
-                    <span class="budget-name">${Formatters.escapeHTML(b.budget.name)}</span>
+                    <span class="budget-name">${Formatters.escapeHTML(b.budget.name)}<small class="d-block text-muted">${Formatters.escapeHTML(b.budget.scope_label || b.budget.category_name || 'All expenses')}</small></span>
                     <span class="budget-amount">${Formatters.currency(b.budget.amount)}</span>
                 </div>
                 <div class="budget-progress-bar">
@@ -807,10 +893,11 @@ class DashboardManager {
 
             const pct = Math.min(100, g.percentage);
 
+            const goalIcon = Formatters.safeIconClass(g.goal.icon, 'bi bi-bullseye');
             item.innerHTML = `
                 <div class="goal-header">
-                    <span class="goal-name"><i class="bi ${g.goal.icon || 'bi-bullseye'} me-2 text-primary"></i>${Formatters.escapeHTML(g.goal.name)}</span>
-                    <span class="goal-icon"><i class="bi ${g.goal.icon || 'bi-bullseye'}"></i></span>
+                    <span class="goal-name"><i class="${goalIcon} me-2 text-primary"></i>${Formatters.escapeHTML(g.goal.name)}</span>
+                    <span class="goal-icon"><i class="${goalIcon}"></i></span>
                 </div>
                 <div class="goal-amount">${Formatters.currency(g.goal.current_amount)}</div>
                 <div class="goal-target">Target: ${Formatters.currency(g.goal.target_amount)}</div>

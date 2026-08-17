@@ -7,18 +7,21 @@ require_once __DIR__ . '/../models/Goal.php';
 require_once __DIR__ . '/../models/Account.php';
 require_once __DIR__ . '/../models/Transaction.php';
 require_once __DIR__ . '/../models/Category.php';
+require_once __DIR__ . '/../services/BalanceService.php';
 
 class SavingsController {
     private $goalModel;
     private $accountModel;
     private $transactionModel;
     private $categoryModel;
+    private $balanceService;
 
     public function __construct() {
         $this->goalModel = new Goal();
         $this->accountModel = new Account();
         $this->transactionModel = new Transaction();
         $this->categoryModel = new Category();
+        $this->balanceService = new BalanceService();
     }
 
     public function data() {
@@ -39,7 +42,8 @@ class SavingsController {
         $savingsAccounts = [];
         $totalInAccounts = 0;
         foreach ($accounts as $account) {
-            if ($account['type'] === 'savings' && $account['is_active']) {
+            if (($account['type'] === 'savings' || !empty($account['include_in_savings'])) && $account['is_active']) {
+                $account['balance'] = $this->balanceService->calculateAccountBalance($account['id'], $userId);
                 $savingsAccounts[] = $account;
                 $totalInAccounts += (float)$account['balance'];
             }

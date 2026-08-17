@@ -1,0 +1,11 @@
+const fs=require('fs');const path=require('path');const root=path.resolve(__dirname,'..');
+const reports=fs.readFileSync(path.join(root,'assets','js','reports.js'),'utf8');const ledger=fs.readFileSync(path.join(root,'assets','js','transaction.js'),'utf8');const page=fs.readFileSync(path.join(root,'transaction.php'),'utf8');const api=fs.readFileSync(path.join(root,'assets','js','api.js'),'utf8');
+if(!reports.includes('page: this._incomeExpensePage')||!reports.includes('limit: this._incomeExpenseLimit')||!reports.includes('data.pagination'))throw new Error('Report UI does not consume backend pagination metadata');
+if(!reports.includes('goToIncomeExpensePage(page)')||!reports.includes('pagination.has_previous')||!reports.includes('pagination.has_next'))throw new Error('Report previous/next navigation is incomplete');
+if(!reports.includes('_allIncomeExpenseData()')||!reports.includes('page <= totalPages'))throw new Error('Report print/CSV would export only the visible page');
+if(!ledger.includes("params.set('page', String(this.currentPage))")||!ledger.includes("params.set('limit', String(this.pageSize))"))throw new Error('Ledger request omits page dimensions');
+if(!ledger.includes('this.summary?.page_opening')||!ledger.includes('tx.running_balance'))throw new Error('Ledger UI does not use backend page opening/running balances');
+if(!ledger.includes('paging: false')||!ledger.includes('renderPagination()')||!ledger.includes('this.currentPage = 1'))throw new Error('Ledger still uses client-only paging or fails to reset filters');
+if(!page.includes('ledger-page-prev')||!page.includes('ledger-page-next')||!page.includes('ledger-page-size'))throw new Error('Ledger pagination controls are missing');
+for(const pattern of ['/ledger','/reports'])if(!api.includes(`'${pattern}'`))throw new Error(`Financial mutations do not invalidate ${pattern}`);
+console.log('PASS: report and ledger UI use backend pagination, full exports, stable page openings, and targeted cache invalidation');

@@ -6,16 +6,19 @@ require_once __DIR__ . '/../includes/middleware.php';
 require_once __DIR__ . '/../models/Transaction.php';
 require_once __DIR__ . '/../models/Account.php';
 require_once __DIR__ . '/../models/Category.php';
+require_once __DIR__ . '/../services/ReportingPaginationService.php';
 
 class LedgerController {
     private $transactionModel;
     private $accountModel;
     private $categoryModel;
+    private $reportingService;
 
     public function __construct() {
         $this->transactionModel = new Transaction();
         $this->accountModel = new Account();
         $this->categoryModel = new Category();
+        $this->reportingService = new ReportingPaginationService();
     }
 
     public function index() {
@@ -28,60 +31,14 @@ class LedgerController {
             'start_date' => $_GET['start_date'] ?? null,
             'end_date' => $_GET['end_date'] ?? null,
             'search' => $_GET['search'] ?? null,
-            'sort' => $_GET['sort'] ?? 't.date',
-            'direction' => $_GET['direction'] ?? 'DESC'
+            'subcategory_id' => $_GET['subcategory_id'] ?? null
         ];
-
-        $limit = min((int)($_GET['limit'] ?? 500), 2000);
-        $offset = (int)($_GET['offset'] ?? 0);
-
-        $transactions = $this->transactionModel->getLedger($userId, $filters, $limit, $offset);
-        $totalCount = $this->transactionModel->getLedgerCount($userId, $filters);
-
-        // Compute summary for the filtered period
-        $summary = $this->transactionModel->getLedgerSummary($userId, $filters);
-        $periodIncome = floatval($summary['period_income'] ?? 0);
-        $periodExpense = floatval($summary['period_expense'] ?? 0);
-        $periodNet = $periodIncome - $periodExpense;
-        $periodCount = (int)$summary['period_count'];
-
-        // Compute opening balance: all income - expense before the period
-        $openingBalance = 0;
-        if (!empty($filters['start_date'])) {
-            $openingBalance = $this->transactionModel->getOpeningBalance($userId, $filters['start_date']);
-        }
-
-        // Calculate running balance for each transaction
-        $runningBalance = $openingBalance;
-        foreach ($transactions as &$tx) {
-            $amount = floatval($tx['amount']);
-            if ($tx['type'] === 'income') {
-                $runningBalance += $amount;
-            } elseif ($tx['type'] === 'expense') {
-                $runningBalance -= $amount;
-            }
-            $tx['running_balance'] = $runningBalance;
-        }
-        unset($tx);
-
-        $closingBalance = $runningBalance;
-
-        Response::success([
-            'transactions' => $transactions,
-            'total_count' => $totalCount,
-            'summary' => [
-                'opening_balance' => $openingBalance,
-                'closing_balance' => $closingBalance,
-                'period_income' => $periodIncome,
-                'period_expense' => $periodExpense,
-                'period_net' => $periodNet,
-                'period_count' => $periodCount,
-            ],
-            'filters' => [
-                'limit' => $limit,
-                'offset' => $offset,
-            ]
-        ]);
+        $page=max(1,(int)($_GET['page']??1));$limit=max(1,min(100,(int)($_GET['limit']??25)));
+        foreach(['start_date','end_date']as$key)if(!empty($filters[$key])&&!$this->validDate($filters[$key]))Response::error('Invalid ledger date.',422);
+        if(!empty($filters['start_date'])&&!empty($filters['end_date'])&&$filters['start_date']>$filters['end_date'])Response::error('Invalid ledger date range.',422);
+        if(!empty($filters['account_id'])&&!$this->accountModel->findById($filters['account_id'],$userId))Response::notFound('Account not found');
+        $result=$this->reportingService->ledgerPage($userId,$filters,$page,$limit);$result['total_count']=$result['pagination']['total_rows'];$result['filters']=['page'=>$page,'limit'=>$limit];
+        Response::success($result);
     }
 
     public function filters() {
@@ -95,4 +52,6 @@ class LedgerController {
             'categories' => $categories,
         ]);
     }
+
+    private function validDate($value):bool{$date=DateTime::createFromFormat('!Y-m-d',(string)$value);return$date&&$date->format('Y-m-d')===(string)$value;}
 }

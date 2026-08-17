@@ -1,6 +1,7 @@
 class SavingsManager {
     constructor() {
         this.data = null;
+        this._goalRequestIds = new Map();
     }
 
     onMount() {
@@ -12,6 +13,7 @@ class SavingsManager {
     async loadSavingsData() {
         if (!window.authManager?.isAuthenticated()) return;
 
+        document.getElementById('savings-page')?.classList.add('is-loading');
         try {
             const response = await savingsAPI.getData();
             if (response.success) {
@@ -21,6 +23,8 @@ class SavingsManager {
         } catch (error) {
             console.error('Failed to load savings data:', error);
             NotificationService.error('Failed to load savings data');
+        } finally {
+            document.getElementById('savings-page')?.classList.remove('is-loading');
         }
     }
 
@@ -79,6 +83,7 @@ class SavingsManager {
             const forecastText = g.forecast_date
                 ? `<span class="savings-goal-forecast">Est. completion: ${Formatters.date(g.forecast_date)}</span>`
                 : '';
+            const remaining = Math.max(0, (parseFloat(goal.target_amount) || 0) - (parseFloat(goal.current_amount) || 0));
 
             return `
                 <div class="savings-goal-card">
@@ -103,7 +108,7 @@ class SavingsManager {
                         </div>
                     </div>
                     <div class="savings-goal-footer">
-                        <span class="savings-goal-amount">${Formatters.currency(goal.current_amount)} <small class="text-muted">of ${Formatters.currency(goal.target_amount)}</small></span>
+                        <div><span class="savings-goal-amount">${Formatters.currency(goal.current_amount)} <small class="text-muted">of ${Formatters.currency(goal.target_amount)}</small></span><small class="savings-goal-remaining">${Formatters.currency(remaining)} remaining</small></div>
                         <div class="savings-goal-actions">
                             ${!g.is_completed ? `<button class="btn btn-sm btn-outline-success" onclick="savingsManager.contributeToGoal(${goal.id}, '${Formatters.escapeHTML(goal.name).replace(/'/g, "\\'")}')"><i class="fas fa-plus"></i> Add</button>` : '<span class="badge bg-success">Completed</span>'}
                         </div>
@@ -131,7 +136,7 @@ class SavingsManager {
         }
 
         container.innerHTML = accounts.map(acc => `
-            <div class="savings-account-card">
+            <div class="savings-account-card" style="--account-accent:${acc.color || '#6366f1'}">
                 <div class="savings-account-header">
                     <div class="savings-account-info">
                         <div class="savings-account-icon" style="background:${acc.color || '#6366f1'}20;color:${acc.color || '#6366f1'}">
@@ -142,7 +147,7 @@ class SavingsManager {
                             ${acc.account_number ? `<small class="text-muted">${Formatters.escapeHTML(acc.account_number)}</small>` : ''}
                         </div>
                     </div>
-                    <div class="savings-account-balance">${Formatters.currency(acc.balance)}</div>
+                    <div class="savings-account-balance-wrap"><small>Available balance</small><div class="savings-account-balance">${Formatters.currency(acc.balance)}</div></div>
                 </div>
                 <div class="savings-account-actions">
                     <button class="btn btn-sm btn-outline-primary" onclick="savingsManager.depositToAccount(${acc.id}, '${Formatters.escapeHTML(acc.name).replace(/'/g, "\\'")}')">
@@ -173,6 +178,7 @@ class SavingsManager {
             }
             return `
                 <div class="savings-recent-item">
+                    <span class="savings-activity-icon ${tx.type}"><i class="fas ${tx.type === 'transfer' ? 'fa-exchange-alt' : (tx.type === 'income' ? 'fa-arrow-down' : 'fa-arrow-up')}"></i></span>
                     <div class="savings-recent-info">
                         <span class="savings-recent-desc">${Formatters.escapeHTML(tx.description || tx.category_name || 'Savings')}</span>
                         <small class="text-muted">${Formatters.date(tx.date)}</small>
@@ -231,8 +237,19 @@ class SavingsManager {
         if (!formValues) return;
 
         try {
-            const result = await goalsAPI.contribute(goalId, formValues.amount, formValues.accountId);
+            const requestId = this._goalRequestIds.get(goalId) || (window.crypto?.randomUUID
+                ? window.crypto.randomUUID()
+                : (`req_goal_${Date.now().toString(36)}_${Math.random().toString(36).slice(2)}`).slice(0, 64));
+            this._goalRequestIds.set(goalId, requestId);
+            const result = await goalsAPI.contribute(goalId, {
+                amount: formValues.amount,
+                account_id: formValues.accountId,
+                date: new Date().toISOString().slice(0, 10),
+                description: '',
+                client_request_id: requestId
+            });
             if (result.success) {
+                this._goalRequestIds.delete(goalId);
                 NotificationService.success(`Rs ${formValues.amount.toLocaleString()} added to "${goalName}"`);
                 this.loadSavingsData();
             }

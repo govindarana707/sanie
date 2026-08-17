@@ -347,8 +347,8 @@ class AnalysisController {
 
     private function getSavingsData($userId) {
         $query = "SELECT
-                    COALESCE(SUM(CASE WHEN type != 'savings' THEN balance ELSE 0 END), 0) as total_balance,
-                    COALESCE(SUM(CASE WHEN type = 'savings' THEN balance ELSE 0 END), 0) as savings_balance
+                    COALESCE(SUM(CASE WHEN type != 'savings' AND include_in_savings = 0 THEN balance ELSE 0 END), 0) as total_balance,
+                    COALESCE(SUM(CASE WHEN type = 'savings' OR include_in_savings = 1 THEN balance ELSE 0 END), 0) as savings_balance
                   FROM accounts
                   WHERE user_id = :uid AND is_active = 1";
         $stmt = $this->conn->prepare($query);

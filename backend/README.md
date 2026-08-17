@@ -9,6 +9,18 @@ AI-Powered Personal Finance Management System - REST API
    mysql -u root -p < database/schema.sql
    ```
 
+   This canonical schema is complete; do not replay historical migration SQL
+   files after a fresh import. To upgrade an existing August 10, 2026-or-newer
+   installation, back it up and run:
+
+   ```bash
+   php database/migrate.php
+   ```
+
+   See `database/MIGRATIONS.md` for the supported baseline and safety checks.
+   See `../docs/database-backups.md` for the approved backup location, naming,
+   restore procedure, retention guidance, and source-control policy.
+
 2. **Configure Database**
    Edit `config/database.php` if needed:
    - Host: localhost

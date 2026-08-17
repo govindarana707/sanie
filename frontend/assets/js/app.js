@@ -299,7 +299,8 @@ class App {
 
     setupThemeToggle() {
         const themeToggle = document.getElementById('theme-toggle');
-        const savedTheme = localStorage.getItem('theme') || 'light';
+        let savedTheme = 'light';
+        try { savedTheme = window.localStorage.getItem('theme') || 'light'; } catch (error) {}
 
         this.setTheme(savedTheme);
 
@@ -313,7 +314,7 @@ class App {
     setTheme(theme) {
         document.documentElement.setAttribute('data-bs-theme', theme);
         document.documentElement.setAttribute('data-theme', theme);
-        localStorage.setItem('theme', theme);
+        try { window.localStorage.setItem('theme', theme); } catch (error) {}
 
         const icon = document.querySelector('#theme-toggle i');
         if (icon) {
@@ -349,30 +350,47 @@ class App {
 
     setupGlobalSearch() {
         const searchInput = document.getElementById('global-search');
-
+        const searchButton = document.getElementById('global-search-btn');
+        if (!searchInput) return;
+        let searchTimer = null;
+        const runSearch = () => {
+            clearTimeout(searchTimer);
+            this.performSearch(searchInput.value);
+        };
         searchInput.addEventListener('input', (e) => {
-            const query = e.target.value.toLowerCase();
-
-            if (query.length >= 2) {
-                this.performSearch(query);
+            clearTimeout(searchTimer);
+            const query = e.target.value.trim();
+            if (query.length >= 2 || query.length === 0) {
+                searchTimer = setTimeout(() => this.performSearch(query), 350);
+            }
+        });
+        searchInput.addEventListener('keydown', e => {
+            if (e.key === 'Enter') { e.preventDefault(); runSearch(); }
+            if (e.key === 'Escape') { searchInput.value = ''; this.performSearch(''); searchInput.blur(); }
+        });
+        searchButton?.addEventListener('click', runSearch);
+        document.addEventListener('keydown', e => {
+            if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+                e.preventDefault();
+                searchInput.focus();
+                searchInput.select();
             }
         });
     }
 
     async performSearch(query) {
-        try {
-            const response = await transactionsAPI.getAll({ search: query });
+        const term = String(query || '').trim();
+        if (term.length === 1) return;
+        const manager = window.transactionsManager;
+        if (!manager) return;
+        manager.filters = { ...manager.filters };
+        if (term) manager.filters.search = term;
+        else delete manager.filters.search;
 
-            if (response.success && response.data.length > 0) {
-                this.navigateTo('transactions');
-
-                if (transactionsManager) {
-                    transactionsManager.transactions = response.data;
-                    transactionsManager.renderTransactions();
-                }
-            }
-        } catch (error) {
-            console.error('Search failed:', error);
+        if (window.appRouter?.currentPage === 'transactions') {
+            await manager.loadTransactions();
+        } else {
+            this.navigateTo('transactions');
         }
     }
 }
@@ -418,15 +436,16 @@ document.addEventListener('DOMContentLoaded', () => {
             onUnmount() {}
         });
         router.registerRoute('karobar-person-profile', {
-            onMount() {
+            routeQueryKeys: ['id'],
+            onMount(routeContext) {
                 karobarMgr.currentPage = 'karobar-person-profile';
                 karobarMgr.onMount();
                 const hashParts = window.location.hash.split('?');
-                const params = new URLSearchParams(hashParts[1] || '');
+                const params = routeContext?.query || new URLSearchParams(hashParts[1] || '');
                 const pid = params.get('id');
-                if (pid) karobarMgr.loadPersonProfile(parseInt(pid));
+                return karobarMgr.loadPersonProfile(parseInt(pid), routeContext);
             },
-            onUnmount() {}
+            onUnmount() { karobarMgr.cancelPersonProfileRequest(); }
         });
         router.registerRoute('karobar-transactions', {
             onMount() { karobarMgr.currentPage = 'karobar-transactions'; karobarMgr.onMount(); karobarMgr.loadTransactions(); },
@@ -486,3 +505,132 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 });
+let connectivityStatusTimer = null;
+let connectionWasOffline = !navigator.onLine;
+
+function showConnectivityStatus(message, restored = false) {
+    let status = document.getElementById('connectivity-status');
+    if (!status) {
+        status = document.createElement('div');
+        status.id = 'connectivity-status';
+        status.setAttribute('role', 'status');
+        status.setAttribute('aria-live', 'polite');
+        Object.assign(status.style, {
+            position: 'fixed',
+            top: '1rem',
+            left: '50%',
+            transform: 'translateX(-50%)',
+            zIndex: '10000',
+            padding: '.65rem 1rem',
+            borderRadius: '.75rem',
+            color: '#ffffff',
+            fontWeight: '700',
+            fontSize: '.875rem',
+            boxShadow: '0 8px 24px rgba(15, 23, 42, .2)'
+        });
+        document.body.appendChild(status);
+    }
+
+    clearTimeout(connectivityStatusTimer);
+    status.textContent = message;
+    status.style.background = restored ? '#059669' : '#b45309';
+    status.hidden = false;
+
+    if (restored) {
+        connectivityStatusTimer = setTimeout(() => {
+            status.hidden = true;
+        }, 3000);
+    }
+}
+
+window.addEventListener('offline', () => {
+    connectionWasOffline = true;
+    showConnectivityStatus("You're offline.");
+});
+
+window.addEventListener('online', () => {
+    if (connectionWasOffline) {
+        connectionWasOffline = false;
+        const userId = window.authManager?.getCurrentUser()?.id;
+        Promise.resolve(window.OfflineStorage?.countPendingActions(userId)).then(count => {
+            const pendingText = count > 0
+                ? `Connection restored — ${count} change${count === 1 ? '' : 's'} still waiting to sync.`
+                : 'Connection restored.';
+            showConnectivityStatus(pendingText, true);
+        });
+    }
+});
+
+if (!navigator.onLine) {
+    showConnectivityStatus("You're offline.");
+}
+
+async function refreshPendingSyncStatus() {
+    const userId = window.authManager?.getCurrentUser()?.id;
+    const actions = userId !== undefined && userId !== null
+        ? await window.OfflineStorage?.getPendingActions(userId) || []
+        : [];
+    const count = actions.length;
+    const failedCount = actions.filter(action => ['failed', 'conflict'].includes(action.status)).length;
+    let indicator = document.getElementById('pending-sync-status');
+
+    if (count === 0) {
+        indicator?.remove();
+        return;
+    }
+
+    if (!indicator) {
+        indicator = document.createElement('div');
+        indicator.id = 'pending-sync-status';
+        indicator.setAttribute('role', 'status');
+        Object.assign(indicator.style, {
+            position: 'fixed',
+            right: '1rem',
+            bottom: '1rem',
+            zIndex: '9999',
+            padding: '.65rem .9rem',
+            borderRadius: '.75rem',
+            color: '#78350f',
+            background: '#fef3c7',
+            border: '1px solid #f59e0b',
+            fontWeight: '700',
+            fontSize: '.875rem',
+            boxShadow: '0 8px 24px rgba(15, 23, 42, .16)'
+        });
+        document.body.appendChild(indicator);
+    }
+
+    const syncState = window.SanIESync?.getSyncState?.() || {};
+    const isSyncing = syncState.state === 'syncing';
+    const message = isSyncing
+        ? syncState.message
+        : failedCount > 0
+            ? `${failedCount} change${failedCount === 1 ? ' needs' : 's need'} attention`
+            : `${count} change${count === 1 ? '' : 's'} waiting to sync`;
+    indicator.style.display = 'flex';
+    indicator.style.alignItems = 'center';
+    indicator.style.gap = '.65rem';
+    indicator.innerHTML = '';
+    const label = document.createElement('span');
+    label.textContent = message;
+    indicator.appendChild(label);
+    const syncableCount = actions.filter(action => action.status === 'pending' || action.status === 'syncing' || action.status === 'synced').length;
+    if (navigator.onLine && syncableCount > 0) {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.textContent = isSyncing ? 'Syncing…' : 'Sync now';
+        button.disabled = isSyncing;
+        Object.assign(button.style, {
+            border: '1px solid #d97706', borderRadius: '.5rem', background: '#fff',
+            color: '#92400e', fontWeight: '700', padding: '.25rem .55rem'
+        });
+        button.addEventListener('click', () => window.SanIESync?.syncPendingActions({ trigger: 'manual' }));
+        indicator.appendChild(button);
+    }
+}
+
+window.refreshPendingSyncStatus = refreshPendingSyncStatus;
+window.addEventListener('offline:pending-changed', refreshPendingSyncStatus);
+window.addEventListener('auth:authenticated', refreshPendingSyncStatus);
+window.addEventListener('auth:unauthenticated', () => document.getElementById('pending-sync-status')?.remove());
+window.addEventListener('sync:state', refreshPendingSyncStatus);

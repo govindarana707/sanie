@@ -1,0 +1,9 @@
+const fs=require('fs');const path=require('path');const root=path.resolve(__dirname,'..');const html=fs.readFileSync(path.join(root,'index.html'),'utf8');const settings=fs.readFileSync(path.join(root,'assets','js','settings.js'),'utf8');const api=fs.readFileSync(path.join(root,'assets','js','api.js'),'utf8');
+for(const id of ['change-password-form','settings-current-password','settings-new-password','settings-confirm-password','change-password-button'])if(!html.includes(`id="${id}"`))throw new Error(`Password form is missing ${id}`);
+if(!html.includes('autocomplete="current-password"')||((html.match(/autocomplete="new-password"/g)||[]).length<2)||!html.includes('minlength="12"')||!html.includes('maxlength="72"'))throw new Error('Password fields have incomplete browser and length constraints');
+if(!settings.includes('if(this._passwordChangeInProgress)return')||!settings.includes("button.setAttribute('aria-busy','true')")||!settings.includes('finally{this._passwordChangeInProgress=false'))throw new Error('Password submission is not duplicate-safe');
+if(!settings.includes('if(next!==confirmation)')||!settings.includes('if(next===current)'))throw new Error('Password form does not validate confirmation and same-password changes');
+if(!settings.includes('api.setToken(response.data.token)')||!settings.includes('form.reset()'))throw new Error('Successful password change does not rotate auth state and clear sensitive fields');
+if(!api.includes('APIClient._cache.clear()')||!api.includes("window.sessionStorage.removeItem('token')"))throw new Error('Token rotation/logout does not clear cached auth state');
+if(/console\.(log|error)\([^\n]*(current|next|confirmation|password)/i.test(settings))throw new Error('Password material may be written to the console');
+console.log('PASS: password form validates safely, prevents duplicate submits, rotates the current token, clears fields, and preserves logout consistency');

@@ -38,7 +38,8 @@ class DashboardController {
 
         // All calculations use BalanceService
         $statistics = $this->balanceService->getStatistics($userId, $startDate, $endDate);
-        $totalBalance = $this->balanceService->getTotalBalance($userId);
+        $allAccountsBalance = $this->balanceService->getTotalBalance($userId);
+        $cashBalance = $this->balanceService->getCashBalance($userId);
         $savingsBalance = $this->balanceService->getSavingsBalance($userId);
         $recentTransactions = $this->transactionModel->findAll($userId, [
             'start_date' => $startDate,
@@ -59,6 +60,7 @@ class DashboardController {
             : [];
 
         $goals = $this->goalModel->findAll($userId);
+        $goalAssets = $this->goalModel->getTotalSaved($userId);
         $goalProgress = [];
         foreach ($goals as $goal) {
             if ($goal['status'] === 'active') {
@@ -72,19 +74,20 @@ class DashboardController {
         $karobarData = $this->karobarService->getDashboardData($userId);
         $totalReceivable = $karobarData['total_receivable'] ?? 0;
         $totalPayable = $karobarData['total_payable'] ?? 0;
-        $netWorth = $totalBalance + $totalReceivable - $totalPayable;
+        $netWorth = $allAccountsBalance + $goalAssets + $totalReceivable - $totalPayable;
 
         $financialHealthScore = $this->calculateFinancialHealthScore(
             $statistics, $budgetProgress, $goalProgress,
-            $totalBalance, $savingsBalance, $totalReceivable, $totalPayable
+            $allAccountsBalance + $goalAssets, $savingsBalance + $goalAssets, $totalReceivable, $totalPayable
         );
 
         $accountsOverview = $this->balanceService->getAccountOverview($userId, $startDate, $endDate);
 
         Response::success([
             'statistics' => $statistics,
-            'total_balance' => $totalBalance,
-            'savings_balance' => $savingsBalance,
+            'total_balance' => $cashBalance,
+            'savings_balance' => $savingsBalance + $goalAssets,
+            'goal_assets' => $goalAssets,
             'total_receivable' => $totalReceivable,
             'total_payable' => $totalPayable,
             'net_worth' => $netWorth,

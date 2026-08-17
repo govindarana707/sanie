@@ -2,8 +2,18 @@
 <html lang="en" data-bs-theme="light" data-theme="light">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <link rel="icon" type="image/png" href="assets/favicon/favicon.png">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="theme-color" content="#0f172a">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="SanIE">
+    <meta name="application-name" content="SanIE">
+    <link rel="manifest" href="/sanie/frontend/manifest.webmanifest">
+    <link rel="icon" href="assets/favicon/favicon.ico" sizes="any">
+    <link rel="icon" type="image/png" sizes="32x32" href="assets/favicon/favicon-32x32.png">
+    <link rel="icon" type="image/png" sizes="16x16" href="assets/favicon/favicon-16x16.png">
+    <link rel="apple-touch-icon" sizes="180x180" href="assets/icons/apple-touch-icon.png">
     <title>SanIE - Track Every Rupee. Master Every Month.</title>
     
     <!-- Resource Hints -->
@@ -29,10 +39,10 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     
     <!-- SweetAlert2 CSS -->
-    <link href="https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/sweetalert2@11.26.25/dist/sweetalert2.min.css" rel="stylesheet">
     
     <!-- Toastify CSS -->
-    <link rel="stylesheet" type="text/css" href="https://cdn.jsdelivr.net/npm/toastify-js/src/toastify.min.css">
+    <link rel="stylesheet" type="text/css" href="https://cdn.jsdelivr.net/npm/toastify-js@1.12.0/src/toastify.min.css">
     
     <!-- DataTables CSS -->
     <link rel="stylesheet" href="https://cdn.datatables.net/1.13.6/css/dataTables.bootstrap5.min.css">
@@ -40,12 +50,13 @@
     <link rel="stylesheet" href="https://cdn.datatables.net/buttons/2.4.1/css/buttons.bootstrap5.min.css">
     
     <!-- Flatpickr CSS -->
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr@4.6.13/dist/flatpickr.min.css">
     
     <!-- Custom CSS -->
-    <link rel="stylesheet" href="assets/css/styles.css">
+    <link rel="stylesheet" href="assets/css/styles.css?v=26">
     <!-- Karobar Module CSS -->
     <link rel="stylesheet" href="assets/css/karobar.css">
+    <link rel="stylesheet" href="assets/css/category.css">
 </head>
 <body>
     <div id="app">
@@ -55,53 +66,73 @@
             <p>Loading SanIE...</p>
         </div>
 
-        <!-- Auth Screen -->
-        <div id="auth-screen" class="auth-screen hidden">
-            <div class="auth-container">
-                <div class="auth-header">
-                    <h1 class="logo">SanIE</h1>
-                    <p class="tagline">Track Every Rupee. Master Every Month.</p>
-                </div>
-                
-                <div class="auth-tabs">
-                    <button class="auth-tab active" data-tab="login">Login</button>
-                    <button class="auth-tab" data-tab="register">Register</button>
-                </div>
-
-                <form id="login-form" class="auth-form active">
-                    <div class="form-group">
-                        <label for="login-email">Email</label>
-                        <input type="email" id="login-email" name="email" required>
-                    </div>
-                    <div class="form-group">
-                        <label for="login-password">Password</label>
-                        <input type="password" id="login-password" name="password" required>
-                    </div>
-                    <button type="submit" class="btn btn-primary">Login</button>
-                    <p class="auth-error" id="login-error"></p>
-                </form>
-
-                <form id="register-form" class="auth-form">
-                    <div class="form-group">
-                        <label for="register-first-name">First Name</label>
-                        <input type="text" id="register-first-name" name="first_name" required>
-                    </div>
-                    <div class="form-group">
-                        <label for="register-last-name">Last Name</label>
-                        <input type="text" id="register-last-name" name="last_name">
-                    </div>
-                    <div class="form-group">
-                        <label for="register-email">Email</label>
-                        <input type="email" id="register-email" name="email" required>
-                    </div>
-                    <div class="form-group">
-                        <label for="register-password">Password</label>
-                        <input type="password" id="register-password" name="password" required>
-                    </div>
-                    <button type="submit" class="btn btn-primary">Register</button>
-                    <p class="auth-error" id="register-error"></p>
-                </form>
+        <section id="auth-availability-screen" class="auth-screen auth-availability-screen" hidden aria-labelledby="auth-availability-title">
+            <div class="auth-container auth-availability-card">
+                <span class="auth-brand-mark" aria-hidden="true"><i class="bi bi-cloud-slash"></i></span>
+                <h1 id="auth-availability-title">Server temporarily unavailable</h1>
+                <p id="auth-availability-message">SanIE cannot verify your saved session right now. Your session has not been removed.</p>
+                <button type="button" class="btn-premium" id="auth-availability-retry"><i class="bi bi-arrow-clockwise" aria-hidden="true"></i> Retry verification</button>
+                <p class="auth-availability-note">Protected information will remain locked until verification succeeds.</p>
             </div>
+        </section>
+
+        <!-- Auth Screen -->
+        <div id="auth-screen" class="auth-screen" style="display: none">
+            <main class="auth-shell" aria-labelledby="auth-brand-title">
+                <section class="auth-container" aria-label="SanIE account access">
+                    <header class="auth-header">
+                        <span class="auth-brand-mark" aria-hidden="true"><i class="bi bi-wallet2"></i></span>
+                        <h1 id="auth-brand-title">SanIE</h1>
+                        <p class="tagline">Track Every Rupee. Master Every Month.</p>
+                    </header>
+
+                    <div class="auth-tabs" role="tablist" aria-label="Account access">
+                        <button id="login-tab" class="auth-tab active" data-tab="login" type="button" role="tab" aria-selected="true" aria-controls="login-form">Login</button>
+                        <button id="register-tab" class="auth-tab" data-tab="register" type="button" role="tab" aria-selected="false" aria-controls="register-form" tabindex="-1">Register</button>
+                    </div>
+
+                    <form id="login-form" class="auth-form active" role="tabpanel" aria-labelledby="login-tab" aria-hidden="false">
+                        <div class="auth-form-heading"><h2>Welcome back</h2><p>Enter your details to access your finances.</p></div>
+                        <div class="form-group">
+                            <label for="login-email">Email address</label>
+                            <div class="auth-input-wrap"><i class="bi bi-envelope"></i><input type="email" id="login-email" name="email" autocomplete="email" placeholder="you@example.com" required></div>
+                        </div>
+                        <div class="form-group">
+                            <label for="login-password">Password</label>
+                            <div class="auth-input-wrap"><i class="bi bi-lock"></i><input type="password" id="login-password" name="password" autocomplete="current-password" placeholder="Enter your password" required><button type="button" class="auth-password-toggle" data-password-target="login-password" aria-label="Show password"><i class="bi bi-eye"></i></button></div>
+                        </div>
+                        <button type="submit" class="btn btn-primary auth-submit-btn"><span>Sign in</span><i class="bi bi-arrow-right" aria-hidden="true"></i></button>
+                        <p class="auth-error" id="login-error" aria-live="polite"></p>
+                    </form>
+
+                    <form id="register-form" class="auth-form" role="tabpanel" aria-labelledby="register-tab" aria-hidden="true">
+                        <div class="auth-form-heading"><h2>Create your account</h2><p>Start building a clearer view of your finances.</p></div>
+                        <div class="auth-name-grid">
+                            <div class="form-group">
+                                <label for="register-first-name">First name</label>
+                                <div class="auth-input-wrap"><i class="bi bi-person"></i><input type="text" id="register-first-name" name="first_name" autocomplete="given-name" placeholder="First name" required></div>
+                            </div>
+                            <div class="form-group">
+                                <label for="register-last-name">Last name</label>
+                                <div class="auth-input-wrap"><i class="bi bi-person"></i><input type="text" id="register-last-name" name="last_name" autocomplete="family-name" placeholder="Last name"></div>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label for="register-email">Email address</label>
+                            <div class="auth-input-wrap"><i class="bi bi-envelope"></i><input type="email" id="register-email" name="email" autocomplete="email" placeholder="you@example.com" required></div>
+                        </div>
+                        <div class="form-group">
+                            <label for="register-password">Password</label>
+                            <div class="auth-input-wrap"><i class="bi bi-lock"></i><input type="password" id="register-password" name="password" autocomplete="new-password" minlength="12" maxlength="72" placeholder="Create a strong password" required><button type="button" class="auth-password-toggle" data-password-target="register-password" aria-label="Show password"><i class="bi bi-eye"></i></button></div>
+                            <small class="auth-field-help">Choose a password you do not use elsewhere.</small>
+                        </div>
+                        <button type="submit" class="btn btn-primary auth-submit-btn"><span>Create account</span><i class="bi bi-arrow-right" aria-hidden="true"></i></button>
+                        <p class="auth-error" id="register-error" aria-live="polite"></p>
+                    </form>
+
+                    <p class="auth-privacy-note"><i class="bi bi-shield-lock" aria-hidden="true"></i> Your financial data stays private and protected.</p>
+                </section>
+            </main>
             <footer class="site-footer auth-footer">
                 <p class="footer-year">&copy; 2026 SanIE</p>
                 <p class="footer-tribute"><i class="bi bi-heart-fill text-danger"></i> Built with Love <i class="bi bi-heart-fill text-danger"></i></p>
@@ -110,13 +141,18 @@
         </div>
 
         <!-- Main Application -->
-        <div id="main-app" class="main-app hidden">
+        <div id="main-app" class="main-app" style="display: none">
+            <!-- Sidebar Backdrop -->
+            <div class="sidebar-backdrop" id="sidebar-backdrop"></div>
+
             <!-- Sidebar -->
             <aside class="sidebar" role="navigation" aria-label="Sidebar">
                 <div class="sidebar-header">
                     <h1 class="logo" aria-label="SanIE">SanIE</h1>
+                    <span class="sidebar-brand-subtitle">Finance Manager</span>
                 </div>
                 <nav class="sidebar-nav" aria-label="Main navigation">
+                    <div class="nav-section-label">Overview</div>
                     <a href="#dashboard" class="nav-item active" data-page="dashboard">
                         <i class="bi bi-grid-1x2-fill"></i>
                         <span>Dashboard</span>
@@ -137,17 +173,17 @@
                         <i class="bi bi-piggy-bank"></i>
                         <span>Savings</span>
                     </a>
-                    <div class="nav-divider" role="separator"></div>
+                    <div class="nav-section-label">Money</div>
                     <a href="#accounts" class="nav-item" data-page="accounts">
                         <i class="bi bi-wallet2"></i>
                         <span>Accounts</span>
                     </a>
-                    <div class="nav-divider" role="separator"></div>
+                    <div class="nav-section-label">Organize</div>
                     <a href="#categories" class="nav-item" data-page="categories">
                         <i class="bi bi-tags-fill"></i>
                         <span>Categories</span>
                     </a>
-                    <div class="nav-divider" role="separator"></div>
+                    <div class="nav-section-label">Karobar</div>
                     <a href="#karobar-overview" class="nav-item has-submenu" data-page="karobar-overview">
                         <i class="bi bi-people-fill"></i>
                         <span>Karobar</span>
@@ -179,7 +215,7 @@
                             <span>AI Analysis</span>
                         </a>
                     </div>
-                    <div class="nav-divider" role="separator"></div>
+                    <div class="nav-section-label">Insights</div>
                     <a href="#analysis" class="nav-item" data-page="analysis">
                         <i class="bi bi-cpu"></i>
                         <span>AI Analysis</span>
@@ -200,7 +236,7 @@
                 </nav>
                 <div class="sidebar-footer">
                     <div class="user-info-card">
-                        <div class="user-avatar">
+                            <div class="user-avatar" id="sidebar-user-avatar">
                             <i class="bi bi-person-fill"></i>
                         </div>
                         <div class="user-details">
@@ -218,18 +254,19 @@
             <main class="main-content">
                 <!-- Top Navigation -->
                 <header class="top-nav">
-                    <div class="d-flex align-items-center flex-fill me-3">
-                        <button class="btn btn-icon d-lg-none me-2" id="mobile-sidebar-toggle" aria-label="Toggle navigation">
+                    <div class="top-nav-main-row">
+                        <button class="btn btn-icon d-lg-none" id="mobile-sidebar-toggle" aria-label="Open Menu">
                             <i class="bi bi-list"></i>
                         </button>
-                        <div class="search-bar">
-                            <i class="bi bi-search"></i>
-                            <input type="text" placeholder="Search..." id="global-search" aria-label="Global search">
-                            <kbd class="search-kbd">Ctrl K</kbd>
-                        </div>
+                        <span class="mobile-logo">SanIE</span>
+                    </div>
+                    <div class="search-bar">
+                        <button type="button" class="search-submit" id="global-search-btn" aria-label="Search transactions"><i class="bi bi-search"></i></button>
+                        <input type="text" placeholder="Search transactions..." id="global-search" aria-label="Search transactions">
+                        <kbd class="search-kbd">Ctrl K</kbd>
                     </div>
                     <div class="top-nav-actions">
-                        <button class="btn btn-primary btn-nav-action" id="quick-add-btn">
+                        <button class="btn btn-primary btn-nav-action" id="quick-add-btn" title="Quick Add" aria-label="Quick Add transaction">
                             <i class="bi bi-plus-lg"></i>
                             <span class="btn-nav-label">Quick Add</span>
                         </button>
@@ -267,7 +304,10 @@
                 <section id="dashboard-page" class="page active">
                     <!-- Compact Dashboard Header -->
                     <div class="dashboard-header d-flex justify-content-between align-items-center">
-                        <h1 id="dashboard-greeting" class="dashboard-greeting">Good Evening 👋</h1>
+                        <div class="dashboard-greeting-wrapper">
+                            <h1 id="dashboard-greeting" class="dashboard-greeting">Good Evening 👋</h1>
+                            <p class="dashboard-subtitle">Here's your financial summary.</p>
+                        </div>
                         <div class="dropdown dashboard-period-dropdown">
                             <button class="btn dashboard-period-toggle dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false" id="dashboard-period-btn">
                                 <i class="bi bi-calendar3 me-2"></i>
@@ -285,9 +325,10 @@
                     </div>
 
                     <!-- Dashboard Loading Overlay -->
-                    <div id="dashboard-loading-overlay" class="dashboard-loading-overlay" style="display: none;">
-                        <div class="spinner-border text-success" role="status">
-                            <span class="visually-hidden">Loading...</span>
+                    <div id="dashboard-loading-overlay" class="dashboard-loading-overlay" aria-live="polite" aria-busy="true">
+                        <div class="dashboard-loader-card" role="status">
+                            <div class="spinner-border text-success" aria-hidden="true"></div>
+                            <span>Loading your dashboard...</span>
                         </div>
                     </div>
 
@@ -379,43 +420,6 @@
                         </div>
                     </div>
 
-                    <!-- Quick Actions -->
-                    <div class="quick-actions-section">
-                        <h3 class="section-title">Quick Actions</h3>
-                        <div class="quick-actions-grid">
-                            <button class="quick-action-btn" onclick="window.appRouter?.navigate('transactions')" aria-label="Add Income">
-                                <div class="action-icon income-icon">
-                                    <i class="bi bi-plus-lg"></i>
-                                </div>
-                                <span>Add Income</span>
-                            </button>
-                            <button class="quick-action-btn" onclick="window.appRouter?.navigate('transactions')" aria-label="Add Expense">
-                                <div class="action-icon expense-icon">
-                                    <i class="bi bi-dash-lg"></i>
-                                </div>
-                                <span>Add Expense</span>
-                            </button>
-                            <button class="quick-action-btn" onclick="window.appRouter?.navigate('transactions')" aria-label="Transfer">
-                                <div class="action-icon transfer-icon">
-                                    <i class="bi bi-arrow-left-right"></i>
-                                </div>
-                                <span>Transfer</span>
-                            </button>
-                            <button class="quick-action-btn" onclick="window.appRouter?.navigate('budgets')" aria-label="Create Budget">
-                                <div class="action-icon budget-icon">
-                                    <i class="bi bi-wallet2"></i>
-                                </div>
-                                <span>Budget</span>
-                            </button>
-                            <button class="quick-action-btn" onclick="window.appRouter?.navigate('goals')" aria-label="Create Goal">
-                                <div class="action-icon goal-icon">
-                                    <i class="bi bi-bullseye"></i>
-                                </div>
-                                <span>Goal</span>
-                            </button>
-                        </div>
-                    </div>
-
                     <!-- My Accounts Section -->
                     <div class="my-accounts-section">
                         <div class="section-header">
@@ -483,81 +487,6 @@
                         </div>
                     </div>
 
-                    <!-- Income Sources -->
-                    <div class="income-sources-section">
-                        <div class="section-header">
-                            <h3>Income Sources</h3>
-                        </div>
-                        <div id="income-sources-list" class="income-sources-list">
-                            <div class="empty-state">
-                                <div class="empty-state-icon">
-                                    <i class="bi bi-arrow-down-left"></i>
-                                </div>
-                                <h4>No Income Data</h4>
-                                <p>Add income transactions to see your sources</p>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Recent Transactions -->
-                    <div class="recent-transactions">
-                        <div class="section-header">
-                            <h3>Recent Transactions</h3>
-                            <a href="#transactions" class="view-all">View All</a>
-                        </div>
-                        <div class="transactions-list" id="recent-transactions-list">
-                            <div class="empty-state">
-                                <div class="empty-state-icon">
-                                    <i class="bi bi-receipt"></i>
-                                </div>
-                                <h4>No Transactions Yet</h4>
-                                <p>Start tracking your finances by adding your first transaction</p>
-                                <button class="btn btn-primary" onclick="window.appRouter?.navigate('transactions')">
-                                    <i class="bi bi-plus-lg"></i> Add Transaction
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Budget Progress -->
-                    <div class="budget-progress">
-                        <div class="section-header">
-                            <h3>Budget Progress</h3>
-                            <a href="#budgets" class="view-all">View All</a>
-                        </div>
-                        <div class="budget-list" id="budget-list">
-                            <div class="empty-state">
-                                <div class="empty-state-icon">
-                                    <i class="bi bi-wallet2"></i>
-                                </div>
-                                <h4>No Budgets Set</h4>
-                                <p>Create budgets to track your spending limits</p>
-                                <button class="btn btn-primary" onclick="window.appRouter?.navigate('budgets')">
-                                    <i class="bi bi-plus-lg"></i> Create Budget
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Goal Progress -->
-                    <div class="goal-progress">
-                        <div class="section-header">
-                            <h3>Goal Progress</h3>
-                            <a href="#goals" class="view-all">View All</a>
-                        </div>
-                        <div class="goal-list" id="goal-list">
-                            <div class="empty-state">
-                                <div class="empty-state-icon">
-                                    <i class="bi bi-bullseye"></i>
-                                </div>
-                                <h4>No Savings Goals</h4>
-                                <p>Set goals to track your savings progress</p>
-                                <button class="btn btn-primary" onclick="window.appRouter?.navigate('goals')">
-                                    <i class="bi bi-plus-lg"></i> Create Goal
-                                </button>
-                            </div>
-                        </div>
-                    </div>
                 </section>
 
                 <!-- Custom Date Range Modal -->
@@ -610,17 +539,31 @@
                                 </button>
                                 <button class="btn btn-light tx-btn" id="export-btn" title="Export">
                                     <i class="bi bi-download"></i>
+                                    <span class="tx-btn-label">Export</span>
                                 </button>
                                 <button class="btn btn-light tx-btn" id="import-btn" title="Import">
                                     <i class="bi bi-upload"></i>
                                     <span class="tx-btn-label">Import</span>
                                 </button>
+                                <button class="btn btn-light tx-btn" id="transaction-report-btn" type="button" title="Transaction Report">
+                                    <i class="bi bi-file-earmark-pdf"></i>
+                                    <span class="tx-btn-label">Report</span>
+                                </button>
+                                <a href="transaction.php" class="btn btn-outline-primary tx-btn" title="Open Full Ledger">
+                                    <i class="bi bi-journal-text"></i>
+                                    <span class="tx-btn-label">Ledger</span>
+                                </a>
                             </div>
                             <button class="btn btn-primary tx-btn tx-btn-primary" id="add-transaction-btn">
                                 <i class="bi bi-plus-lg"></i>
                                 <span class="tx-btn-label">Add Transaction</span>
                             </button>
                         </div>
+                    </div>
+
+                    <div class="alert alert-primary d-none align-items-center justify-content-between py-2 px-3 mb-3" id="tx-account-filter-banner" role="status">
+                        <span><i class="bi bi-funnel-fill me-2"></i>Showing transactions for the selected account</span>
+                        <button type="button" class="btn btn-sm btn-outline-primary" id="tx-clear-account-filter">Show All</button>
                     </div>
 
                     <div class="tx-cards" id="tx-summary-strip">
@@ -655,6 +598,12 @@
                     </div>
 
                     <div class="tx-table-area">
+                        <div id="tx-bulk-actions" class="alert alert-light border d-none align-items-center justify-content-between mb-3" role="region" aria-label="Bulk transaction actions">
+                            <span><strong id="tx-selected-count">0</strong> transactions selected</span>
+                            <button type="button" class="btn btn-sm btn-danger" id="tx-bulk-delete-btn">
+                                <i class="bi bi-trash3 me-1"></i> Delete Selected
+                            </button>
+                        </div>
                         <div class="tx-loading-skeleton" id="tx-loading-skeleton" style="display: none;">
                             <div class="tx-skeleton-row" style="--delay:0">
                                 <div class="tx-skel-circle"></div>
@@ -697,6 +646,7 @@
                             <table id="transactions-datatable" class="table table-hover mb-0" style="width:100%">
                                 <thead>
                                     <tr>
+                                        <th class="text-center"><input type="checkbox" class="form-check-input" id="tx-select-all" aria-label="Select all transactions"></th>
                                         <th>Date</th>
                                         <th>Type</th>
                                         <th>Category</th>
@@ -741,17 +691,39 @@
 
                 <!-- Budgets Page -->
                 <section id="budgets-page" class="page">
-                    <div class="page-header">
-                        <h2>Budgets</h2>
-                        <div class="page-actions" style="display:flex;gap:0.5rem;flex-wrap:wrap;">
-                            <button class="btn btn-primary" id="add-budget-btn">
-                                <i class="fas fa-plus"></i>
-                                Add Budget
-                            </button>
+                    <div class="budget-page-header">
+                        <div>
+                            <span class="budget-eyebrow"><i class="bi bi-pie-chart-fill"></i> Spending plan</span>
+                            <h2>Budgets</h2>
+                            <p>Set clear limits and stay ahead of your monthly spending.</p>
+                        </div>
+                        <div class="page-actions budget-page-actions">
                             <button class="btn btn-outline-primary" id="bulk-budget-btn">
                                 <i class="fas fa-layer-group"></i>
                                 Bulk Budgets
                             </button>
+                            <button class="btn btn-primary" id="add-budget-btn">
+                                <i class="fas fa-plus"></i>
+                                Add Budget
+                            </button>
+                        </div>
+                    </div>
+                    <div class="budget-overview" aria-label="Budget overview">
+                        <div class="budget-overview-item">
+                            <span class="budget-overview-icon is-blue"><i class="bi bi-wallet2"></i></span>
+                            <div><small>Total budget</small><strong id="budget-total-limit">Rs 0</strong></div>
+                        </div>
+                        <div class="budget-overview-item">
+                            <span class="budget-overview-icon is-red"><i class="bi bi-graph-up-arrow"></i></span>
+                            <div><small>Total spent</small><strong id="budget-total-spent">Rs 0</strong></div>
+                        </div>
+                        <div class="budget-overview-item">
+                            <span class="budget-overview-icon is-green"><i class="bi bi-shield-check"></i></span>
+                            <div><small>Remaining</small><strong id="budget-total-remaining">Rs 0</strong></div>
+                        </div>
+                        <div class="budget-overview-item">
+                            <span class="budget-overview-icon is-violet"><i class="bi bi-grid-1x2-fill"></i></span>
+                            <div><small>Active budgets</small><strong id="budget-active-count">0</strong></div>
                         </div>
                     </div>
                     <div class="budgets-grid" id="budgets-grid">
@@ -775,25 +747,29 @@
 
                 <!-- Savings Page -->
                 <section id="savings-page" class="page">
-                    <div class="page-header">
-                        <h2>Savings</h2>
+                    <div class="page-header savings-page-header">
+                        <div>
+                            <div class="savings-eyebrow"><i class="bi bi-stars"></i> Wealth Builder</div>
+                            <h2 class="mb-1">Savings</h2>
+                            <p class="text-muted mb-0">Track your reserves, goals and recent saving activity.</p>
+                        </div>
                         <div class="page-actions">
                             <button class="btn btn-primary" onclick="savingsManager?.showAddSavingsAccountModal()">
-                                <i class="fas fa-plus"></i> Add Account
+                                <i class="fas fa-plus me-1"></i> Add Savings Account
                             </button>
                         </div>
                     </div>
 
                     <!-- Savings Summary Cards -->
-                    <div class="stats-grid mb-4">
-                        <div class="stat-card savings">
+                    <div class="stats-grid savings-summary-grid mb-4">
+                        <div class="stat-card savings savings-kpi-card savings-kpi-primary">
                             <div class="stat-icon"><i class="fas fa-piggy-bank"></i></div>
                             <div class="stat-content">
                                 <p class="stat-label">Total Savings</p>
                                 <p class="stat-value" id="savings-total">Rs 0</p>
                             </div>
                         </div>
-                        <div class="stat-card">
+                        <div class="stat-card savings-kpi-card">
                             <div class="stat-icon" style="background:#10B98120;color:#10B981"><i class="fas fa-bullseye"></i></div>
                             <div class="stat-content">
                                 <p class="stat-label">In Goals</p>
@@ -801,7 +777,7 @@
                                 <p class="stat-change text-muted" id="savings-goals-count">0 goals</p>
                             </div>
                         </div>
-                        <div class="stat-card">
+                        <div class="stat-card savings-kpi-card">
                             <div class="stat-icon" style="background:#6366f120;color:#6366f1"><i class="fas fa-university"></i></div>
                             <div class="stat-content">
                                 <p class="stat-label">In Accounts</p>
@@ -811,8 +787,9 @@
                         </div>
                     </div>
 
+                    <div class="savings-workspace-grid">
                     <!-- Goals Section -->
-                    <div class="savings-section mb-4">
+                    <div class="savings-section savings-panel mb-4">
                         <div class="savings-section-header mb-3">
                             <h4><i class="fas fa-bullseye me-2"></i>Savings Goals</h4>
                             <button class="btn btn-sm btn-outline-primary" onclick="window.goalsManager?.showAddGoalModal()">
@@ -825,7 +802,7 @@
                     </div>
 
                     <!-- Savings Accounts Section -->
-                    <div class="savings-section mb-4">
+                    <div class="savings-section savings-panel mb-4">
                         <div class="savings-section-header mb-3">
                             <h4><i class="fas fa-piggy-bank me-2"></i>Savings Accounts</h4>
                             <button class="btn btn-sm btn-outline-primary" onclick="savingsManager?.showAddSavingsAccountModal()">
@@ -836,9 +813,10 @@
                             <!-- Accounts loaded here -->
                         </div>
                     </div>
+                    </div>
 
                     <!-- Recent Transactions -->
-                    <div class="savings-section mb-4">
+                    <div class="savings-section savings-panel savings-activity-panel mb-4">
                         <div class="savings-section-header mb-3">
                             <h4><i class="fas fa-history me-2"></i>Recent Savings Activity</h4>
                         </div>
@@ -1340,7 +1318,13 @@
                 <!-- Karobar AI Analysis Page -->
                 <section id="karobar-ai-analysis-page" class="page">
                     <div class="page-header">
-                        <h2><i class="fas fa-brain me-2" style="color:#EC4899;"></i> Karobar AI Analysis</h2>
+                        <div>
+                            <h2><i class="fas fa-brain me-2" style="color:#EC4899;"></i> Karobar AI Analysis</h2>
+                            <p class="text-muted mb-0">Health score, debt trends and actionable recommendations</p>
+                        </div>
+                        <button class="btn btn-outline-primary" type="button" onclick="window.karobarManager?.loadAIAnalysis()">
+                            <i class="fas fa-rotate me-1"></i> Refresh Analysis
+                        </button>
                     </div>
                     <div id="karobar-ai-analysis-content">
                         <div class="text-center py-5"><div class="loader"></div><p class="text-muted mt-2">Analyzing your karobar data...</p></div>
@@ -1391,57 +1375,128 @@
 
                 <!-- Settings Page -->
                 <section id="settings-page" class="page">
-                    <div class="page-header">
-                        <h2>Settings</h2>
+                    <div class="profile-page-header">
+                        <div class="profile-header-main">
+                            <div class="profile-header-mark" aria-hidden="true"><i class="bi bi-person-gear"></i></div>
+                            <div>
+                                <span class="profile-eyebrow">Account settings</span>
+                                <h2>My Profile</h2>
+                                <p>Manage your personal details, app preferences, and offline data.</p>
+                                <div class="settings-header-badges" aria-label="Settings areas">
+                                    <span><i class="bi bi-person-check"></i> Profile</span>
+                                    <span><i class="bi bi-sliders"></i> Preferences</span>
+                                    <span><i class="bi bi-cloud-check"></i> Offline ready</span>
+                                </div>
+                            </div>
+                        </div>
+                        <button type="button" class="btn profile-logout-btn" id="settings-logout-btn"><i class="bi bi-box-arrow-right"></i> Logout</button>
                     </div>
                     <div class="settings-content">
-                        <div class="settings-section">
-                            <h3>Profile</h3>
+                        <div class="settings-section profile-details-card">
+                            <div class="profile-photo-panel">
+                                <div class="profile-avatar-preview" id="settings-avatar-preview"><i class="bi bi-person-fill"></i></div>
+                                <div class="profile-photo-copy">
+                                    <h3>Profile photo</h3>
+                                    <p>JPG, PNG or WebP. Maximum 2 MB.</p>
+                                    <div class="profile-photo-actions">
+                                        <label class="btn btn-outline-primary btn-sm" for="settings-avatar-input"><i class="bi bi-camera me-1"></i> Change photo</label>
+                                        <input type="file" id="settings-avatar-input" accept="image/jpeg,image/png,image/webp" hidden>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="settings-section-heading">
+                                <div class="settings-heading-copy"><span class="settings-heading-icon"><i class="bi bi-person-vcard"></i></span><div><h3>Personal information</h3><p>Keep your contact information up to date.</p></div></div>
+                            </div>
                             <form id="profile-form">
+                                <div class="profile-form-grid">
                                 <div class="form-group">
-                                    <label>First Name</label>
+                                    <label for="settings-first-name">First Name</label>
                                     <input type="text" id="settings-first-name">
                                 </div>
                                 <div class="form-group">
-                                    <label>Last Name</label>
+                                    <label for="settings-last-name">Last Name</label>
                                     <input type="text" id="settings-last-name">
                                 </div>
                                 <div class="form-group">
-                                    <label>Email</label>
+                                    <label for="settings-email">Email</label>
                                     <input type="email" id="settings-email" disabled>
                                 </div>
                                 <div class="form-group">
-                                    <label>Phone</label>
+                                    <label for="settings-phone">Phone</label>
                                     <input type="tel" id="settings-phone">
                                 </div>
-                                <button type="submit" class="btn btn-primary">Save Changes</button>
+                                </div>
+                                <div class="profile-form-footer">
+                                    <span class="profile-save-state" id="profile-save-state" aria-live="polite"><i class="bi bi-check-circle-fill"></i> All changes saved</span>
+                                    <button type="submit" class="btn btn-primary" id="profile-save-button" disabled><i class="bi bi-check2 me-1"></i> Save Changes</button>
+                                </div>
                             </form>
                         </div>
-                        <div class="settings-section">
-                            <h3>Preferences</h3>
-                            <div class="form-group">
-                                <label>Currency</label>
-                                <select id="settings-currency">
+                        <div class="settings-section profile-security-card">
+                            <div class="settings-section-heading"><div class="settings-heading-copy"><span class="settings-heading-icon"><i class="bi bi-shield-lock"></i></span><div><h3>Security</h3><p>Change your password and revoke other signed-in sessions.</p></div></div></div>
+                            <form id="change-password-form">
+                                <div class="profile-form-grid">
+                                    <div class="form-group"><label for="settings-current-password">Current Password</label><input type="password" id="settings-current-password" autocomplete="current-password" required></div>
+                                    <div class="form-group"><label for="settings-new-password">New Password</label><input type="password" id="settings-new-password" autocomplete="new-password" minlength="12" maxlength="72" required><small>Use 12–72 characters.</small></div>
+                                    <div class="form-group"><label for="settings-confirm-password">Confirm New Password</label><input type="password" id="settings-confirm-password" autocomplete="new-password" minlength="12" maxlength="72" required></div>
+                                </div>
+                                <div class="profile-form-footer"><span class="profile-save-state" aria-live="polite"><i class="bi bi-info-circle"></i> Other sessions will be signed out</span><button type="submit" class="btn btn-primary" id="change-password-button"><i class="bi bi-key me-1"></i> Change Password</button></div>
+                            </form>
+                        </div>
+                        <div class="settings-section profile-preferences-card">
+                            <div class="settings-section-heading"><div class="settings-heading-copy"><span class="settings-heading-icon"><i class="bi bi-sliders"></i></span><div><h3>Preferences</h3><p>Personalize how SanIE works for you.</p></div></div></div>
+                            <div class="preferences-list">
+                            <div class="preference-item">
+                                <span class="preference-item-icon"><i class="bi bi-cash-coin"></i></span>
+                                <div class="preference-item-copy"><label for="settings-currency">Currency</label><small>Used for amounts across SanIE</small></div>
+                                <select id="settings-currency" aria-label="Currency">
                                     <option value="NPR">NPR - Nepalese Rupee</option>
                                     <option value="USD">USD - US Dollar</option>
                                     <option value="EUR">EUR - Euro</option>
                                     <option value="INR">INR - Indian Rupee</option>
                                 </select>
                             </div>
-                            <div class="form-group">
-                                <label>Language</label>
-                                <select id="settings-language">
+                            <div class="preference-item">
+                                <span class="preference-item-icon"><i class="bi bi-translate"></i></span>
+                                <div class="preference-item-copy"><label for="settings-language">Language</label><small>Choose your interface language</small></div>
+                                <select id="settings-language" aria-label="Language">
                                     <option value="en">English</option>
                                     <option value="ne">नेपाली</option>
                                 </select>
                             </div>
-                            <div class="form-group">
-                                <label>Theme</label>
-                                <select id="settings-theme">
+                            <div class="preference-item">
+                                <span class="preference-item-icon"><i class="bi bi-circle-half"></i></span>
+                                <div class="preference-item-copy"><label for="settings-theme">Theme</label><small>Control the app appearance</small></div>
+                                <select id="settings-theme" aria-label="Theme">
                                     <option value="light">Light</option>
                                     <option value="dark">Dark</option>
                                     <option value="system">System</option>
                                 </select>
+                            </div>
+                            <div class="preference-item pwa-install-setting" id="pwa-install-setting" hidden>
+                                <span class="preference-item-icon"><i class="bi bi-phone"></i></span>
+                                <div class="preference-item-copy"><label for="pwa-install-button">SanIE app</label><small id="pwa-install-help">Install for faster access</small></div>
+                                <button type="button" class="btn btn-outline-primary btn-sm" id="pwa-install-button">
+                                    <i class="bi bi-download me-1" aria-hidden="true"></i>
+                                    <span>Install App</span>
+                                </button>
+                            </div>
+                            </div>
+                            <div class="offline-data-setting" id="offline-data-setting">
+                                <div class="offline-data-heading">
+                                    <div><h4>Offline Data</h4><p>Manage disposable saved snapshots. Pending financial changes are always kept.</p></div>
+                                    <span class="offline-data-icon"><i class="bi bi-device-ssd" aria-hidden="true"></i></span>
+                                </div>
+                                <dl class="offline-data-status" aria-live="polite">
+                                    <div><dt><i class="bi bi-activity"></i> Status</dt><dd id="offline-data-summary">Checking…</dd></div>
+                                    <div><dt><i class="bi bi-clock-history"></i> Saved data</dt><dd id="offline-data-updated">Not available</dd></div>
+                                    <div><dt><i class="bi bi-arrow-repeat"></i> Last sync</dt><dd id="offline-data-last-sync">Not synced yet</dd></div>
+                                    <div><dt><i class="bi bi-database"></i> Browser storage</dt><dd id="offline-data-usage">Checking…</dd></div>
+                                </dl>
+                                <div class="offline-data-actions">
+                                    <button type="button" class="btn btn-outline-primary btn-sm" id="offline-storage-persist" hidden>Protect storage</button>
+                                    <button type="button" class="btn btn-outline-danger btn-sm" id="offline-data-clear">Clear cached data</button>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -1449,14 +1504,25 @@
 
                 <!-- Accounts Page -->
                 <section id="accounts-page" class="page">
-                    <div class="page-header">
+                    <div class="accounts-page-hero">
                         <div>
-                            <h2><i class="bi bi-wallet2 me-2"></i>Accounts</h2>
-                            <p class="text-muted mb-0">Manage all your accounts and view balances</p>
+                            <span class="accounts-eyebrow"><i class="bi bi-wallet2"></i> Money overview</span>
+                            <h2>Accounts</h2>
+                            <p>Manage balances and review activity across all your accounts.</p>
                         </div>
-                        <button class="btn btn-primary" onclick="window.appRouter?.navigate('transactions')">
+                        <button class="btn btn-primary" id="add-account-btn" type="button">
                             <i class="bi bi-plus-lg me-1"></i> New Account
                         </button>
+                    </div>
+                    <div class="accounts-overview-grid" aria-label="Accounts overview">
+                        <div class="accounts-overview-card"><span class="accounts-overview-icon total"><i class="bi bi-wallet2"></i></span><div><small>Total balance</small><strong id="accounts-total-balance">Rs 0</strong></div></div>
+                        <div class="accounts-overview-card"><span class="accounts-overview-icon count"><i class="bi bi-grid"></i></span><div><small>Total accounts</small><strong id="accounts-total-count">0</strong></div></div>
+                        <div class="accounts-overview-card"><span class="accounts-overview-icon saving"><i class="bi bi-piggy-bank"></i></span><div><small>Savings accounts</small><strong id="accounts-savings-count">0</strong></div></div>
+                        <div class="accounts-overview-card"><span class="accounts-overview-icon active"><i class="bi bi-shield-check"></i></span><div><small>Active accounts</small><strong id="accounts-active-count">0</strong></div></div>
+                    </div>
+                    <div class="accounts-toolbar">
+                        <div class="accounts-search"><i class="bi bi-search"></i><input type="search" id="accounts-search-input" placeholder="Search accounts..." aria-label="Search accounts"></div>
+                        <span class="accounts-toolbar-hint"><i class="bi bi-info-circle"></i> Select an account to view its statement</span>
                     </div>
                     <div id="accounts-list">
                         <div class="accounts-grid">
@@ -1478,6 +1544,27 @@
                     <p class="footer-memory">Forever in Loving Memory of Sani</p>
                 </footer>
             </main>
+
+            <!-- Mobile Bottom Navigation -->
+            <nav class="mobile-bottom-nav">
+                <a href="#dashboard" class="mobile-nav-item active" data-page="dashboard">
+                    <i class="bi bi-house-door-fill"></i>
+                    <span>Home</span>
+                </a>
+                <a href="#transactions" class="mobile-nav-item" data-page="transactions">
+                    <i class="bi bi-wallet2"></i>
+                    <span>Finance</span>
+                </a>
+                <a href="#karobar-overview" class="mobile-nav-item" data-page="karobar-overview">
+                    <i class="bi bi-people-fill"></i>
+                    <span>Karobar</span>
+                </a>
+                <a href="#settings" class="mobile-nav-item" data-page="settings">
+                    <i class="bi bi-person-circle"></i>
+                    <span>Profile</span>
+                </a>
+            </nav>
+            <div class="mobile-bottom-nav-spacer"></div>
         </div>
 
         <!-- Premium Bootstrap Modal -->
@@ -1544,16 +1631,16 @@
     
     
     <!-- SweetAlert2 JS -->
-    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11.26.25"></script>
     
     <!-- Toastify JS -->
-    <script type="text/javascript" src="https://cdn.jsdelivr.net/npm/toastify-js"></script>
+    <script type="text/javascript" src="https://cdn.jsdelivr.net/npm/toastify-js@1.12.0"></script>
     
     <!-- jQuery (required for DataTables) -->
     <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
     
     <!-- ApexCharts JS -->
-    <script src="https://cdn.jsdelivr.net/npm/apexcharts"></script>
+    <script src="https://cdn.jsdelivr.net/npm/apexcharts@6.5.0"></script>
     
     <!-- DataTables JS -->
     <script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
@@ -1581,44 +1668,47 @@
     </script>
     
     <!-- Flatpickr -->
-    <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+    <script src="https://cdn.jsdelivr.net/npm/flatpickr@4.6.13"></script>
     
     <!-- Application configuration, utilities, and services -->
     <script defer src="assets/js/config.js"></script>
-    <script defer src="assets/js/utils.js"></script>
-    <script defer src="assets/js/services/notification.js"></script>
+    <script defer src="assets/js/utils.js?v=2"></script>
+    <script defer src="assets/js/offline-storage.js?v=5"></script>
+    <script defer src="assets/js/services/notification.js?v=2"></script>
     <script defer src="assets/js/services/modal.js"></script>
     <script defer src="assets/js/services/datatable.js"></script>
     <script defer src="assets/js/services/chart.js"></script>
-    <script defer src="assets/js/api.js"></script>
-    <script defer src="assets/js/ajax.js"></script>
-    <script defer src="assets/js/router.js"></script>
-    <script defer src="assets/js/auth.js"></script>
+    <script defer src="assets/js/api.js?v=13"></script>
+    <script defer src="assets/js/ajax.js?v=12"></script>
+    <script defer src="assets/js/router.js?v=13"></script>
+    <script defer src="assets/js/auth.js?v=12"></script>
+    <script defer src="assets/js/sync-engine.js?v=12"></script>
+    <script defer src="assets/js/pwa-controller.js?v=4"></script>
     
     <!-- Feature Modules -->
-    <script defer src="assets/js/dashboard.js?v=2"></script>
-    <script defer src="assets/js/transactions.js"></script>
-    <script defer src="assets/js/budgets.js?v=2"></script>
+    <script defer src="assets/js/dashboard.js?v=8"></script>
+    <script defer src="assets/js/transactions.js?v=19"></script>
+    <script defer src="assets/js/budgets.js?v=3"></script>
     <script defer src="assets/js/goals.js"></script>
-    <script defer src="assets/js/savings.js"></script>
+    <script defer src="assets/js/savings.js?v=2"></script>
     <script defer src="assets/js/categories.js?v=3"></script>
     <script defer src="assets/js/subcategories.js"></script>
     <script defer src="assets/js/analysis.js"></script>
     <script defer src="assets/js/reports.js"></script>
-    <script defer src="assets/js/settings.js"></script>
+    <script defer src="assets/js/settings.js?v=6"></script>
     <script defer src="assets/js/notifications.js"></script>
     
     <!-- Karobar Module -->
-    <script defer src="assets/js/karobar-api.js"></script>
-    <script defer src="assets/js/karobar.js"></script>
+    <script defer src="assets/js/karobar-api.js?v=13"></script>
+    <script defer src="assets/js/karobar.js?v=5"></script>
 
     <!-- Account Details Module -->
-    <script defer src="assets/js/account-details.js"></script>
+    <script defer src="assets/js/account-details.js?v=13"></script>
 
     <!-- Accounts Module -->
-    <script defer src="assets/js/accounts.js"></script>
+    <script defer src="assets/js/accounts.js?v=5"></script>
 
     <!-- Core App Initialization -->
-    <script defer src="assets/js/app.js"></script>
+    <script defer src="assets/js/app.js?v=8"></script>
 </body>
 </html>

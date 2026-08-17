@@ -52,10 +52,10 @@ class CategoryController {
         
         if ($category) {
             $category['subcategory_count'] = $this->subcategoryModel->getCountByCategory($category['id']);
-            $category['has_transactions'] = $this->categoryModel->hasTransactions($id);
+            $category['has_transactions'] = $this->categoryModel->hasTransactions($id, $userId);
             $category['subcategories'] = $this->subcategoryModel->getByCategory($category['id'], $userId);
 
-            $txInfo = $this->categoryModel->getTransactionStats($id);
+            $txInfo = $this->categoryModel->getTransactionStats($id, $userId);
             $category['transaction_count'] = $txInfo['tx_count'] ?? 0;
             $category['last_used_at'] = $txInfo['last_used_at'] ?? null;
 
@@ -150,8 +150,8 @@ class CategoryController {
             Response::error('Cannot delete default category', 403);
         }
         
-        if ($this->categoryModel->hasTransactions($id)) {
-            Response::error('Cannot delete category with existing transactions. Consider archiving instead.', 409);
+        if ($this->categoryModel->hasTransactions($id)||$this->categoryModel->hasBudgets($id)) {
+            Response::error('Cannot delete category with existing transactions or budgets. Consider archiving instead.', 409);
         }
         
         if ($this->categoryModel->delete($id, $userId)) {
@@ -301,7 +301,7 @@ class CategoryController {
                 
                 switch ($action) {
                     case 'delete':
-                        if (!$this->categoryModel->hasTransactions($id)) {
+                        if (!$this->categoryModel->hasTransactions($id)&&!$this->categoryModel->hasBudgets($id)) {
                             $this->categoryModel->delete($id, $userId);
                         }
                         break;

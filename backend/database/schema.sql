@@ -20,12 +20,21 @@ CREATE TABLE users (
     currency VARCHAR(3) DEFAULT 'NPR',
     language VARCHAR(10) DEFAULT 'en',
     theme VARCHAR(10) DEFAULT 'light',
-    notification_preferences JSON,
-    settings JSON,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    INDEX idx_email (email),
+    notification_preferences LONGTEXT,
+    settings LONGTEXT,
+    token_version INT NOT NULL DEFAULT 1,
+    password_changed_at TIMESTAMP NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     INDEX idx_google_id (google_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Applied database migrations. Fresh installations start at the current
+-- canonical structure; upgrade tooling records reconciliations here.
+CREATE TABLE schema_migrations (
+    migration_id VARCHAR(100) PRIMARY KEY,
+    checksum CHAR(64) NOT NULL,
+    applied_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Accounts Table
@@ -36,13 +45,15 @@ CREATE TABLE accounts (
     type ENUM('cash', 'bank', 'esewa', 'khalti', 'ime_pay', 'wallet', 'credit_card', 'savings', 'current') NOT NULL,
     account_number VARCHAR(100),
     balance DECIMAL(15, 2) DEFAULT 0.00,
+    opening_balance DECIMAL(15, 2) DEFAULT 0.00,
     currency VARCHAR(3) DEFAULT 'NPR',
     color VARCHAR(7),
     icon VARCHAR(50),
     is_active BOOLEAN DEFAULT TRUE,
     is_default BOOLEAN DEFAULT FALSE,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    include_in_savings BOOLEAN NOT NULL DEFAULT FALSE,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
     INDEX idx_user_id (user_id),
     INDEX idx_type (type)
@@ -58,14 +69,17 @@ CREATE TABLE categories (
     color VARCHAR(7),
     description TEXT,
     is_default BOOLEAN DEFAULT FALSE,
+    parent_id INT NULL,
     status ENUM('active', 'archived', 'deleted') DEFAULT 'active',
     sort_order INT DEFAULT 0,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     deleted_at TIMESTAMP NULL,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (parent_id) REFERENCES categories(id) ON DELETE SET NULL,
     INDEX idx_user_id (user_id),
     INDEX idx_type (type),
+    INDEX idx_parent_id (parent_id),
     INDEX idx_status (status),
     INDEX idx_sort_order (sort_order)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -80,8 +94,8 @@ CREATE TABLE subcategories (
     description TEXT,
     status ENUM('active', 'archived', 'deleted') DEFAULT 'active',
     sort_order INT DEFAULT 0,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     deleted_at TIMESTAMP NULL,
     FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE CASCADE,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
@@ -97,14 +111,16 @@ CREATE TABLE goals (
     user_id INT NOT NULL,
     name VARCHAR(100) NOT NULL,
     target_amount DECIMAL(15, 2) NOT NULL,
+    initial_amount DECIMAL(15, 2) NOT NULL DEFAULT 0.00,
     current_amount DECIMAL(15, 2) DEFAULT 0.00,
+    version INT NOT NULL DEFAULT 1,
     deadline DATE,
     icon VARCHAR(50),
     color VARCHAR(7),
     description TEXT,
     status ENUM('active', 'completed', 'paused') DEFAULT 'active',
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
     INDEX idx_user_id (user_id),
     INDEX idx_status (status),
@@ -129,10 +145,10 @@ CREATE TABLE recurring_transactions (
     description TEXT,
     notes TEXT,
     is_active BOOLEAN DEFAULT TRUE,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-    FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE RESTRICT,
+    FOREIGN KEY (account_id) REFERENCES accounts(id),
     FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE RESTRICT,
     FOREIGN KEY (subcategory_id) REFERENCES subcategories(id) ON DELETE SET NULL,
     INDEX idx_user_id (user_id),
@@ -144,34 +160,43 @@ CREATE TABLE recurring_transactions (
 CREATE TABLE transactions (
     id INT AUTO_INCREMENT PRIMARY KEY,
     user_id INT NOT NULL,
-    account_id INT NOT NULL,
+    account_id INT NULL,
     from_account_id INT NULL,
     to_account_id INT NULL,
     category_id INT NULL,
     subcategory_id INT NULL,
     amount DECIMAL(15, 2) NOT NULL,
-    type ENUM('income', 'expense', 'transfer') NOT NULL,
+    type ENUM('income', 'expense', 'transfer', 'goal_contribution') NOT NULL,
     payment_method VARCHAR(30) DEFAULT NULL,
     karobar_transaction_id INT NULL,
+    client_request_id VARCHAR(64) NULL,
+    transfer_parent_id INT NULL,
+    goal_id INT NULL,
+    version INT NOT NULL DEFAULT 1,
     date DATE NOT NULL,
     description TEXT,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-    FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE RESTRICT,
+    FOREIGN KEY (account_id) REFERENCES accounts(id),
     FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE SET NULL,
     FOREIGN KEY (subcategory_id) REFERENCES subcategories(id) ON DELETE SET NULL,
-    FOREIGN KEY (karobar_transaction_id) REFERENCES karobar_transactions(id) ON DELETE SET NULL,
     FOREIGN KEY (from_account_id) REFERENCES accounts(id) ON DELETE SET NULL,
     FOREIGN KEY (to_account_id) REFERENCES accounts(id) ON DELETE SET NULL,
+    FOREIGN KEY (transfer_parent_id) REFERENCES transactions(id) ON DELETE CASCADE,
+    FOREIGN KEY (goal_id) REFERENCES goals(id) ON DELETE RESTRICT,
     INDEX idx_user_id (user_id),
     INDEX idx_account_id (account_id),
     INDEX idx_category_id (category_id),
     INDEX idx_date (date),
+    INDEX idx_transactions_user_date_created (user_id, date, created_at),
     INDEX idx_type (type),
     INDEX idx_amount (amount),
     INDEX idx_from_account_id (from_account_id),
-    INDEX idx_to_account_id (to_account_id)
+    INDEX idx_to_account_id (to_account_id),
+    INDEX idx_goal_id (goal_id),
+    UNIQUE KEY uq_transactions_transfer_fee (user_id, transfer_parent_id),
+    UNIQUE KEY uq_transactions_user_client_request (user_id, client_request_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Budgets Table
@@ -187,11 +212,11 @@ CREATE TABLE budgets (
     end_date DATE,
     alert_threshold DECIMAL(5, 2) DEFAULT 80.00,
     is_active BOOLEAN DEFAULT TRUE,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-    FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE SET NULL,
-    FOREIGN KEY (subcategory_id) REFERENCES subcategories(id) ON DELETE SET NULL,
+    CONSTRAINT fk_budgets_category FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE RESTRICT,
+    CONSTRAINT fk_budgets_subcategory FOREIGN KEY (subcategory_id) REFERENCES subcategories(id) ON DELETE RESTRICT,
     INDEX idx_user_id (user_id),
     INDEX idx_category_id (category_id),
     INDEX idx_period (period)
@@ -208,7 +233,7 @@ CREATE TABLE attachments (
     file_size INT,
     file_type VARCHAR(100),
     mime_type VARCHAR(100),
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
     FOREIGN KEY (transaction_id) REFERENCES transactions(id) ON DELETE CASCADE,
     FOREIGN KEY (goal_id) REFERENCES goals(id) ON DELETE CASCADE,
@@ -229,8 +254,8 @@ CREATE TABLE notifications (
     reference_type VARCHAR(50) NULL,
     reference_id INT NULL,
     is_read BOOLEAN DEFAULT FALSE,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
     INDEX idx_user_id (user_id),
     INDEX idx_type (type),
@@ -247,19 +272,10 @@ CREATE TABLE ai_analysis_history (
     analysis_type ENUM('daily', 'weekly', 'monthly', 'yearly', 'custom') NOT NULL,
     start_date DATE NOT NULL,
     end_date DATE NOT NULL,
-    insights JSON,
-    predictions JSON,
-    recommendations JSON,
-    financial_health_score INT,
-    budget_score INT,
-    savings_score INT,
-    investment_score INT,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    insights LONGTEXT,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
     INDEX idx_user_id (user_id),
-    INDEX idx_analysis_type (analysis_type),
-    INDEX idx_start_date (start_date),
-    INDEX idx_end_date (end_date)
+    INDEX idx_analysis_type (analysis_type)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Reports Table
@@ -269,9 +285,7 @@ CREATE TABLE reports (
     type ENUM('monthly', 'yearly', 'custom') NOT NULL,
     start_date DATE NOT NULL,
     end_date DATE NOT NULL,
-    data JSON,
-    file_path VARCHAR(255),
-    generated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    data LONGTEXT,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
     INDEX idx_user_id (user_id),
     INDEX idx_type (type)
@@ -286,12 +300,10 @@ CREATE TABLE activity_logs (
     entity_id INT,
     ip_address VARCHAR(45),
     user_agent TEXT,
-    metadata JSON,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    metadata LONGTEXT,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
     INDEX idx_user_id (user_id),
-    INDEX idx_action (action),
-    INDEX idx_created_at (created_at)
+    INDEX idx_action (action)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- People Table (Karobar Module)
@@ -306,8 +318,8 @@ CREATE TABLE people (
     photo VARCHAR(255),
     notes TEXT,
     status ENUM('active', 'archived') DEFAULT 'active',
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
     INDEX idx_user_id (user_id),
     INDEX idx_name (name),
@@ -327,14 +339,15 @@ CREATE TABLE karobar_transactions (
     expense_transaction_id INT NULL,
     income_transaction_id INT NULL,
     payment_method VARCHAR(30) NULL,
+    client_request_id VARCHAR(64) NULL,
+    version INT NOT NULL DEFAULT 1,
     description TEXT,
     transaction_date DATE NOT NULL,
     due_date DATE NULL,
-    created_by INT NULL,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-    FOREIGN KEY (person_id) REFERENCES people(id) ON DELETE CASCADE,
+    CONSTRAINT fk_karobar_person FOREIGN KEY (person_id) REFERENCES people(id) ON DELETE RESTRICT,
     FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE SET NULL,
     FOREIGN KEY (expense_transaction_id) REFERENCES transactions(id) ON DELETE SET NULL,
     FOREIGN KEY (income_transaction_id) REFERENCES transactions(id) ON DELETE SET NULL,
@@ -342,8 +355,20 @@ CREATE TABLE karobar_transactions (
     INDEX idx_person_id (person_id),
     INDEX idx_type (type),
     INDEX idx_transaction_date (transaction_date),
-    INDEX idx_due_date (due_date)
+    INDEX idx_karobar_user_date_created (user_id, transaction_date, created_at),
+    INDEX idx_due_date (due_date),
+    UNIQUE KEY uq_karobar_user_client_request (user_id, client_request_id),
+    UNIQUE KEY uq_karobar_user_expense_tx (user_id, expense_transaction_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Resolve the intentional transaction/Karobar relationship only after both
+-- tables exist, avoiding a circular creation-order failure on fresh imports.
+ALTER TABLE transactions
+    ADD CONSTRAINT fk_transactions_karobar
+    FOREIGN KEY (karobar_transaction_id) REFERENCES karobar_transactions(id) ON DELETE SET NULL;
+
+ALTER TABLE transactions
+    ADD UNIQUE KEY uq_transactions_user_karobar (user_id, karobar_transaction_id);
 
 -- Password Reset Tokens Table
 CREATE TABLE password_reset_tokens (
@@ -351,7 +376,7 @@ CREATE TABLE password_reset_tokens (
     user_id INT NOT NULL,
     token VARCHAR(255) UNIQUE NOT NULL,
     expires_at TIMESTAMP NOT NULL,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
     INDEX idx_token (token),
     INDEX idx_expires_at (expires_at)
@@ -363,11 +388,19 @@ CREATE TABLE email_verification_tokens (
     user_id INT NOT NULL,
     token VARCHAR(255) UNIQUE NOT NULL,
     expires_at TIMESTAMP NOT NULL,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
     INDEX idx_token (token),
     INDEX idx_expires_at (expires_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+/*
+Legacy global category seed reference (not executed).
+
+Registration is the single source of truth for each user's default categories.
+Keeping the old global inserts active here created duplicate category choices
+immediately after registration. The reference remains for historical context;
+use explicit seed scripts for optional global catalogs.
 
 -- Insert Default Income Categories
 INSERT INTO categories (name, type, icon, color, is_default, sort_order) VALUES
@@ -490,3 +523,4 @@ INSERT INTO subcategories (category_id, name, icon, sort_order) VALUES
 ((SELECT id FROM categories WHERE name = 'Room Expense' AND type = 'expense' LIMIT 1), 'Room Rent', 'home', 13),
 ((SELECT id FROM categories WHERE name = 'Room Expense' AND type = 'expense' LIMIT 1), 'Utilities', 'zap', 14),
 ((SELECT id FROM categories WHERE name = 'Room Expense' AND type = 'expense' LIMIT 1), 'Others', 'more-horizontal', 15);
+*/

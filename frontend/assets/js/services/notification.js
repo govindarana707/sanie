@@ -16,10 +16,15 @@ class NotificationService {
         };
 
         if (typeof Toastify === 'function') {
+            const safeMessage = window.Formatters?.escapeHTML
+                ? window.Formatters.escapeHTML(message)
+                : String(message ?? '').replace(/[&<>"']/g, character => ({
+                    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+                })[character]);
             Toastify({
                 text: `<div style="display: flex; align-items: center; gap: 0.75rem;">
                     <span style="font-size: 1.25rem; font-weight: bold;">${icons[type] || icons.info}</span>
-                    <span>${Formatters ? Formatters.escapeHTML(message) : message}</span>
+                    <span>${safeMessage}</span>
                 </div>`,
                 duration,
                 gravity: 'top',
@@ -43,7 +48,6 @@ class NotificationService {
             return;
         }
 
-        console.log(`[${type.toUpperCase()}]: ${message}`);
     }
 
     static success(message) {

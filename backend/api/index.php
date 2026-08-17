@@ -41,6 +41,8 @@ try {
                 $controller->me();
             } elseif ($method === 'PUT' && $resourceId === 'update') {
                 $controller->update();
+            } elseif ($method === 'POST' && $resourceId === 'avatar') {
+                $controller->uploadAvatar();
             } elseif ($method === 'POST' && $resourceId === 'change-password') {
                 $controller->changePassword();
             } else {
@@ -58,6 +60,8 @@ try {
                 $controller->statistics();
             } elseif ($method === 'GET' && $resourceId === 'category-breakdown') {
                 $controller->categoryBreakdown();
+            } elseif ($method === 'POST' && $resourceId === 'bulk-delete') {
+                $controller->bulkDestroy();
             } elseif ($method === 'GET' && $resourceId !== null) {
                 $controller->show($resourceId);
             } elseif ($method === 'POST' && count($segments) === 1) {
@@ -201,6 +205,12 @@ try {
                 $controller->progress($resourceId);
             } elseif ($method === 'POST' && $resourceId !== null && $action === 'contribute') {
                 $controller->contribute($resourceId);
+            } elseif ($method === 'GET' && $resourceId !== null && $action === 'contributions') {
+                $controller->contributions($resourceId);
+            } elseif ($method === 'PUT' && $resourceId !== null && $action === 'contributions' && isset($segments[3])) {
+                $controller->updateContribution($resourceId, $segments[3]);
+            } elseif ($method === 'DELETE' && $resourceId !== null && $action === 'contributions' && isset($segments[3])) {
+                $controller->deleteContribution($resourceId, $segments[3]);
             } elseif ($method === 'GET' && $resourceId !== null) {
                 $controller->show($resourceId);
             } elseif ($method === 'POST' && count($segments) === 1) {
@@ -358,5 +368,7 @@ try {
             Response::error('Endpoint not found', 404);
     }
 } catch (\Throwable $e) {
-    Response::serverError($e->getMessage());
+    error_log(sprintf('Unhandled API error: %s in %s:%d', $e->getMessage(), $e->getFile(), $e->getLine()));
+    $message = (defined('APP_DEBUG') && APP_DEBUG) ? $e->getMessage() : 'Internal server error';
+    Response::serverError($message);
 }

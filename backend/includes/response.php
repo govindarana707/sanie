@@ -42,6 +42,13 @@ class Response {
     }
 
     public static function serverError($message = 'Internal server error') {
-        self::error($message, 500);
+        $technicalMessage = trim((string)$message);
+        if ($technicalMessage !== '' && $technicalMessage !== 'Internal server error') {
+            error_log('[SanIE] Server error: ' . substr(preg_replace('/[\r\n]+/', ' ', $technicalMessage), 0, 500));
+        }
+        $publicMessage = (defined('APP_DEBUG') && APP_DEBUG && $technicalMessage !== '')
+            ? $technicalMessage
+            : 'Unable to process this request right now.';
+        self::error($publicMessage, 500);
     }
 }

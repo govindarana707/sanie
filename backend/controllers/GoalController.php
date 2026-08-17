@@ -4,6 +4,7 @@ require_once __DIR__ . '/../includes/cors.php';
 require_once __DIR__ . '/../includes/response.php';
 require_once __DIR__ . '/../includes/middleware.php';
 require_once __DIR__ . '/../models/Goal.php';
+require_once __DIR__ . '/../models/Transaction.php';
 require_once __DIR__ . '/../services/NotificationService.php';
 require_once __DIR__ . '/../services/AccountingService.php';
 
@@ -100,9 +101,17 @@ class GoalController {
 
     public function destroy($id) {
         $userId = Middleware::auth();
-        
-        if ($this->goalModel->delete($id, $userId)) {
-            Response::success(null, 'Goal deleted successfully');
+        $goal = $this->goalModel->findById($id, $userId);
+        if (!$goal) Response::notFound('Goal not found');
+        if ($this->goalModel->countContributions($id, $userId) > 0) {
+            Response::error('Delete the goal contributions before deleting this goal', 422);
+        }
+        try {
+            if ($this->goalModel->delete($id, $userId)) {
+                Response::success(null, 'Goal deleted successfully');
+            }
+        } catch (PDOException $e) {
+            Response::error('Goal cannot be deleted while linked financial records exist', 422);
         }
         
         Response::serverError('Goal deletion failed');
@@ -123,29 +132,94 @@ class GoalController {
         $userId = Middleware::auth();
         $data = json_decode(file_get_contents('php://input'), true);
         
-        $errors = Middleware::validateRequired($data, ['amount', 'account_id']);
+        $errors = Middleware::validateRequired($data, ['amount', 'account_id', 'date', 'client_request_id']);
         if (!empty($errors)) {
             Response::error('Validation failed', 422, $errors);
         }
 
         try {
-            $this->accountingService->contributeToGoal(
+            $requestId = trim((string)$data['client_request_id']);
+            if (!preg_match('/^(?:[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}|req_[A-Za-z0-9_]{10,60})$/i', $requestId)) {
+                Response::error('Validation failed', 422, ['client_request_id' => 'Invalid client request identifier']);
+            }
+            $resource = $this->accountingService->contributeToGoal(
                 $id,
                 $userId,
                 $data['amount'],
-                $data['account_id']
+                $data['account_id'],
+                $data['date'],
+                $data['description'] ?? '',
+                $requestId
             );
 
             $progress = $this->goalModel->getGoalProgress($id, $userId);
-            if ($progress && isset($progress['status']) && $progress['status'] === 'completed') {
+            if ($progress && !empty($progress['is_completed'])) {
                 $this->notifService->create($userId, 'goal_achieved',
                     'Goal Achieved!',
                     'Congratulations! You have reached your goal target.',
                     'goal', $id);
             }
-            Response::success($progress, 'Contribution added successfully');
+            Response::success($resource, 'Contribution added successfully', 201);
+        } catch (TransactionConflictException $e) {
+            Response::error($e->getMessage(), 409);
+        } catch (GoalContributionAuthorizationException $e) {
+            Response::error('Goal or account not found or access denied', 403);
+        } catch (InvalidArgumentException $e) {
+            Response::error($e->getMessage(), 422);
         } catch (\Throwable $e) {
             Response::serverError($e->getMessage());
         }
+    }
+
+    public function contributions($goalId) {
+        $userId = Middleware::auth();
+        if (!$this->goalModel->findById($goalId, $userId)) Response::notFound('Goal not found');
+        Response::success($this->goalModel->findContributions($goalId, $userId));
+    }
+
+    public function updateContribution($goalId, $contributionId) {
+        $userId = Middleware::auth();
+        $data = json_decode(file_get_contents('php://input'), true) ?: [];
+        $baseVersion = $this->readContributionVersion($data);
+        try {
+            $existing = (new Transaction())->findById($contributionId, $userId);
+            if (!$existing || (int)($existing['goal_id'] ?? 0) !== (int)$goalId) Response::notFound('Goal contribution not found');
+            $resource = $this->accountingService->updateGoalContribution($contributionId, $userId, $data, $baseVersion);
+            Response::success($resource, 'Contribution updated successfully');
+        } catch (TransactionConflictException $e) {
+            Response::error($e->getMessage(), 409);
+        } catch (GoalContributionAuthorizationException $e) {
+            Response::error('Goal contribution not found or access denied', 403);
+        } catch (InvalidArgumentException $e) {
+            Response::error($e->getMessage(), 422);
+        } catch (Throwable $e) {
+            Response::serverError($e->getMessage());
+        }
+    }
+
+    public function deleteContribution($goalId, $contributionId) {
+        $userId = Middleware::auth();
+        $data = json_decode(file_get_contents('php://input'), true) ?: [];
+        $baseVersion = $this->readContributionVersion($data);
+        try {
+            $existing = (new Transaction())->findById($contributionId, $userId);
+            if (!$existing || (int)($existing['goal_id'] ?? 0) !== (int)$goalId) Response::notFound('Goal contribution not found');
+            $this->accountingService->deleteGoalContribution($contributionId, $userId, $baseVersion);
+            Response::success(['id' => (int)$contributionId], 'Contribution deleted successfully');
+        } catch (TransactionConflictException $e) {
+            Response::error($e->getMessage(), 409);
+        } catch (GoalContributionAuthorizationException $e) {
+            Response::error('Goal contribution not found or access denied', 403);
+        } catch (Throwable $e) {
+            Response::serverError($e->getMessage());
+        }
+    }
+
+    private function readContributionVersion(array $data): int {
+        $version = filter_var($data['base_version'] ?? null, FILTER_VALIDATE_INT);
+        if ($version === false || $version < 1) {
+            Response::error('Validation failed', 422, ['base_version' => 'A valid base version is required']);
+        }
+        return (int)$version;
     }
 }

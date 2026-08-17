@@ -12,9 +12,9 @@ class Account {
     }
 
     public function create($data) {
-        $query = "INSERT INTO " . $this->table . " 
-                  (user_id, name, type, account_number, balance, opening_balance, currency, color, icon, is_active, is_default) 
-                  VALUES (:user_id, :name, :type, :account_number, :balance, :opening_balance, :currency, :color, :icon, :is_active, :is_default)";
+        $query = "INSERT INTO " . $this->table . "
+                  (user_id, name, type, account_number, balance, opening_balance, currency, color, icon, is_active, is_default, include_in_savings)
+                  VALUES (:user_id, :name, :type, :account_number, :balance, :opening_balance, :currency, :color, :icon, :is_active, :is_default, :include_in_savings)";
         
         $stmt = $this->conn->prepare($query);
         
@@ -27,8 +27,9 @@ class Account {
         $stmt->bindValue(':currency', $data['currency'] ?? 'NPR');
         $stmt->bindValue(':color', $data['color'] ?? '#6B7280');
         $stmt->bindValue(':icon', $data['icon'] ?? null);
-        $stmt->bindValue(':is_active', $data['is_active'] ?? 1);
-        $stmt->bindValue(':is_default', $data['is_default'] ?? 0);
+        $stmt->bindValue(':is_active', !empty($data['is_active']) ? 1 : 0, PDO::PARAM_INT);
+        $stmt->bindValue(':is_default', !empty($data['is_default']) ? 1 : 0, PDO::PARAM_INT);
+        $stmt->bindValue(':include_in_savings', !empty($data['include_in_savings']) ? 1 : 0, PDO::PARAM_INT);
         
         if ($stmt->execute()) {
             return $this->conn->lastInsertId();
@@ -66,8 +67,10 @@ class Account {
                   currency = :currency,
                   color = :color,
                   icon = :icon,
+                  opening_balance = :opening_balance,
                   is_active = :is_active,
                   is_default = :is_default,
+                  include_in_savings = :include_in_savings,
                   updated_at = CURRENT_TIMESTAMP
                   WHERE id = :id AND user_id = :user_id";
 
@@ -81,8 +84,10 @@ class Account {
         $stmt->bindValue(':currency', $data['currency'] ?? 'NPR');
         $stmt->bindValue(':color', $data['color'] ?? '#6B7280');
         $stmt->bindValue(':icon', $data['icon'] ?? null);
-        $stmt->bindValue(':is_active', $data['is_active'] ?? 1);
-        $stmt->bindValue(':is_default', $data['is_default'] ?? 0);
+        $stmt->bindValue(':opening_balance', $data['opening_balance'] ?? 0);
+        $stmt->bindValue(':is_active', !empty($data['is_active']) ? 1 : 0, PDO::PARAM_INT);
+        $stmt->bindValue(':is_default', !empty($data['is_default']) ? 1 : 0, PDO::PARAM_INT);
+        $stmt->bindValue(':include_in_savings', !empty($data['include_in_savings']) ? 1 : 0, PDO::PARAM_INT);
 
         return $stmt->execute();
     }
@@ -131,7 +136,7 @@ class Account {
     }
 
     public function getSavingsBalance($userId) {
-        $query = "SELECT COALESCE(SUM(balance), 0) as savings_balance FROM " . $this->table . " WHERE user_id = :user_id AND type = 'savings' AND is_active = TRUE";
+        $query = "SELECT COALESCE(SUM(balance), 0) as savings_balance FROM " . $this->table . " WHERE user_id = :user_id AND (type = 'savings' OR include_in_savings = 1) AND is_active = TRUE";
         
         $stmt = $this->conn->prepare($query);
         $stmt->bindParam(':user_id', $userId);
@@ -241,6 +246,7 @@ class Account {
                   COALESCE(SUM(CASE WHEN t.type = 'expense' AND t.account_id = :aid2 THEN t.amount ELSE 0 END), 0) as total_expense,
                   COALESCE(SUM(CASE WHEN t.type = 'transfer' AND t.to_account_id = :aid3 THEN t.amount ELSE 0 END), 0) as transfer_in,
                   COALESCE(SUM(CASE WHEN t.type = 'transfer' AND t.from_account_id = :aid4 THEN t.amount ELSE 0 END), 0) as transfer_out,
+                  COALESCE(SUM(CASE WHEN t.type = 'goal_contribution' AND t.account_id = :aid10 THEN t.amount ELSE 0 END), 0) as goal_contributions_out,
                   COUNT(DISTINCT t.id) as transaction_count,
                   COUNT(DISTINCT CASE WHEN t.type = 'income' AND t.account_id = :aid5 THEN t.id END) as income_count,
                   COUNT(DISTINCT CASE WHEN t.type = 'expense' AND t.account_id = :aid6 THEN t.id END) as expense_count
@@ -258,6 +264,7 @@ class Account {
         $params[':aid7'] = $accountId;
         $params[':aid8'] = $accountId;
         $params[':aid9'] = $accountId;
+        $params[':aid10'] = $accountId;
 
         $stmt = $this->conn->prepare($query);
         foreach ($params as $key => $value) {
@@ -385,6 +392,7 @@ class Account {
                     COALESCE(SUM(CASE WHEN t.type = 'expense' AND t.account_id = :aid2 THEN t.amount ELSE 0 END), 0) AS expense,
                     COALESCE(SUM(CASE WHEN t.type = 'transfer' AND t.to_account_id = :aid3 THEN t.amount ELSE 0 END), 0) AS transfer_in,
                     COALESCE(SUM(CASE WHEN t.type = 'transfer' AND t.from_account_id = :aid4 THEN t.amount ELSE 0 END), 0) AS transfer_out
+                    ,COALESCE(SUM(CASE WHEN t.type = 'goal_contribution' AND t.account_id = :aid8 THEN t.amount ELSE 0 END), 0) AS goal_contributions_out
                   FROM transactions t
                   WHERE t.user_id = :user_id
                     AND (t.account_id = :aid5 OR t.from_account_id = :aid6 OR t.to_account_id = :aid7)
@@ -401,6 +409,7 @@ class Account {
         $stmt->bindValue(':aid5', $accountId);
         $stmt->bindValue(':aid6', $accountId);
         $stmt->bindValue(':aid7', $accountId);
+        $stmt->bindValue(':aid8', $accountId);
         $stmt->bindValue(':year', $year, PDO::PARAM_INT);
         $stmt->execute();
 

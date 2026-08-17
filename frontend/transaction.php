@@ -2,8 +2,18 @@
 <html lang="en" data-bs-theme="light" data-theme="light">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <link rel="icon" type="image/png" href="assets/favicon/favicon.png">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#0f172a">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="SanIE">
+    <meta name="application-name" content="SanIE">
+    <link rel="manifest" href="/sanie/frontend/manifest.webmanifest">
+    <link rel="icon" href="assets/favicon/favicon.ico" sizes="any">
+    <link rel="icon" type="image/png" sizes="32x32" href="assets/favicon/favicon-32x32.png">
+    <link rel="icon" type="image/png" sizes="16x16" href="assets/favicon/favicon-16x16.png">
+    <link rel="apple-touch-icon" sizes="180x180" href="assets/icons/apple-touch-icon.png">
     <title>Transaction Ledger - SanIE</title>
 
     <!-- Resource Hints -->
@@ -26,7 +36,7 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 
     <!-- SweetAlert2 CSS -->
-    <link href="https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/sweetalert2@11.26.25/dist/sweetalert2.min.css" rel="stylesheet">
 
     <!-- DataTables CSS -->
     <link rel="stylesheet" href="https://cdn.datatables.net/1.13.6/css/dataTables.bootstrap5.min.css">
@@ -34,12 +44,12 @@
 
     <!-- Custom CSS -->
     <link rel="stylesheet" href="assets/css/styles.css">
-    <link rel="stylesheet" href="assets/css/transaction.css">
+    <link rel="stylesheet" href="assets/css/transaction.css?v=3">
 </head>
 <body>
     <div class="ledger-page">
         <!-- Sidebar -->
-        <aside class="sidebar" role="navigation" aria-label="Sidebar">
+        <aside class="sidebar sidebar-premium" role="navigation" aria-label="Sidebar">
             <div class="sidebar-header">
                 <h1 class="logo" aria-label="SanIE">SanIE</h1>
             </div>
@@ -137,115 +147,144 @@
 
         <!-- Main Content -->
         <main class="ledger-main">
-            <!-- Header -->
-            <div class="ledger-header">
-                <div class="ledger-header-left">
-                    <div class="ledger-header-badge"><i class="bi bi-journal-text"></i></div>
-                    <div>
-                        <h2 class="ledger-title">Transaction Ledger</h2>
-                        <p class="ledger-subtitle">Complete transaction history with running balance</p>
+            <div class="container-fluid">
+                <!-- Header -->
+                <div class="ledger-header">
+                    <div class="ledger-header-left">
+                        <div class="ledger-header-badge"><i class="bi bi-journal-text"></i></div>
+                        <div>
+                            <h1 class="ledger-title">Transaction Ledger</h1>
+                            <p class="ledger-subtitle">View, search, filter and export your complete financial history.</p>
+                        </div>
+                    </div>
+                    <div class="ledger-header-actions">
+                        <button class="btn btn-outline-primary ledger-action-btn" id="ledger-print" title="Print" data-bs-toggle="tooltip" data-bs-placement="bottom" aria-label="Print ledger">
+                            <i class="bi bi-printer"></i>
+                            <span>Print</span>
+                        </button>
+                        <button class="btn btn-outline-primary ledger-action-btn" id="ledger-export-csv" title="Export CSV" data-bs-toggle="tooltip" data-bs-placement="bottom" aria-label="Export to CSV">
+                            <i class="bi bi-download"></i>
+                            <span>CSV</span>
+                        </button>
+                        <button class="btn btn-outline-primary ledger-action-btn" id="ledger-refresh" title="Refresh" data-bs-toggle="tooltip" data-bs-placement="bottom" aria-label="Refresh data">
+                            <i class="bi bi-arrow-clockwise"></i>
+                            <span>Refresh</span>
+                        </button>
                     </div>
                 </div>
-                <div class="ledger-header-actions">
-                    <button class="ldg-btn ldg-btn-icon" id="ledger-print" title="Print" data-bs-toggle="tooltip" data-bs-placement="bottom">
-                        <i class="bi bi-printer"></i>
-                    </button>
-                    <button class="ldg-btn ldg-btn-icon" id="ledger-export-csv" title="Export CSV" data-bs-toggle="tooltip" data-bs-placement="bottom">
-                        <i class="bi bi-download"></i>
-                    </button>
-                    <button class="ldg-btn ldg-btn-icon" id="ledger-refresh" title="Refresh" data-bs-toggle="tooltip" data-bs-placement="bottom">
-                        <i class="bi bi-arrow-clockwise"></i>
-                    </button>
-                </div>
-            </div>
 
-            <!-- Summary Cards -->
-            <div class="ldg-cards" id="ledger-summary">
-                <div class="ldg-card ldg-card-opening">
-                    <div class="ldg-card-icon"><i class="bi bi-calculator"></i></div>
-                    <div class="ldg-card-body">
-                        <p class="ldg-card-label">Opening Balance</p>
-                        <p class="ldg-card-value" id="ldg-opening-balance">--</p>
+                <!-- Summary Cards -->
+                <div class="ldg-cards" id="ledger-summary">
+                    <div class="ldg-card ldg-card-opening">
+                        <div class="ldg-card-icon"><i class="bi bi-calculator"></i></div>
+                        <div class="ldg-card-body">
+                            <p class="ldg-card-label">Opening Balance</p>
+                            <p class="ldg-card-value" id="ldg-opening-balance">--</p>
+                        </div>
+                    </div>
+                    <div class="ldg-card ldg-card-income">
+                        <div class="ldg-card-icon"><i class="bi bi-arrow-down-left"></i></div>
+                        <div class="ldg-card-body">
+                            <p class="ldg-card-label">Period Income</p>
+                            <p class="ldg-card-value" id="ldg-period-income">--</p>
+                        </div>
+                    </div>
+                    <div class="ldg-card ldg-card-expense">
+                        <div class="ldg-card-icon"><i class="bi bi-arrow-up-right"></i></div>
+                        <div class="ldg-card-body">
+                            <p class="ldg-card-label">Period Expense</p>
+                            <p class="ldg-card-value" id="ldg-period-expense">--</p>
+                        </div>
+                    </div>
+                    <div class="ldg-card ldg-card-net">
+                        <div class="ldg-card-icon"><i class="bi bi-graph-up-arrow"></i></div>
+                        <div class="ldg-card-body">
+                            <p class="ldg-card-label">Net Flow</p>
+                            <p class="ldg-card-value" id="ldg-period-net">--</p>
+                        </div>
+                    </div>
+                    <div class="ldg-card ldg-card-count">
+                        <div class="ldg-card-icon"><i class="bi bi-receipt-cutoff"></i></div>
+                        <div class="ldg-card-body">
+                            <p class="ldg-card-label">Transactions</p>
+                            <p class="ldg-card-value" id="ldg-period-count">--</p>
+                        </div>
+                    </div>
+                    <div class="ldg-card ldg-card-closing">
+                        <div class="ldg-card-icon"><i class="bi bi-safe"></i></div>
+                        <div class="ldg-card-body">
+                            <p class="ldg-card-label">Closing Balance</p>
+                            <p class="ldg-card-value" id="ldg-closing-balance">--</p>
+                        </div>
                     </div>
                 </div>
-                <div class="ldg-card ldg-card-income">
-                    <div class="ldg-card-icon"><i class="bi bi-arrow-down-left"></i></div>
-                    <div class="ldg-card-body">
-                        <p class="ldg-card-label">Period Income</p>
-                        <p class="ldg-card-value" id="ldg-period-income">--</p>
-                    </div>
-                </div>
-                <div class="ldg-card ldg-card-expense">
-                    <div class="ldg-card-icon"><i class="bi bi-arrow-up-right"></i></div>
-                    <div class="ldg-card-body">
-                        <p class="ldg-card-label">Period Expense</p>
-                        <p class="ldg-card-value" id="ldg-period-expense">--</p>
-                    </div>
-                </div>
-                <div class="ldg-card ldg-card-net">
-                    <div class="ldg-card-icon"><i class="bi bi-graph-up-arrow"></i></div>
-                    <div class="ldg-card-body">
-                        <p class="ldg-card-label">Net Flow</p>
-                        <p class="ldg-card-value" id="ldg-period-net">--</p>
-                    </div>
-                </div>
-                <div class="ldg-card ldg-card-count">
-                    <div class="ldg-card-icon"><i class="bi bi-receipt-cutoff"></i></div>
-                    <div class="ldg-card-body">
-                        <p class="ldg-card-label">Transactions</p>
-                        <p class="ldg-card-value" id="ldg-period-count">--</p>
-                    </div>
-                </div>
-                <div class="ldg-card ldg-card-closing">
-                    <div class="ldg-card-icon"><i class="bi bi-safe"></i></div>
-                    <div class="ldg-card-body">
-                        <p class="ldg-card-label">Closing Balance</p>
-                        <p class="ldg-card-value" id="ldg-closing-balance">--</p>
-                    </div>
-                </div>
-            </div>
 
-            <!-- Filters -->
-            <div class="ldg-filter-bar" id="ledger-filters">
-                <div class="ldg-filter-search">
-                    <i class="bi bi-search"></i>
-                    <input type="search" id="ledger-search" placeholder="Search transactions..." aria-label="Search">
+                <!-- Filter Section -->
+                <div class="card filter-card">
+                    <div class="card-body">
+                        <div class="ldg-filter-bar" id="ledger-filters">
+                            <!-- Search Row -->
+                            <div class="ldg-filter-row ldg-filter-search-row">
+                                <div class="ldg-filter-search">
+                                    <i class="bi bi-search"></i>
+                                    <input type="search" id="ledger-search" placeholder="Search transactions..." aria-label="Search transactions">
+                                </div>
+                            </div>
+                            <!-- Filter Controls Row -->
+                            <div class="ldg-filter-row ldg-filter-controls-row">
+                                <select class="form-select ldg-filter-select" id="ledger-type" aria-label="Filter by type">
+                                    <option value="">All Types</option>
+                                    <option value="income">Income</option>
+                                    <option value="expense">Expense</option>
+                                    <option value="transfer">Transfer</option>
+                                </select>
+                                <select class="form-select ldg-filter-select" id="ledger-category" aria-label="Filter by category">
+                                    <option value="">All Categories</option>
+                                </select>
+                                <select class="form-select ldg-filter-select" id="ledger-account" aria-label="Filter by account">
+                                    <option value="">All Accounts</option>
+                                </select>
+                                <input type="date" id="ledger-date-start" class="form-control ldg-filter-date" title="From" aria-label="From date">
+                                <input type="date" id="ledger-date-end" class="form-control ldg-filter-date" title="To" aria-label="To date">
+                                <button class="btn btn-success ldg-btn-apply" id="ledger-apply-filters" aria-label="Apply filters">
+                                    <i class="bi bi-check-lg"></i>
+                                    <span>Apply</span>
+                                </button>
+                                <button class="btn btn-outline-secondary ldg-btn-reset" id="ledger-clear-filters" aria-label="Reset filters">
+                                    <i class="bi bi-x-lg"></i>
+                                    <span>Reset</span>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
                 </div>
-                <select class="ldg-filter-select" id="ledger-type">
-                    <option value="">All Types</option>
-                    <option value="income">Income</option>
-                    <option value="expense">Expense</option>
-                    <option value="transfer">Transfer</option>
-                </select>
-                <select class="ldg-filter-select" id="ledger-category">
-                    <option value="">All Categories</option>
-                </select>
-                <select class="ldg-filter-select" id="ledger-account">
-                    <option value="">All Accounts</option>
-                </select>
-                <input type="date" id="ledger-date-start" class="ldg-filter-date" title="From">
-                <input type="date" id="ledger-date-end" class="ldg-filter-date" title="To">
-                <button class="ldg-btn ldg-btn-apply" id="ledger-apply-filters">Apply</button>
-                <button class="ldg-btn ldg-btn-reset" id="ledger-clear-filters">Reset</button>
-            </div>
 
-            <!-- Table -->
-            <div class="ldg-table-area">
-                <div class="ldg-table-wrapper" id="ledger-table-wrapper">
-                    <table id="ledger-table" class="table mb-0" style="width:100%">
-                        <thead>
-                            <tr>
-                                <th>Date</th>
-                                <th>Type</th>
-                                <th>Description</th>
-                                <th>Category</th>
-                                <th>Account</th>
-                                <th class="text-end">Amount</th>
-                                <th class="text-end">Running Balance</th>
-                            </tr>
-                        </thead>
-                        <tbody></tbody>
-                    </table>
+                <!-- Table -->
+                <div class="ldg-table-area">
+                    <div class="table-responsive ldg-table-wrapper" id="ledger-table-wrapper">
+                        <table id="ledger-table" class="table table-striped table-hover mb-0" style="width:100%">
+                            <thead class="table-light">
+                                <tr>
+                                    <th scope="col">Date</th>
+                                    <th scope="col">Type</th>
+                                    <th scope="col">Description</th>
+                                    <th scope="col">Category</th>
+                                    <th scope="col">Account</th>
+                                    <th scope="col" class="text-end">Amount</th>
+                                    <th scope="col" class="text-end">Running Balance</th>
+                                </tr>
+                            </thead>
+                            <tbody></tbody>
+                        </table>
+
+                        <div class="d-flex align-items-center justify-content-between p-3 border-top" id="ledger-pagination">
+                            <div class="d-flex align-items-center gap-2">
+                                <label for="ledger-page-size" class="small text-muted mb-0">Rows</label>
+                                <select id="ledger-page-size" class="form-select form-select-sm" style="width:auto"><option>10</option><option selected>25</option><option>50</option><option>100</option></select>
+                            </div>
+                            <small class="text-muted" id="ledger-page-info">Page 1 of 0</small>
+                            <div class="btn-group btn-group-sm"><button class="btn btn-outline-secondary" id="ledger-page-prev" onclick="ledgerManager.goToPage(ledgerManager.currentPage-1)" disabled>Previous</button><button class="btn btn-outline-secondary" id="ledger-page-next" onclick="ledgerManager.goToPage(ledgerManager.currentPage+1)" disabled>Next</button></div>
+                        </div>
 
                     <!-- Loading State -->
                     <div class="ldg-state ldg-loading" id="ledger-loading" style="display:none;">
@@ -275,8 +314,9 @@
                 </div>
             </div>
 
-            <!-- Detail Modal Container -->
-            <div id="ledger-detail-container"></div>
+                <!-- Detail Modal Container -->
+                <div id="ledger-detail-container"></div>
+            </div>
         </main>
     </div>
 
@@ -289,7 +329,7 @@
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
 
     <!-- SweetAlert2 -->
-    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11.26.25"></script>
 
     <!-- DataTables -->
     <script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
@@ -305,7 +345,8 @@
     <!-- Auth check (standalone page — lightweight, no SPA DOM dependency) -->
     <script>
     (async function checkAuth() {
-        const token = localStorage.getItem('token');
+        let token = null;
+        try { token = window.sessionStorage.getItem('token'); } catch (error) {}
         if (!token) { window.location.href = 'index.html'; return; }
         api.setToken(token);
         try {
@@ -316,17 +357,17 @@
                 `${user.first_name || ''} ${user.last_name || ''}`.trim() || 'User';
             document.getElementById('user-email').textContent = user.email || '';
             document.getElementById('logout-btn').addEventListener('click', () => {
-                localStorage.removeItem('token');
+                api.clearToken();
                 window.location.href = 'index.html';
             });
         } catch (e) {
-            localStorage.removeItem('token');
+            api.clearToken();
             window.location.href = 'index.html';
         }
     })();
     </script>
 
     <!-- Transaction Ledger Module -->
-    <script src="assets/js/transaction.js"></script>
+    <script src="assets/js/transaction.js?v=2"></script>
 </body>
 </html>

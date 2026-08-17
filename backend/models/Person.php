@@ -1,14 +1,17 @@
 <?php
 
 require_once __DIR__ . '/../config/database.php';
+require_once __DIR__ . '/../services/KarobarOutstandingService.php';
 
 class Person {
     private $conn;
     private $table = 'people';
+    private $outstandingService;
 
     public function __construct() {
         $database = new Database();
         $this->conn = $database->getConnection();
+        $this->outstandingService = new KarobarOutstandingService();
     }
 
     public function create($data) {
@@ -83,8 +86,16 @@ class Person {
         
         $people = $stmt->fetchAll(PDO::FETCH_ASSOC);
         
+        $positions=[];
+        foreach($this->outstandingService->getPersonPositions($userId) as$position)$positions[(int)$position['id']]=$position;
         foreach ($people as &$person) {
-            $person['balance'] = $this->calculateBalance($person);
+            $position=$positions[(int)$person['id']]??[];
+            $person['receivable_outstanding']=(float)($position['receivable_outstanding']??0);
+            $person['payable_outstanding']=(float)($position['payable_outstanding']??0);
+            $person['overdue_receivable']=(float)($position['overdue_receivable']??0);
+            $person['overdue_payable']=(float)($position['overdue_payable']??0);
+            $person['overdue_count']=(int)($position['overdue_count']??0);
+            $person['balance']=$person['receivable_outstanding']-$person['payable_outstanding'];
         }
         
         return $people;
@@ -108,10 +119,23 @@ class Person {
             $person['total_repaid'] = $this->getPersonAggregate($id, $userId, 'repaid');
             $person['transaction_count'] = $this->getTransactionCount($id, $userId);
             $person['last_transaction_date'] = $this->getLastTransactionDate($id, $userId);
-            $person['balance'] = $this->calculateBalanceFromDB($id, $userId);
+            $position=$this->outstandingService->getPersonPosition($userId,(int)$id);
+            $person['receivable_outstanding']=(float)($position['receivable_outstanding']??0);
+            $person['payable_outstanding']=(float)($position['payable_outstanding']??0);
+            $person['overdue_receivable']=(float)($position['overdue_receivable']??0);
+            $person['overdue_payable']=(float)($position['overdue_payable']??0);
+            $person['overdue_count']=(int)($position['overdue_count']??0);
+            $person['active_count']=(int)($position['active_count']??0);
+            $person['settled_count']=(int)($position['settled_count']??0);
+            $person['balance']=$person['receivable_outstanding']-$person['payable_outstanding'];
         }
         
         return $person;
+    }
+
+    public function findActiveById($id, $userId) {
+        $person = $this->findById($id, $userId);
+        return $person && ($person['status'] ?? 'active') === 'active' ? $person : false;
     }
 
     public function update($id, $userId, $data) {
@@ -143,14 +167,40 @@ class Person {
         return $stmt->execute();
     }
 
+    /**
+     * A person without financial history is deleted. A person referenced by
+     * Karobar history is archived so every financial person_id stays valid.
+     */
+    public function removeSafely($id, $userId): ?array {
+        $this->conn->beginTransaction();
+        try {
+            $stmt=$this->conn->prepare('SELECT * FROM people WHERE id=:id AND user_id=:uid LIMIT 1 FOR UPDATE');
+            $stmt->execute([':id'=>(int)$id,':uid'=>(int)$userId]);
+            $person=$stmt->fetch(PDO::FETCH_ASSOC);
+            if(!$person){$this->conn->rollBack();return null;}
+
+            $stmt=$this->conn->prepare('SELECT COUNT(*) FROM karobar_transactions WHERE person_id=:id AND user_id=:uid');
+            $stmt->execute([':id'=>(int)$id,':uid'=>(int)$userId]);
+            $historyCount=(int)$stmt->fetchColumn();
+            if($historyCount>0){
+                $stmt=$this->conn->prepare("UPDATE people SET status='archived',updated_at=CURRENT_TIMESTAMP WHERE id=:id AND user_id=:uid");
+                $stmt->execute([':id'=>(int)$id,':uid'=>(int)$userId]);
+                $action='archived';
+            }else{
+                $stmt=$this->conn->prepare('DELETE FROM people WHERE id=:id AND user_id=:uid');
+                $stmt->execute([':id'=>(int)$id,':uid'=>(int)$userId]);
+                $action='deleted';
+            }
+            $this->conn->commit();
+            return ['action'=>$action,'person_id'=>(int)$id,'history_count'=>$historyCount];
+        }catch(Throwable $e){
+            if($this->conn->inTransaction())$this->conn->rollBack();
+            throw $e;
+        }
+    }
+
     public function delete($id, $userId) {
-        $query = "DELETE FROM " . $this->table . " WHERE id = :id AND user_id = :user_id";
-        
-        $stmt = $this->conn->prepare($query);
-        $stmt->bindParam(':id', $id);
-        $stmt->bindParam(':user_id', $userId);
-        
-        return $stmt->execute();
+        return $this->removeSafely($id,$userId);
     }
 
     public function getLedger($personId, $userId, $limit = 100, $offset = 0) {

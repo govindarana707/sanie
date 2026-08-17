@@ -17,6 +17,11 @@
 require_once __DIR__ . '/config/database.php';
 
 $isCli = (php_sapi_name() === 'cli');
+$resetEnabled = getenv('ALLOW_FINANCIAL_RESET') === '1';
+if (!$isCli || !$resetEnabled) {
+    http_response_code(404);
+    exit;
+}
 $confirmed = false;
 
 // ──────────────────────────────────────────────

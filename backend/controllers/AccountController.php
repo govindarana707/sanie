@@ -61,6 +61,7 @@ class AccountController {
             'icon' => $data['icon'] ?? 'wallet',
             'is_active' => $data['is_active'] ?? true,
             'is_default' => $data['is_default'] ?? false
+            ,'include_in_savings' => $data['include_in_savings'] ?? (($data['type'] ?? '') === 'savings')
         ];
 
         $accountId = $this->accountModel->create($accountData);
@@ -94,8 +95,10 @@ class AccountController {
             'currency' => $data['currency'] ?? $existingAccount['currency'],
             'color' => $data['color'] ?? $existingAccount['color'],
             'icon' => $data['icon'] ?? $existingAccount['icon'],
+            'opening_balance' => $data['opening_balance'] ?? $existingAccount['opening_balance'],
             'is_active' => $data['is_active'] ?? $existingAccount['is_active'],
             'is_default' => $data['is_default'] ?? $existingAccount['is_default']
+            ,'include_in_savings' => $data['include_in_savings'] ?? $existingAccount['include_in_savings']
         ];
 
         if ($this->accountModel->update($id, $userId, $accountData)) {
@@ -150,27 +153,56 @@ class AccountController {
             'end_date' => $_GET['end_date'] ?? null,
             'search' => $_GET['search'] ?? null,
         ];
+        foreach (['start_date','end_date'] as $field) {
+            if (!empty($filters[$field])) {
+                $parsed = DateTime::createFromFormat('!Y-m-d', (string)$filters[$field]);
+                if (!$parsed || $parsed->format('Y-m-d') !== $filters[$field]) {
+                    Response::error('Validation failed', 422, [$field=>'A valid date is required']);
+                }
+            }
+        }
+        if (!empty($filters['start_date']) && !empty($filters['end_date']) && $filters['start_date'] > $filters['end_date']) {
+            Response::error('Validation failed', 422, ['date_range'=>'Start date cannot be after end date']);
+        }
+        if (!empty($filters['type']) && !in_array($filters['type'], ['income','expense','transfer','goal_contribution','karobar'], true)) {
+            Response::error('Validation failed', 422, ['type'=>'Invalid statement type']);
+        }
+        foreach (['category_id','subcategory_id'] as $field) {
+            if ($filters[$field] !== null && filter_var($filters[$field], FILTER_VALIDATE_INT, ['options'=>['min_range'=>1]]) === false) {
+                Response::error('Validation failed', 422, [$field=>'A valid identifier is required']);
+            }
+        }
+        if ($filters['search'] !== null && strlen((string)$filters['search']) > 100) {
+            Response::error('Validation failed', 422, ['search'=>'Search must be 100 characters or fewer']);
+        }
+        $limit = max(1, min(200, (int)($_GET['limit'] ?? 50)));
+        $page = max(1, (int)($_GET['page'] ?? 1));
+        $offset = isset($_GET['offset']) ? max(0, (int)$_GET['offset']) : ($page - 1) * $limit;
 
-        $transactions = $this->accountModel->getStatement($userId, $id, $filters);
-        $summary = $this->accountModel->getStatementSummary($userId, $id, $filters['start_date'] ?? null, $filters['end_date'] ?? null);
+        $statementResult = $this->balanceService->getAccountStatement($id, $userId, $filters, $limit, $offset);
+        $summary = $statementResult['summary'];
         $analytics = $this->accountModel->getAnalytics($userId, $id);
         $cashFlow = $this->accountModel->getMonthlyCashFlow($userId, $id);
 
-        // Build statement via BalanceService (centralized calculation)
-        $openingBalance = floatval($account['opening_balance'] ?? 0);
-        $statementResult = $this->balanceService->buildStatement($transactions, $openingBalance);
-        $calculatedBalance = $statementResult['calculated_balance'];
+        $calculatedBalance = $this->balanceService->calculateAccountBalance($id, $userId);
 
         // Enrich account with calculated balance
         $account['calculated_balance'] = $calculatedBalance;
 
         Response::success([
             'account' => $account,
-            'statement' => $statementResult['entries'],
+            'statement' => $statementResult['rows'],
             'summary' => $summary,
             'analytics' => $analytics,
             'cash_flow' => $cashFlow,
             'calculated_balance' => $calculatedBalance,
+            'opening_balance' => $statementResult['opening_balance'],
+            'page_opening_balance' => $statementResult['page_opening_balance'],
+            'closing_balance' => $statementResult['closing_balance'],
+            'money_in' => $statementResult['money_in'],
+            'money_out' => $statementResult['money_out'],
+            'net_change' => $statementResult['net_change'],
+            'pagination' => $statementResult['pagination'],
         ]);
     }
 

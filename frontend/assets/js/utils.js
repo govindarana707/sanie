@@ -79,6 +79,19 @@ const Formatters = {
         return div.innerHTML;
     },
 
+    safeColor(value, fallback = '#6366f1') {
+        const color = String(value || '').trim();
+        return /^#[0-9a-f]{6}$/i.test(color) ? color : fallback;
+    },
+
+    safeIconClass(value, fallback = 'bi bi-circle') {
+        const icon = String(value || '').trim().slice(0, 80);
+        if (!/^[a-z0-9_-]+(?:\s+[a-z0-9_-]+)*$/i.test(icon)) return fallback;
+        if (/^bi-/i.test(icon)) return `bi ${icon}`;
+        if (/^fa-/i.test(icon)) return `fas ${icon}`;
+        return icon;
+    },
+
     truncate(str, maxLength = 30) {
         if (!str) return '';
         if (str.length <= maxLength) return str;

@@ -1,0 +1,22 @@
+.env
+.env.*
+!.env.example
+backend/backups/*.json
+# Local database dumps never belong in source control. The sanitized DDL-only
+# compatibility fixture lives under backend/database/fixtures instead.
+/backend/backups/*.sql
+/sanie.sql
+/backend/backups/sanie-db-*.sql
+/backend/backups/*.dump
+/backend/backups/*.backup
+/backend/backups/*.bak
+/backend/backups/*.sql.gz
+/backend/backups/*.zip
+/backend/backups/*.tar
+/backend/backups/*.tar.gz
+backend/uploads/*
+!backend/uploads/.gitkeep
+*.log
+.phpunit.cache/
+node_modules/
+vendor/

@@ -1,0 +1,10 @@
+const fs=require('fs');const path=require('path');
+const source=fs.readFileSync(path.resolve(__dirname,'..','assets','js','account-details.js'),'utf8');
+const api=fs.readFileSync(path.resolve(__dirname,'..','assets','js','api.js'),'utf8');
+if(!source.includes('page: this.currentPage')||!source.includes('limit: this.pageSize'))throw new Error('Statement request omits pagination dimensions');
+if(!source.includes('page_opening_balance')&& !source.includes('pagination = {}'))throw new Error('Statement UI does not consume backend continuity metadata');
+if(!source.includes('goToPage(page)')||!source.includes('setupPaginationListeners'))throw new Error('Statement pagination controls are not wired');
+if(!source.includes('karobar_repaid')||!source.includes('karobar_returned'))throw new Error('Statement UI omits debt cash-movement types');
+if(!source.includes('data.opening_balance')||!source.includes('data.net_change'))throw new Error('Statement UI still derives filtered totals from incomplete page rows');
+if(!api.includes('invalidateFinancialDependents')||!api.includes("'/accounts'"))throw new Error('Financial mutations can leave account statement caches stale');
+console.log('PASS: account statement UI consumes backend openings, real totals, Karobar rows, and pagination continuity');

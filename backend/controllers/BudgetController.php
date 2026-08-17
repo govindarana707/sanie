@@ -18,6 +18,9 @@ class BudgetController {
     public function index() {
         $userId = Middleware::auth();
         $budgets = $this->budgetModel->findAll($userId);
+        $progress=$this->budgetModel->getBatchProgress(array_column($budgets,'id'),$userId);
+        $byId=[];foreach($progress as$row)$byId[(int)$row['budget_id']]=$row;
+        foreach($budgets as&$budget){$row=$byId[(int)$budget['id']]??null;$budget['used']=$row['spent']??0;$budget['spent']=$budget['used'];$budget['remaining']=$row['remaining']??(float)$budget['amount'];$budget['percentage']=$row['percentage']??0;}
         Response::success($budgets);
     }
 
@@ -26,7 +29,8 @@ class BudgetController {
         $budget = $this->budgetModel->findById($id, $userId);
         
         if ($budget) {
-            Response::success($budget);
+            $progress=$this->budgetModel->getBudgetProgress($id,$userId);
+            Response::success(array_merge($budget,['used'=>$progress['spent'],'spent'=>$progress['spent'],'remaining'=>$progress['remaining'],'percentage'=>$progress['percentage']]));
         }
         
         Response::notFound('Budget not found');
@@ -54,10 +58,15 @@ class BudgetController {
             'is_active' => $data['is_active'] ?? true
         ];
 
-        $budgetId = $this->budgetModel->create($budgetData);
+        try{$budgetId = $this->budgetModel->create($budgetData);}catch(BudgetValidationException$e){Response::error($e->getMessage(),422);}
         
         if ($budgetId) {
             $budget = $this->budgetModel->findById($budgetId, $userId);
+            $progress = $this->budgetModel->getBudgetProgress($budgetId, $userId);
+            $budget = array_merge($budget, [
+                'used' => $progress['spent'], 'spent' => $progress['spent'],
+                'remaining' => $progress['remaining'], 'percentage' => $progress['percentage']
+            ]);
             $this->notifService->create($userId, 'category_created',
                 'Budget Created',
                 "Budget \"{$data['name']}\" with limit Rs " . number_format($data['amount'], 0) . " has been created.",
@@ -78,8 +87,10 @@ class BudgetController {
         }
 
         $budgetData = [
-            'category_id' => $data['category_id'] ?? $existingBudget['category_id'],
-            'subcategory_id' => $data['subcategory_id'] ?? $existingBudget['subcategory_id'],
+            'category_id' => array_key_exists('category_id',$data)?$data['category_id']:$existingBudget['category_id'],
+            'subcategory_id' => array_key_exists('subcategory_id',$data)
+                ?$data['subcategory_id']
+                :(array_key_exists('category_id',$data)&&$data['category_id']!=$existingBudget['category_id']?null:$existingBudget['subcategory_id']),
             'name' => $data['name'] ?? $existingBudget['name'],
             'amount' => $data['amount'] ?? $existingBudget['amount'],
             'period' => $data['period'] ?? $existingBudget['period'],
@@ -89,8 +100,14 @@ class BudgetController {
             'is_active' => $data['is_active'] ?? $existingBudget['is_active']
         ];
 
-        if ($this->budgetModel->update($id, $userId, $budgetData)) {
+        try{$updated=$this->budgetModel->update($id,$userId,$budgetData);}catch(BudgetValidationException$e){Response::error($e->getMessage(),422);}
+        if ($updated) {
             $budget = $this->budgetModel->findById($id, $userId);
+            $progress = $this->budgetModel->getBudgetProgress($id, $userId);
+            $budget = array_merge($budget, [
+                'used' => $progress['spent'], 'spent' => $progress['spent'],
+                'remaining' => $progress['remaining'], 'percentage' => $progress['percentage']
+            ]);
             Response::success($budget, 'Budget updated successfully');
         }
         
@@ -99,7 +116,7 @@ class BudgetController {
 
     public function destroy($id) {
         $userId = Middleware::auth();
-        
+        if(!$this->budgetModel->findById($id,$userId))Response::notFound('Budget not found');
         if ($this->budgetModel->delete($id, $userId)) {
             Response::success(null, 'Budget deleted successfully');
         }
@@ -165,7 +182,7 @@ class BudgetController {
             Response::error('Validation failed', 422, ['details' => $errors]);
         }
 
-        $insertedIds = $this->budgetModel->bulkCreate($valid, $userId);
+        try{$insertedIds = $this->budgetModel->bulkCreate($valid, $userId);}catch(BudgetValidationException$e){Response::error($e->getMessage(),422);}
 
         if ($insertedIds === false) {
             Response::serverError('Bulk budget creation failed');
@@ -217,6 +234,8 @@ class BudgetController {
                 'category_name' => $b['category_name'] ?? null,
                 'category_icon' => $b['category_icon'] ?? null,
                 'category_color' => $b['category_color'] ?? null,
+                'subcategory_name' => $b['subcategory_name'] ?? null,
+                'scope_label' => $b['scope_label'] ?? null,
                 'start_date' => $currentStart,
                 'end_date' => $currentEnd
             ];

@@ -16,7 +16,7 @@ class PersonController {
         $userId = Middleware::auth();
         
         $filters = [
-            'status' => $_GET['status'] ?? null,
+            'status' => ($_GET['status'] ?? 'active') === 'all' ? null : ($_GET['status'] ?? 'active'),
             'type' => $_GET['type'] ?? null,
             'search' => $_GET['search'] ?? null
         ];
@@ -57,7 +57,7 @@ class PersonController {
             'address' => $data['address'] ?? '',
             'photo' => $data['photo'] ?? '',
             'notes' => $data['notes'] ?? '',
-            'status' => $data['status'] ?? 'active'
+            'status' => 'active'
         ];
 
         $personId = $this->personModel->create($personData);
@@ -79,6 +79,11 @@ class PersonController {
             Response::notFound('Person not found');
         }
 
+        $requestedStatus=$data['status']??$existingPerson['status'];
+        if(!in_array($requestedStatus,['active','archived'],true)){
+            Response::error('Invalid person status.',422);
+        }
+
         $personData = [
             'name' => $data['name'] ?? $existingPerson['name'],
             'type' => $data['type'] ?? $existingPerson['type'] ?? 'person',
@@ -87,7 +92,7 @@ class PersonController {
             'address' => $data['address'] ?? $existingPerson['address'],
             'photo' => $data['photo'] ?? $existingPerson['photo'],
             'notes' => $data['notes'] ?? $existingPerson['notes'],
-            'status' => $data['status'] ?? $existingPerson['status']
+            'status' => $requestedStatus
         ];
 
         if ($this->personModel->update($id, $userId, $personData)) {
@@ -106,8 +111,12 @@ class PersonController {
             Response::notFound('Person not found');
         }
 
-        if ($this->personModel->delete($id, $userId)) {
-            Response::success(null, 'Person deleted successfully');
+        $result=$this->personModel->removeSafely($id,$userId);
+        if ($result) {
+            $message=$result['action']==='archived'
+                ? 'Person archived. Financial history and outstanding balances were preserved.'
+                : 'Person permanently deleted because no financial history existed.';
+            Response::success($result,$message);
         }
         
         Response::serverError('Person deletion failed');

@@ -12,9 +12,9 @@ class Transaction {
     }
 
     public function create($data) {
-        $query = "INSERT INTO " . $this->table . " 
-                  (user_id, account_id, from_account_id, to_account_id, category_id, subcategory_id, amount, type, payment_method, karobar_transaction_id, date, description) 
-                  VALUES (:user_id, :account_id, :from_account_id, :to_account_id, :category_id, :subcategory_id, :amount, :type, :payment_method, :karobar_transaction_id, :date, :description)";
+        $query = "INSERT INTO " . $this->table . "
+                  (user_id, account_id, from_account_id, to_account_id, category_id, subcategory_id, amount, type, payment_method, karobar_transaction_id, client_request_id, transfer_parent_id, goal_id, date, description)
+                  VALUES (:user_id, :account_id, :from_account_id, :to_account_id, :category_id, :subcategory_id, :amount, :type, :payment_method, :karobar_transaction_id, :client_request_id, :transfer_parent_id, :goal_id, :date, :description)";
         
         $stmt = $this->conn->prepare($query);
 
@@ -28,6 +28,9 @@ class Transaction {
         $stmt->bindValue(':type', $data['type']);
         $stmt->bindValue(':payment_method', $data['payment_method'] ?? null);
         $stmt->bindValue(':karobar_transaction_id', $data['karobar_transaction_id'] ?? null);
+        $stmt->bindValue(':client_request_id', $data['client_request_id'] ?? null);
+        $stmt->bindValue(':transfer_parent_id', $data['transfer_parent_id'] ?? null);
+        $stmt->bindValue(':goal_id', $data['goal_id'] ?? null);
         $stmt->bindValue(':date', $data['date']);
         $stmt->bindValue(':description', $data['description'] ?? '');
         
@@ -73,8 +76,10 @@ class Transaction {
         }
         
         if (!empty($filters['account_id'])) {
-            $query .= " AND t.account_id = :account_id";
+            $query .= " AND (t.account_id = :account_id OR t.from_account_id = :from_account_id OR t.to_account_id = :to_account_id)";
             $params[':account_id'] = $filters['account_id'];
+            $params[':from_account_id'] = $filters['account_id'];
+            $params[':to_account_id'] = $filters['account_id'];
         }
         
         if (!empty($filters['start_date'])) {
@@ -88,8 +93,23 @@ class Transaction {
         }
         
         if (!empty($filters['search'])) {
-            $query .= " AND (t.description LIKE :search)";
-            $params[':search'] = '%' . $filters['search'] . '%';
+            $query .= " AND (t.description LIKE :search_description
+                        OR t.type LIKE :search_type
+                        OR c.name LIKE :search_category
+                        OR sc.name LIKE :search_subcategory
+                        OR a.name LIKE :search_account
+                        OR fa.name LIKE :search_from_account
+                        OR ta.name LIKE :search_to_account
+                        OR CAST(t.amount AS CHAR) LIKE :search_amount)";
+            $term = '%' . $filters['search'] . '%';
+            $params[':search_description'] = $term;
+            $params[':search_type'] = $term;
+            $params[':search_category'] = $term;
+            $params[':search_subcategory'] = $term;
+            $params[':search_account'] = $term;
+            $params[':search_from_account'] = $term;
+            $params[':search_to_account'] = $term;
+            $params[':search_amount'] = $term;
         }
         
         $query .= " ORDER BY t.date DESC, t.created_at DESC LIMIT :limit OFFSET :offset";
@@ -130,7 +150,44 @@ class Transaction {
         return $stmt->fetch(PDO::FETCH_ASSOC);
     }
 
-    public function update($id, $userId, $data) {
+    public function findByClientRequestId($clientRequestId, $userId) {
+        if (!$clientRequestId) return false;
+        $query = "SELECT id FROM " . $this->table . "
+                  WHERE user_id = :user_id AND client_request_id = :client_request_id
+                  LIMIT 1";
+        $stmt = $this->conn->prepare($query);
+        $stmt->bindValue(':user_id', $userId);
+        $stmt->bindValue(':client_request_id', $clientRequestId);
+        $stmt->execute();
+        $id = $stmt->fetchColumn();
+        return $id ? $this->findById($id, $userId) : false;
+    }
+
+    public function existsById($id) {
+        $stmt = $this->conn->prepare("SELECT 1 FROM " . $this->table . " WHERE id = :id LIMIT 1");
+        $stmt->bindValue(':id', $id);
+        $stmt->execute();
+        return (bool)$stmt->fetchColumn();
+    }
+
+    public function findByIdForUpdate($id, $userId) {
+        $stmt = $this->conn->prepare(
+            "SELECT * FROM {$this->table} WHERE id = :id AND user_id = :user_id LIMIT 1 FOR UPDATE"
+        );
+        $stmt->execute([':id' => $id, ':user_id' => $userId]);
+        return $stmt->fetch(PDO::FETCH_ASSOC);
+    }
+
+    public function findTransferFee($transferId, $userId, $forUpdate = false) {
+        $query = "SELECT * FROM {$this->table}
+                  WHERE transfer_parent_id = :transfer_id AND user_id = :user_id
+                  LIMIT 1" . ($forUpdate ? ' FOR UPDATE' : '');
+        $stmt = $this->conn->prepare($query);
+        $stmt->execute([':transfer_id' => $transferId, ':user_id' => $userId]);
+        return $stmt->fetch(PDO::FETCH_ASSOC);
+    }
+
+    public function update($id, $userId, $data, $expectedVersion = null) {
         $fromAccountId = $data['from_account_id'] ?? null;
         $toAccountId = $data['to_account_id'] ?? null;
         $paymentMethod = $data['payment_method'] ?? null;
@@ -146,8 +203,12 @@ class Transaction {
                   payment_method = :payment_method,
                   date = :date,
                   description = :description,
+                  version = version + 1,
                   updated_at = CURRENT_TIMESTAMP
                   WHERE id = :id AND user_id = :user_id";
+        if ($expectedVersion !== null) {
+            $query .= " AND version = :expected_version";
+        }
         
         $stmt = $this->conn->prepare($query);
         
@@ -163,18 +224,23 @@ class Transaction {
         $stmt->bindValue(':payment_method', $data['payment_method'] ?? null);
         $stmt->bindValue(':date', $data['date']);
         $stmt->bindValue(':description', $data['description'] ?? '');
+        if ($expectedVersion !== null) $stmt->bindValue(':expected_version', (int)$expectedVersion, PDO::PARAM_INT);
         
-        return $stmt->execute();
+        $stmt->execute();
+        return $stmt->rowCount();
     }
 
-    public function delete($id, $userId) {
+    public function delete($id, $userId, $expectedVersion = null) {
         $query = "DELETE FROM " . $this->table . " WHERE id = :id AND user_id = :user_id";
+        if ($expectedVersion !== null) $query .= " AND version = :expected_version";
         
         $stmt = $this->conn->prepare($query);
         $stmt->bindParam(':id', $id);
         $stmt->bindParam(':user_id', $userId);
+        if ($expectedVersion !== null) $stmt->bindValue(':expected_version', (int)$expectedVersion, PDO::PARAM_INT);
         
-        return $stmt->execute();
+        $stmt->execute();
+        return $stmt->rowCount();
     }
 
     public function getStatistics($userId, $startDate, $endDate) {
@@ -219,52 +285,72 @@ class Transaction {
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
     }
 
-    public function findRecentByAccounts($userId, $accountIds, $limit = 10) {
-        if (empty($accountIds)) return [];
-
-        $fromPlaceholders = [];
-        $toPlaceholders = [];
-        $params = [':user_id' => $userId];
-        $idx = 0;
-
-        foreach ($accountIds as $aid) {
-            $key = ':aid_' . $idx;
-            $fromPlaceholders[] = $key;
-            $toPlaceholders[] = $key;
-            $params[$key] = $aid;
-            $idx++;
-        }
-
-        $fromIn = implode(',', $fromPlaceholders);
-        $toIn = implode(',', $toPlaceholders);
-
-        $query = "SELECT t.*, 
-                  c.name as category_name, c.icon as category_icon, c.color as category_color,
-                  sc.name as subcategory_name,
-                  a.name as account_name, a.type as account_type,
-                  fa.name as from_account_name, ta.name as to_account_name
-                  FROM " . $this->table . " t
-                  LEFT JOIN categories c ON t.category_id = c.id
-                  LEFT JOIN subcategories sc ON t.subcategory_id = sc.id
-                  LEFT JOIN accounts a ON t.account_id = a.id
-                  LEFT JOIN accounts fa ON t.from_account_id = fa.id
-                  LEFT JOIN accounts ta ON t.to_account_id = ta.id
-                  WHERE t.user_id = :user_id
-                    AND (t.from_account_id IN ($fromIn) OR t.to_account_id IN ($toIn))
-                  ORDER BY t.date DESC, t.created_at DESC
-                  LIMIT :limit";
-
-        $stmt = $this->conn->prepare($query);
-
-        foreach ($params as $key => $value) {
-            $stmt->bindValue($key, $value);
-        }
-        $stmt->bindValue(':limit', (int)$limit, PDO::PARAM_INT);
-        $stmt->execute();
-
-        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+   public function findRecentByAccounts($userId, $accountIds, $limit = 10)
+{
+    if (empty($accountIds)) {
+        return [];
     }
 
+    $accountPlaceholders = [];
+    $fromPlaceholders = [];
+    $toPlaceholders = [];
+    $params = [
+        ':user_id' => $userId
+    ];
+
+    foreach ($accountIds as $i => $id) {
+        foreach (['acc', 'from_acc', 'to_acc'] as $prefix) {
+            $ph = ":{$prefix}{$i}";
+            $params[$ph] = (int)$id;
+            if ($prefix === 'acc') $accountPlaceholders[] = $ph;
+            elseif ($prefix === 'from_acc') $fromPlaceholders[] = $ph;
+            else $toPlaceholders[] = $ph;
+        }
+    }
+
+    $accountIn = implode(',', $accountPlaceholders);
+    $fromIn = implode(',', $fromPlaceholders);
+    $toIn = implode(',', $toPlaceholders);
+    $limit = max(1, min(100, (int)$limit));
+
+    $sql = "
+        SELECT
+            t.*,
+            c.name AS category_name,
+            c.icon AS category_icon,
+            c.color AS category_color,
+            sc.name AS subcategory_name,
+            a.name AS account_name,
+            a.type AS account_type,
+            fa.name AS from_account_name,
+            ta.name AS to_account_name
+        FROM transactions t
+        LEFT JOIN categories c ON c.id=t.category_id
+        LEFT JOIN subcategories sc ON sc.id=t.subcategory_id
+        LEFT JOIN accounts a ON a.id=t.account_id
+        LEFT JOIN accounts fa ON fa.id=t.from_account_id
+        LEFT JOIN accounts ta ON ta.id=t.to_account_id
+        WHERE
+            t.user_id=:user_id
+            AND (
+                t.account_id IN ($accountIn)
+                OR t.from_account_id IN ($fromIn)
+                OR t.to_account_id IN ($toIn)
+            )
+        ORDER BY t.date DESC,t.created_at DESC
+        LIMIT $limit
+    ";
+
+    $stmt = $this->conn->prepare($sql);
+
+    foreach ($params as $key => $value) {
+        $stmt->bindValue($key, $value, PDO::PARAM_INT);
+    }
+
+    $stmt->execute();
+
+    return $stmt->fetchAll(PDO::FETCH_ASSOC);
+}
     public function getLedger($userId, $filters = [], $limit = 500, $offset = 0) {
         $params = [':user_id' => $userId];
 
@@ -441,6 +527,74 @@ class Transaction {
         return floatval($row['balance'] ?? 0);
     }
 
+    public function getKarobarLedger($userId, $filters = []) {
+        $params = [':user_id' => $userId];
+        $query = "SELECT kt.id, kt.type, kt.amount, kt.transaction_date AS date,
+                         kt.description, kt.account_id, a.name AS account_name,
+                         p.name AS person_name
+                  FROM karobar_transactions kt
+                  LEFT JOIN accounts a ON a.id = kt.account_id
+                  LEFT JOIN people p ON p.id = kt.person_id
+                  WHERE kt.user_id = :user_id AND kt.account_id IS NOT NULL";
+        if (!empty($filters['account_id'])) {
+            $query .= ' AND kt.account_id = :account_id';
+            $params[':account_id'] = $filters['account_id'];
+        }
+        if (!empty($filters['start_date'])) {
+            $query .= ' AND kt.transaction_date >= :start_date';
+            $params[':start_date'] = $filters['start_date'];
+        }
+        if (!empty($filters['end_date'])) {
+            $query .= ' AND kt.transaction_date <= :end_date';
+            $params[':end_date'] = $filters['end_date'];
+        }
+        if (!empty($filters['search'])) {
+            $query .= ' AND (kt.description LIKE :search OR p.name LIKE :person_search)';
+            $term = '%' . $filters['search'] . '%';
+            $params[':search'] = $term;
+            $params[':person_search'] = $term;
+        }
+        $query .= ' ORDER BY kt.transaction_date ASC, kt.created_at ASC';
+        $stmt = $this->conn->prepare($query);
+        foreach ($params as $key => $value) $stmt->bindValue($key, $value);
+        $stmt->execute();
+        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    }
+
+    public function getLedgerOpeningBalance($userId, $beforeDate, $accountId = null): float {
+        if ($accountId) {
+            $query = "SELECT a.opening_balance
+                      + COALESCE((SELECT SUM(CASE
+                          WHEN t.type='income' AND t.account_id=a.id THEN t.amount
+                          WHEN t.type='expense' AND t.account_id=a.id THEN -t.amount
+                          WHEN t.type='goal_contribution' AND t.account_id=a.id THEN -t.amount
+                          WHEN t.type='transfer' AND t.to_account_id=a.id THEN t.amount
+                          WHEN t.type='transfer' AND t.from_account_id=a.id THEN -t.amount
+                          ELSE 0 END)
+                        FROM transactions t WHERE t.user_id=a.user_id AND t.date < :before1), 0)
+                      + COALESCE((SELECT SUM(CASE
+                          WHEN k.type IN ('borrowed','returned') THEN k.amount
+                          WHEN k.type IN ('lent','repaid') THEN -k.amount ELSE 0 END)
+                        FROM karobar_transactions k WHERE k.user_id=a.user_id AND k.account_id=a.id AND k.transaction_date < :before2), 0)
+                      AS balance
+                      FROM accounts a WHERE a.id=:account_id AND a.user_id=:user_id";
+            $stmt = $this->conn->prepare($query);
+            $stmt->execute([':before1'=>$beforeDate, ':before2'=>$beforeDate, ':account_id'=>$accountId, ':user_id'=>$userId]);
+            return (float)($stmt->fetchColumn() ?: 0);
+        }
+
+        $query = "SELECT
+                    COALESCE((SELECT SUM(opening_balance) FROM accounts WHERE user_id=:u1), 0)
+                  + COALESCE((SELECT SUM(CASE WHEN type='income' THEN amount WHEN type IN ('expense','goal_contribution') THEN -amount ELSE 0 END)
+                              FROM transactions WHERE user_id=:u2 AND date < :before1), 0)
+                  + COALESCE((SELECT SUM(CASE WHEN type IN ('borrowed','returned') THEN amount
+                                             WHEN type IN ('lent','repaid') THEN -amount ELSE 0 END)
+                              FROM karobar_transactions WHERE user_id=:u3 AND account_id IS NOT NULL AND transaction_date < :before2), 0)";
+        $stmt = $this->conn->prepare($query);
+        $stmt->execute([':u1'=>$userId, ':u2'=>$userId, ':before1'=>$beforeDate, ':u3'=>$userId, ':before2'=>$beforeDate]);
+        return (float)$stmt->fetchColumn();
+    }
+
     public function getMonthlyData($userId, $year = null, $startDate = null, $endDate = null) {
         // If date range provided, use it instead of year
         if ($startDate && $endDate) {
@@ -450,13 +604,10 @@ class Transaction {
 
             if ($days <= 31) {
                 $label = "DATE_FORMAT(date, '%b %e')";
-                $order = "DAY(date), MONTH(date)";
             } elseif ($days <= 60) {
                 $label = "CONCAT('Wk ', WEEK(date, 1) - WEEK(DATE_SUB(date, INTERVAL DAYOFMONTH(date)-1 DAY), 1) + 1)";
-                $order = "WEEK(date, 1)";
             } else {
                 $label = "DATE_FORMAT(date, '%b')";
-                $order = "MONTH(date)";
             }
 
             $query = "SELECT
@@ -467,7 +618,7 @@ class Transaction {
                       FROM " . $this->table . "
                       WHERE user_id = :user_id AND date >= :start_date AND date <= :end_date
                       GROUP BY $label, month_num
-                      ORDER BY $order ASC, month_num ASC";
+                      ORDER BY MIN(date) ASC";
 
             $stmt = $this->conn->prepare($query);
             $stmt->bindParam(':user_id', $userId);

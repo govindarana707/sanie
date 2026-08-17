@@ -1,26 +1,30 @@
 <?php
 
 require_once __DIR__ . '/../config/database.php';
+require_once __DIR__ . '/../services/KarobarOutstandingService.php';
 
 class KarobarTransaction {
     private $conn;
     private $table = 'karobar_transactions';
+    private $outstandingService;
 
     public function __construct() {
         $database = new Database();
         $this->conn = $database->getConnection();
+        $this->outstandingService = new KarobarOutstandingService();
     }
 
     public function create($data) {
-        $query = "INSERT INTO " . $this->table . " 
-                  (user_id, person_id, type, amount, account_id, expense_transaction_id, income_transaction_id, payment_method, description, transaction_date, due_date) 
-                  VALUES (:user_id, :person_id, :type, :amount, :account_id, :expense_transaction_id, :income_transaction_id, :payment_method, :description, :transaction_date, :due_date)";
+        $query = "INSERT INTO " . $this->table . "
+                  (user_id, person_id, type, amount, account_id, expense_transaction_id, income_transaction_id, payment_method, client_request_id, description, transaction_date, due_date)
+                  VALUES (:user_id, :person_id, :type, :amount, :account_id, :expense_transaction_id, :income_transaction_id, :payment_method, :client_request_id, :description, :transaction_date, :due_date)";
         
         $stmt = $this->conn->prepare($query);
         
         $expenseTxId = $data['expense_transaction_id'] ?? null;
         $incomeTxId = $data['income_transaction_id'] ?? null;
         $paymentMethod = $data['payment_method'] ?? null;
+        $clientRequestId = $data['client_request_id'] ?? null;
         $dueDate = $data['due_date'] ?? null;
 
         $stmt->bindParam(':user_id', $data['user_id']);
@@ -31,6 +35,7 @@ class KarobarTransaction {
         $stmt->bindParam(':expense_transaction_id', $expenseTxId);
         $stmt->bindParam(':income_transaction_id', $incomeTxId);
         $stmt->bindParam(':payment_method', $paymentMethod);
+        $stmt->bindParam(':client_request_id', $clientRequestId);
         $stmt->bindParam(':description', $data['description']);
         $stmt->bindParam(':transaction_date', $data['transaction_date']);
         $stmt->bindParam(':due_date', $dueDate);
@@ -128,7 +133,30 @@ class KarobarTransaction {
         return $stmt->fetch(PDO::FETCH_ASSOC);
     }
 
-    public function update($id, $userId, $data) {
+    public function findByIdForUpdate($id, $userId) {
+        $query = "SELECT * FROM " . $this->table . "
+                  WHERE id = :id AND user_id = :user_id
+                  LIMIT 1 FOR UPDATE";
+        $stmt = $this->conn->prepare($query);
+        $stmt->bindValue(':id', $id, PDO::PARAM_INT);
+        $stmt->bindValue(':user_id', $userId, PDO::PARAM_INT);
+        $stmt->execute();
+        return $stmt->fetch(PDO::FETCH_ASSOC);
+    }
+
+    public function findByClientRequestId($clientRequestId, $userId) {
+        if (!$clientRequestId) return false;
+        $query = "SELECT * FROM " . $this->table . "
+                  WHERE user_id = :user_id AND client_request_id = :client_request_id
+                  LIMIT 1";
+        $stmt = $this->conn->prepare($query);
+        $stmt->bindValue(':user_id', $userId, PDO::PARAM_INT);
+        $stmt->bindValue(':client_request_id', $clientRequestId);
+        $stmt->execute();
+        return $stmt->fetch(PDO::FETCH_ASSOC);
+    }
+
+    public function update($id, $userId, $data, $expectedVersion = null) {
         $query = "UPDATE " . $this->table . " SET 
                   person_id = :person_id,
                   type = :type,
@@ -138,8 +166,10 @@ class KarobarTransaction {
                   transaction_date = :transaction_date,
                   due_date = :due_date,
                   payment_method = :payment_method,
+                  version = version + 1,
                   updated_at = CURRENT_TIMESTAMP
                   WHERE id = :id AND user_id = :user_id";
+        if ($expectedVersion !== null) $query .= " AND version = :expected_version";
         
         $stmt = $this->conn->prepare($query);
         
@@ -154,8 +184,10 @@ class KarobarTransaction {
         $stmt->bindParam(':due_date', $data['due_date']);
         $updatePaymentMethod = $data['payment_method'] ?? null;
         $stmt->bindParam(':payment_method', $updatePaymentMethod);
+        if ($expectedVersion !== null) $stmt->bindValue(':expected_version', (int)$expectedVersion, PDO::PARAM_INT);
         
-        return $stmt->execute();
+        $stmt->execute();
+        return $stmt->rowCount();
     }
 
     public function delete($id, $userId) {
@@ -169,12 +201,7 @@ class KarobarTransaction {
     }
 
     public function getDashboard($userId) {
-        $query = "SELECT 
-                  COALESCE(SUM(CASE WHEN type = 'lent' THEN amount ELSE 0 END), 0) -
-                  COALESCE(SUM(CASE WHEN type = 'returned' THEN amount ELSE 0 END), 0) as total_receivable,
-                  COALESCE(SUM(CASE WHEN type = 'borrowed' THEN amount ELSE 0 END), 0) -
-                  COALESCE(SUM(CASE WHEN type = 'repaid' THEN amount ELSE 0 END), 0) as total_payable,
-                  COUNT(DISTINCT person_id) as people_count,
+        $query = "SELECT COUNT(DISTINCT person_id) as people_count,
                   COUNT(*) as total_transactions
                   FROM " . $this->table . " 
                   WHERE user_id = :user_id";
@@ -184,46 +211,6 @@ class KarobarTransaction {
         $stmt->execute();
         
         $stats = $stmt->fetch(PDO::FETCH_ASSOC);
-        
-        $overdueQuery = "SELECT COALESCE(SUM(amount), 0) as overdue_amount 
-                        FROM " . $this->table . " 
-                        WHERE user_id = :user_id AND due_date IS NOT NULL AND due_date < CURDATE() AND type IN ('lent', 'borrowed')";
-        
-        $stmt = $this->conn->prepare($overdueQuery);
-        $stmt->bindParam(':user_id', $userId);
-        $stmt->execute();
-        $overdue = $stmt->fetch(PDO::FETCH_ASSOC);
-        $stats['overdue_amount'] = floatval($overdue['overdue_amount'] ?? 0);
-        
-        $debtorQuery = "SELECT p.name,
-                       COALESCE(SUM(CASE WHEN kt.type = 'lent' THEN kt.amount ELSE 0 END), 0) -
-                       COALESCE(SUM(CASE WHEN kt.type = 'returned' THEN kt.amount ELSE 0 END), 0) as amount
-                       FROM people p
-                       JOIN karobar_transactions kt ON p.id = kt.person_id
-                       WHERE kt.user_id = :user_id
-                       GROUP BY p.id, p.name
-                       HAVING amount > 0
-                       ORDER BY amount DESC LIMIT 1";
-        
-        $stmt = $this->conn->prepare($debtorQuery);
-        $stmt->bindParam(':user_id', $userId);
-        $stmt->execute();
-        $stats['largest_debtor'] = $stmt->fetch(PDO::FETCH_ASSOC);
-        
-        $creditorQuery = "SELECT p.name,
-                         COALESCE(SUM(CASE WHEN kt.type = 'borrowed' THEN kt.amount ELSE 0 END), 0) -
-                         COALESCE(SUM(CASE WHEN kt.type = 'repaid' THEN kt.amount ELSE 0 END), 0) as amount
-                         FROM people p
-                         JOIN karobar_transactions kt ON p.id = kt.person_id
-                         WHERE kt.user_id = :user_id
-                         GROUP BY p.id, p.name
-                         HAVING amount > 0
-                         ORDER BY amount DESC LIMIT 1";
-        
-        $stmt = $this->conn->prepare($creditorQuery);
-        $stmt->bindParam(':user_id', $userId);
-        $stmt->execute();
-        $stats['largest_creditor'] = $stmt->fetch(PDO::FETCH_ASSOC);
         
         $recentQuery = "SELECT kt.*, p.name as person_name
                        FROM karobar_transactions kt
@@ -235,21 +222,6 @@ class KarobarTransaction {
         $stmt->bindParam(':user_id', $userId);
         $stmt->execute();
         $stats['recent_transactions'] = $stmt->fetchAll(PDO::FETCH_ASSOC);
-        
-        $peopleQuery = "SELECT p.id, p.name, p.photo, p.type,
-                       COALESCE(SUM(CASE WHEN kt.type IN ('lent','repaid') THEN kt.amount ELSE 0 END), 0) -
-                       COALESCE(SUM(CASE WHEN kt.type IN ('borrowed','returned') THEN kt.amount ELSE 0 END), 0) as balance
-                       FROM people p
-                       LEFT JOIN karobar_transactions kt ON p.id = kt.person_id AND kt.user_id = :user_id
-                       WHERE p.user_id = :user_id2 AND p.status = 'active'
-                       GROUP BY p.id, p.name, p.photo, p.type
-                       ORDER BY balance DESC";
-        
-        $stmt = $this->conn->prepare($peopleQuery);
-        $stmt->bindParam(':user_id', $userId);
-        $stmt->bindParam(':user_id2', $userId);
-        $stmt->execute();
-        $stats['people_balances'] = $stmt->fetchAll(PDO::FETCH_ASSOC);
         
         $monthlyQuery = "SELECT DATE_FORMAT(transaction_date, '%b') as month,
                         MONTH(transaction_date) as month_num,
@@ -267,6 +239,19 @@ class KarobarTransaction {
         $stmt->execute();
         $stats['monthly_data'] = $stmt->fetchAll(PDO::FETCH_ASSOC);
         
+        // Current positions, overdue values, and person balances always come
+        // from the shared settlement-allocation service. Queries above this
+        // point provide only historical dashboard context.
+        $positions = $this->outstandingService->getSummary($userId);
+        $stats = array_merge($stats, $positions);
+        $receivable = $positions['people_balances'];
+        $payable = $positions['people_balances'];
+        usort($receivable, fn($a,$b)=>(float)$b['receivable_outstanding']<=>(float)$a['receivable_outstanding']);
+        usort($payable, fn($a,$b)=>(float)$b['payable_outstanding']<=>(float)$a['payable_outstanding']);
+        $stats['largest_debtor'] = $receivable && (float)$receivable[0]['receivable_outstanding']>0
+            ? ['name'=>$receivable[0]['name'],'amount'=>(float)$receivable[0]['receivable_outstanding']] : null;
+        $stats['largest_creditor'] = $payable && (float)$payable[0]['payable_outstanding']>0
+            ? ['name'=>$payable[0]['name'],'amount'=>(float)$payable[0]['payable_outstanding']] : null;
         return $stats;
     }
 
