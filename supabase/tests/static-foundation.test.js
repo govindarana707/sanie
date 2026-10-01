@@ -17,6 +17,8 @@ const recurring = read('20261001183013_recurring_parity.sql');
 const karobar = read('20261001183014_karobar_integrity.sql');
 const replay = read('20261001183015_financial_replay_integrity.sql');
 const detailedUpdate = read('20261001183016_transaction_update_details.sql');
+const cloudPrivileges = read('20261001183017_cloud_authenticated_table_privileges.sql');
+const exactCloudPrivileges = read('20261001183018_cloud_exact_table_privileges.sql');
 
 for (const table of ['profiles','accounts','categories','subcategories','transactions','budgets','goals','people','karobar_transactions','recurring_transactions','tasks','notifications','attachments']) {
   if (!schema.includes(`public.${table}`)) throw new Error(`missing ${table}`);
@@ -47,6 +49,12 @@ if (!recurring.includes('RECURRING_REVIEW_REQUIRED') || !recurring.includes('lea
 if (!karobar.includes("p_type in ('returned','repaid')") || !karobar.includes('IDEMPOTENCY_MISMATCH')) throw new Error('Karobar integrity contract missing');
 if (!replay.includes('existing.description is not distinct from p_description')) throw new Error('full financial replay comparison missing');
 if (!detailedUpdate.includes('perform public.sanie_rebuild_account(old.account_id,u)')) throw new Error('detailed transaction rebuild missing');
+if (!cloudPrivileges.includes('grant select on table') || !cloudPrivileges.includes('public.profiles')) throw new Error('cloud authenticated read grants missing');
+if (cloudPrivileges.includes('public.transactions to authenticated') || cloudPrivileges.includes('public.karobar_transactions to authenticated')) throw new Error('cloud migration must not grant financial writers');
+if (!exactCloudPrivileges.includes('revoke all privileges on all tables in schema public from anon, authenticated')) throw new Error('cloud default table privileges are not cleared');
+for (const privilege of ['truncate','trigger','references','maintain']) {
+  if (new RegExp(`grant[^;]*\\b${privilege}\\b`, 'i').test(exactCloudPrivileges)) throw new Error(`unsafe cloud table privilege granted: ${privilege}`);
+}
 for (const token of ['sync_changes','generated always as identity','pull_changes','sequence>greatest']) {
   if (!sync.includes(token)) throw new Error(`sync contract missing ${token}`);
 }
