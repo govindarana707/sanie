@@ -39,6 +39,10 @@ class CategoryController {
         }
 
         foreach ($categories as &$category) {
+            if ($category['user_id'] === null) {
+                $category['is_pinned'] = 0;
+                $category['sort_order'] = 999;
+            }
             $category['subcategories'] = $subcategoriesByCategory[$category['id']] ?? [];
             $category['subcategory_count'] = count($category['subcategories']);
         }
@@ -51,6 +55,10 @@ class CategoryController {
         $category = $this->categoryModel->findById($id, $userId);
         
         if ($category) {
+            if ($category['user_id'] === null) {
+                $category['is_pinned'] = 0;
+                $category['sort_order'] = 999;
+            }
             $category['subcategory_count'] = $this->subcategoryModel->getCountByCategory($category['id']);
             $category['has_transactions'] = $this->categoryModel->hasTransactions($id, $userId);
             $category['subcategories'] = $this->subcategoryModel->getByCategory($category['id'], $userId);
@@ -68,13 +76,24 @@ class CategoryController {
     public function store() {
         $userId = Middleware::auth();
         $data = json_decode(file_get_contents('php://input'), true);
+        if (!is_array($data)) Response::error('Invalid JSON payload', 400);
         
         $errors = Middleware::validateRequired($data, ['name', 'type']);
         if (!empty($errors)) {
             Response::error('Validation failed', 422, $errors);
         }
 
-        $maxSortOrder = $this->getMaxSortOrder($userId, $data['type']);
+        if (!in_array($data['type'], ['income', 'expense'], true)) {
+            Response::error('Validation failed', 422, ['type' => 'Type must be income or expense']);
+        }
+        $isPinned = false;
+        if (array_key_exists('is_pinned', $data)) {
+            $isPinned = $this->validatedBoolean($data['is_pinned'], 'is_pinned');
+        }
+        $categoryCount = $this->categoryModel->countOwnedByType($userId, $data['type']) + 1;
+        $sortOrder = $isPinned
+            ? $this->validatedSortOrder($data['sort_order'] ?? $this->categoryModel->getNextPinnedSortOrder($userId, $data['type']), $categoryCount)
+            : 999;
 
         $categoryData = [
             'user_id' => $userId,
@@ -85,7 +104,8 @@ class CategoryController {
             'description' => $data['description'] ?? '',
             'is_default' => false,
             'status' => 'active',
-            'sort_order' => $data['sort_order'] ?? ($maxSortOrder + 1)
+            'is_pinned' => $isPinned,
+            'sort_order' => $sortOrder
         ];
 
         $categoryId = $this->categoryModel->create($categoryData);
@@ -105,10 +125,18 @@ class CategoryController {
     public function update($id) {
         $userId = Middleware::auth();
         $data = json_decode(file_get_contents('php://input'), true);
-        
-        $errors = Middleware::validateRequired($data, ['name', 'type']);
-        if (!empty($errors)) {
-            Response::error('Validation failed', 422, $errors);
+        if (!is_array($data)) Response::error('Invalid JSON payload', 400);
+
+        $allowedFields = ['name', 'type', 'icon', 'color', 'description', 'status', 'is_pinned', 'sort_order'];
+        $unknownFields = array_diff(array_keys($data), $allowedFields);
+        if ($unknownFields) Response::error('Unsupported category fields', 422);
+        $priorityOnly = !empty($data)
+            && empty(array_diff(array_keys($data), ['is_pinned', 'sort_order']))
+            && (array_key_exists('is_pinned', $data) || array_key_exists('sort_order', $data));
+
+        if (!$priorityOnly) {
+            $errors = Middleware::validateRequired($data, ['name', 'type']);
+            if (!empty($errors)) Response::error('Validation failed', 422, $errors);
         }
         
         $existingCategory = $this->categoryModel->findById($id, $userId);
@@ -116,18 +144,57 @@ class CategoryController {
             Response::notFound('Category not found');
         }
         
-        if ($existingCategory['is_default']) {
+        if ((int)$existingCategory['user_id'] !== (int)$userId) {
+            Response::error('Shared categories cannot be reprioritized', 403);
+        }
+
+        if ($existingCategory['is_default'] && !$priorityOnly) {
             Response::error('Cannot update default category', 403);
+        }
+
+        $type = $data['type'] ?? $existingCategory['type'];
+        if (!in_array($type, ['income', 'expense'], true)) {
+            Response::error('Validation failed', 422, ['type' => 'Type must be income or expense']);
+        }
+        $status = $data['status'] ?? $existingCategory['status'];
+        if (!in_array($status, ['active', 'archived', 'deleted'], true)) {
+            Response::error('Validation failed', 422, ['status' => 'Invalid category status']);
+        }
+        $isPinned = (bool)$existingCategory['is_pinned'];
+        if (array_key_exists('is_pinned', $data)) {
+            $isPinned = $this->validatedBoolean($data['is_pinned'], 'is_pinned');
+        }
+        if ($priorityOnly && !array_key_exists('is_pinned', $data) && !(bool)$existingCategory['is_pinned']) {
+            Response::error('Pin the category before changing its priority', 422);
+        }
+        if ($isPinned && $existingCategory['status'] !== 'active' && $priorityOnly) {
+            Response::error('Only active categories can be pinned', 422);
+        }
+        if ($status !== 'active') $isPinned = false;
+        $typeChanged = $type !== $existingCategory['type'];
+        $categoryCount = max(1, $this->categoryModel->countOwnedByType($userId, $type) + ($typeChanged ? 1 : 0));
+        if ($isPinned) {
+            $candidateOrder = array_key_exists('sort_order', $data)
+                ? $data['sort_order']
+                : ($typeChanged
+                    ? $this->categoryModel->getNextPinnedSortOrder($userId, $type)
+                    : ((int)$existingCategory['is_pinned'] === 1
+                    ? $existingCategory['sort_order']
+                    : $this->categoryModel->getNextPinnedSortOrder($userId, $type)));
+            $sortOrder = $this->validatedSortOrder($candidateOrder, $categoryCount);
+        } else {
+            $sortOrder = 999;
         }
 
         $categoryData = [
             'name' => $data['name'] ?? $existingCategory['name'],
-            'type' => $data['type'] ?? $existingCategory['type'],
+            'type' => $type,
             'icon' => $data['icon'] ?? $existingCategory['icon'],
             'color' => $data['color'] ?? $existingCategory['color'],
             'description' => $data['description'] ?? $existingCategory['description'],
-            'status' => $data['status'] ?? $existingCategory['status'],
-            'sort_order' => $data['sort_order'] ?? $existingCategory['sort_order']
+            'status' => $status,
+            'is_pinned' => $isPinned,
+            'sort_order' => $sortOrder
         ];
 
         if ($this->categoryModel->update($id, $userId, $categoryData)) {
@@ -233,6 +300,10 @@ class CategoryController {
         }
 
         foreach ($results as &$category) {
+            if ($category['user_id'] === null) {
+                $category['is_pinned'] = 0;
+                $category['sort_order'] = 999;
+            }
             $category['subcategories'] = $subcategoriesByCategory[$category['id']] ?? [];
             $category['subcategory_count'] = count($category['subcategories']);
         }
@@ -268,16 +339,26 @@ class CategoryController {
     public function reorder() {
         $userId = Middleware::auth();
         $data = json_decode(file_get_contents('php://input'), true);
-        
-        if (empty($data['orders']) || !is_array($data['orders'])) {
-            Response::error('Invalid reorder data', 422);
+        if (!is_array($data)) Response::error('Invalid JSON payload', 400);
+        if (isset($data['orders_by_type'])) {
+            if (!is_array($data['orders_by_type']) || !$data['orders_by_type']) {
+                Response::error('Invalid reorder data', 422);
+            }
+            $ordersByType = [];
+            foreach ($data['orders_by_type'] as $type => $orders) {
+                if (!in_array($type, ['income', 'expense'], true)) Response::error('Invalid category type', 422);
+                $ordersByType[$type] = $this->normalizePriorityOrders($orders, $userId, $type);
+            }
+        } else {
+            $type = $data['type'] ?? null;
+            if (!in_array($type, ['income', 'expense'], true)) Response::error('Type must be income or expense', 422);
+            $ordersByType = [$type => $this->normalizePriorityOrders($data['orders'] ?? null, $userId, $type)];
         }
-        
-        if ($this->categoryModel->updateSortOrder($data['orders'], $userId)) {
-            Response::success(null, 'Categories reordered successfully');
+
+        if ($this->categoryModel->reorderPinnedBatch($ordersByType, $userId)) {
+            Response::success(null, 'Pinned category order saved');
         }
-        
-        Response::serverError('Reorder failed');
+        Response::error('Pinned categories changed. Refresh and try again.', 409);
     }
 
     public function bulkAction() {
@@ -312,7 +393,7 @@ class CategoryController {
                         $this->categoryModel->restore($id, $userId);
                         break;
                     case 'activate':
-                        $this->categoryModel->update($id, $userId, ['status' => 'active', 'name' => $category['name'], 'type' => $category['type'], 'icon' => $category['icon'], 'color' => $category['color'], 'description' => $category['description'], 'sort_order' => $category['sort_order']]);
+                        $this->categoryModel->update($id, $userId, ['status' => 'active', 'name' => $category['name'], 'type' => $category['type'], 'icon' => $category['icon'], 'color' => $category['color'], 'description' => $category['description'], 'is_pinned' => $category['is_pinned'], 'sort_order' => $category['sort_order']]);
                         break;
                     default:
                         Response::error('Invalid bulk action', 400);
@@ -325,15 +406,39 @@ class CategoryController {
         }
     }
 
-    private function getMaxSortOrder($userId, $type) {
-        $categories = $this->categoryModel->findAll($userId, $type);
-        $maxOrder = 0;
-        foreach ($categories as $category) {
-            if ($category['sort_order'] > $maxOrder) {
-                $maxOrder = $category['sort_order'];
-            }
+    private function validatedBoolean($value, string $field): bool {
+        if (is_bool($value)) return $value;
+        if (is_int($value) && ($value === 0 || $value === 1)) return (bool)$value;
+        Response::error('Validation failed', 422, [$field => 'Must be a boolean']);
+    }
+
+    private function normalizePriorityOrders($orders, int $userId, string $type): array {
+        if (!is_array($orders)) Response::error('Invalid reorder data', 422);
+        $categoryCount = $this->categoryModel->countOwnedByType($userId, $type);
+        if (count($orders) > $categoryCount) Response::error('Invalid reorder data', 422);
+        $normalized = [];
+        $ids = [];
+        foreach ($orders as $index => $order) {
+            if (!is_array($order) || !isset($order['id'])) Response::error('Invalid reorder item', 422);
+            $id = filter_var($order['id'], FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
+            if ($id === false || isset($ids[$id])) Response::error('Category IDs must be unique positive integers', 422);
+            $ids[$id] = true;
+            $normalized[] = ['id' => (int)$id, 'sort_order' => $index + 1];
         }
-        return $maxOrder;
+        return $normalized;
+    }
+
+    private function validatedSortOrder($value, int $maximum): int {
+        if (!is_int($value) && !(is_string($value) && preg_match('/^\d+$/', $value))) {
+            Response::error('Validation failed', 422, ['sort_order' => 'Must be an integer']);
+        }
+        $order = (int)$value;
+        if ($order < 1 || $order > max(1, $maximum)) {
+            Response::error('Validation failed', 422, [
+                'sort_order' => 'Must be between 1 and ' . max(1, $maximum)
+            ]);
+        }
+        return $order;
     }
 
     public function dynamicSubcategories($categoryId) {

@@ -104,7 +104,7 @@ class KarobarOutstandingService {
             COALESCE(SUM(CASE WHEN type='repaid' THEN amount ELSE 0 END),0) repaid_total
           FROM karobar_transactions WHERE user_id=:settlement_user GROUP BY person_id
         ),origins AS(
-          SELECT kt.*,p.name person_name,p.type person_type,
+          SELECT kt.*,p.name person_name,p.type person_type,p.status person_status,
             COALESCE(CASE WHEN kt.type='lent' THEN s.returned_total ELSE s.repaid_total END,0) settlement_total,
             COALESCE(SUM(kt.amount) OVER(PARTITION BY kt.person_id,kt.type ORDER BY kt.transaction_date,kt.created_at,kt.id ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING),0) prior_origin_amount
           FROM karobar_transactions kt JOIN people p ON p.id=kt.person_id

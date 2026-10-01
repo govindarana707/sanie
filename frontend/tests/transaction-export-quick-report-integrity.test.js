@@ -1,0 +1,25 @@
+const fs = require('fs');
+const assert = require('assert');
+const transactions = fs.readFileSync('frontend/assets/js/transactions.js', 'utf8');
+const reports = fs.readFileSync('frontend/assets/js/reports.js', 'utf8');
+const utils = fs.readFileSync('frontend/assets/js/utils.js', 'utf8');
+const page = fs.readFileSync('frontend/index.html', 'utf8');
+
+assert(transactions.includes("window.Api.get('/transactions/query?'"), 'transactions do not use the authoritative query endpoint');
+assert(transactions.includes('_allAuthoritativeTransactions(filters = {})'), 'complete export/report paging helper is missing');
+assert(transactions.includes('page <= totalPages'), 'complete transaction export does not fetch every page');
+assert(transactions.includes('_renderSummary(this.authoritativeSummary)'), 'quick summary is not rendered from backend aggregates');
+assert(transactions.includes('summary.total_income') && transactions.includes('summary.total_expense'), 'print totals are not authoritative');
+const exportStart = transactions.indexOf('async exportCSV()');
+const exportEnd = transactions.indexOf('showImportModal()', exportStart);
+const exportBlock = transactions.slice(exportStart, exportEnd);
+assert(exportBlock.includes('_allAuthoritativeTransactions(this.filters)'), 'CSV still exports the visible page');
+assert(!exportBlock.includes('this.transactions.map'), 'CSV still maps cached screen rows');
+assert(exportBlock.includes('Recurring Origin') && exportBlock.includes('Scheduled Occurrence Date'), 'CSV loses recurring provenance');
+assert(utils.includes('if (formulaSafe && /^[=+\\-@]/.test(text))'), 'shared CSV formula safety is missing');
+assert(transactions.includes('return CSVUtils.cell(value)'), 'transaction CSV does not use shared formula safety');
+assert(reports.includes('CSVUtils.document(headers, rows, textColumns)'), 'report CSV does not use shared formula safety');
+assert(page.includes('tx-server-page-prev') && page.includes('tx-server-page-next') && page.includes('tx-server-page-size'), 'server pagination controls are missing');
+assert(transactions.includes('paging: false'), 'screen still mixes DataTables pagination with backend pagination');
+assert(!transactions.includes("toISOString().split('T')[0]"), 'UTC calendar conversion returned to transaction reports');
+console.log('PASS: transaction pages, complete CSV/print data, backend quick totals, recurring provenance, formula safety, and Kathmandu dates are wired consistently');

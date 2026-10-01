@@ -103,6 +103,7 @@ sani/
 ### Prerequisites
 - PHP 8.4 or higher
 - MySQL 5.7 or higher
+- Composer
 - Apache web server (XAMPP/WAMP recommended)
 - Modern web browser
 
@@ -119,21 +120,17 @@ sani/
    ```
    Or use phpMyAdmin to import `backend/database/schema.sql`
 
-3. **Configure database connection**
-   Edit `backend/config/database.php` if needed:
-   ```php
-   private $host = 'localhost';
-   private $db_name = 'sanie_db';
-   private $username = 'root';
-   private $password = '';
+3. **Install PHP dependencies**
+   ```bash
+   composer install --no-dev --optimize-autoloader
    ```
 
 4. **Configure application settings**
-   Edit `backend/config/config.php`:
-   ```php
-   define('JWT_SECRET', 'your-secret-key-change-this-in-production');
-   define('ALLOWED_ORIGINS', ['http://localhost:5173', 'http://localhost:3000']);
-   ```
+   Copy `.env.example` to `.env` and provide deployment-specific database,
+   URL, JWT, origin, and mail values. Production password resets require an
+   HTTPS `FRONTEND_URL` plus the documented `MAIL_*` SMTP settings. SMTP
+   username/password must be supplied together when authentication is used.
+   Development uses `PASSWORD_RESET_DEV_LOG` and never sends SMTP mail.
 
 5. **Configure web server**
    - Point Apache to the `backend` directory

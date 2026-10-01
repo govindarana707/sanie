@@ -12,6 +12,7 @@
     const OFFLINE_IDENTITY_KEY = 'sanie_offline_identity';
     const TRANSACTION_LIMIT = 50;
     const REFERENCE_ENTRY_LIMIT = 50;
+    window.__sanieFreshStartTabId = window.__sanieFreshStartTabId || (window.crypto?.randomUUID?.() || `tab_${Date.now()}_${Math.random()}`);
 
     let databasePromise = null;
 
@@ -281,6 +282,20 @@
         return Boolean(dashboardDeleted || transactionsDeleted || metadataDeleted || referencesDeleted);
     }
 
+    async function clearAllOfflineUserData(userId) {
+        const scope = normalizeUserId(userId);
+        if (!scope) return false;
+        const results = await Promise.all([
+            runRequest(DASHBOARD_STORE, 'readwrite', store => store.delete(scope)),
+            runRequest(TRANSACTIONS_STORE, 'readwrite', store => store.delete(scope)),
+            deleteRecordsByUser(METADATA_STORE, scope),
+            deleteRecordsByUser(REFERENCE_STORE, scope),
+            deleteRecordsByUser(PENDING_STORE, scope)
+        ]);
+        window.dispatchEvent(new CustomEvent('offline:pending-changed', { detail: { userId: scope } }));
+        return results.every(result => result !== null && result !== false);
+    }
+
     async function deleteMetadataForUser(userId) {
         return deleteRecordsByUser(METADATA_STORE, userId);
     }
@@ -325,12 +340,13 @@
         if (!['income', 'expense'].includes(payload.type)) return null;
         if (payload.payment_method && payload.payment_method !== 'cash') return null;
 
-        const amount = Number(payload.amount);
+        const amountText = String(payload.amount ?? '').trim();
+        const amount = Number(amountText);
         const accountId = Number(payload.account_id);
         const categoryId = Number(payload.category_id);
         const date = String(payload.date || '');
         const description = String(payload.description || '').trim();
-        if (!Number.isFinite(amount) || amount <= 0 || amount > 999999999999.99) return null;
+        if (!/^(?:0|[1-9]\d{0,11})(?:\.\d{1,2})?$/.test(amountText) || !Number.isFinite(amount) || amount <= 0 || amount > 999999999999.99) return null;
         if (!Number.isInteger(accountId) || accountId <= 0) return null;
         if (!Number.isInteger(categoryId) || categoryId <= 0) return null;
         if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || Number.isNaN(new Date(`${date}T00:00:00`).getTime())) return null;
@@ -381,6 +397,7 @@
         const record = {
             localId: generateLocalId(),
             clientRequestId: generateClientRequestId(),
+            dataGeneration: Math.max(1, Number(window.Api?.getDataGeneration?.()) || 1),
             serverId,
             userId,
             entityType: 'transaction',
@@ -606,17 +623,24 @@
             : JSON.parse(JSON.stringify(dashboardData));
         if (!data.statistics) data.statistics = {};
         const statistics = data.statistics;
+        if (!data.today_statistics) data.today_statistics = {};
+        const todayStatistics = data.today_statistics;
+        const today = window.DateUtils?.getKathmanduDateString?.() || new Date().toISOString().slice(0, 10);
         const startDate = data.period?.start_date || '0000-00-00';
         const endDate = data.period?.end_date || '9999-12-31';
         const withinPeriod = record => record?.date >= startDate && record?.date <= endDate;
-        const applyRecord = (record, direction) => {
-            if (!record || !withinPeriod(record) || !['income', 'expense'].includes(record.type)) return;
+        const applyToStatistics = (target, record, direction) => {
             const amount = Number(record.amount) || 0;
             const totalField = record.type === 'income' ? 'total_income' : 'total_expense';
             const countField = record.type === 'income' ? 'income_count' : 'expense_count';
-            statistics[totalField] = (Number(statistics[totalField]) || 0) + (direction * amount);
-            statistics[countField] = Math.max(0, (Number(statistics[countField]) || 0) + direction);
-            statistics.balance = (Number(statistics.balance) || 0) + (direction * (record.type === 'income' ? amount : -amount));
+            target[totalField] = (Number(target[totalField]) || 0) + (direction * amount);
+            target[countField] = Math.max(0, (Number(target[countField]) || 0) + direction);
+            target.balance = (Number(target.balance) || 0) + (direction * (record.type === 'income' ? amount : -amount));
+        };
+        const applyRecord = (record, direction) => {
+            if (!record || !['income', 'expense'].includes(record.type)) return;
+            if (withinPeriod(record)) applyToStatistics(statistics, record, direction);
+            if (record.date === today) applyToStatistics(todayStatistics, record, direction);
         };
         actions.forEach(action => {
             if (action.action === 'create') applyRecord(action.payload, 1);
@@ -640,7 +664,11 @@
                 id: item?.id,
                 name: sanitizeText(item?.name, 120),
                 icon: sanitizeIcon(item?.icon),
-                color: sanitizeColor(item?.color)
+                color: sanitizeColor(item?.color),
+                type: ['income', 'expense'].includes(item?.type) ? item.type : undefined,
+                is_pinned: Number(item?.is_pinned) === 1 ? 1 : 0,
+                sort_order: Number.isInteger(Number(item?.sort_order)) ? Number(item.sort_order) : 999,
+                transaction_count: Math.max(0, Number(item?.transaction_count) || 0)
             })).filter(item => item.id && item.name);
         }
         if (name.startsWith('subcategories:')) {
@@ -769,6 +797,18 @@
         try { window.sessionStorage.removeItem(OFFLINE_IDENTITY_KEY); } catch (error) {}
     }
 
+    try {
+        const freshStartChannel = new BroadcastChannel('sanie-fresh-start');
+        freshStartChannel.addEventListener('message', async event => {
+            if (event.data?.type !== 'completed' || event.data?.sender === window.__sanieFreshStartTabId) return;
+            const currentUserId = window.authManager?.getCurrentUser?.()?.id;
+            if (String(currentUserId ?? '') !== String(event.data.userId ?? '')) return;
+            await clearAllOfflineUserData(currentUserId);
+            window.Api?.clearToken?.();
+            window.location.reload();
+        });
+    } catch (error) {}
+
     window.OfflineStorage = Object.freeze({
         DB_NAME,
         DB_VERSION,
@@ -782,6 +822,7 @@
         saveMetadata,
         getMetadata,
         clearOfflineUserData,
+        clearAllOfflineUserData,
         addPendingAction,
         queueTransactionUpdate,
         queueTransactionDelete,

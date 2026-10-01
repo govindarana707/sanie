@@ -9,10 +9,19 @@ class Database {
     private $lastError = null;
 
     public function __construct() {
-        $this->host = getenv('DB_HOST') ?: '127.0.0.1';
-        $this->db_name = getenv('DB_DATABASE') ?: 'sanie_db';
-        $this->username = getenv('DB_USERNAME') ?: 'root';
-        $this->password = getenv('DB_PASSWORD') ?: '';
+        $readSetting = static function ($name, $default = '') {
+            if (array_key_exists($name, $_ENV) && $_ENV[$name] !== '') {
+                return $_ENV[$name];
+            }
+
+            $value = getenv($name);
+            return ($value === false || $value === '') ? $default : $value;
+        };
+
+        $this->host = $readSetting('DB_HOST', '127.0.0.1');
+        $this->db_name = $readSetting('DB_DATABASE', 'sanie_db');
+        $this->username = $readSetting('DB_USERNAME', 'root');
+        $this->password = $readSetting('DB_PASSWORD', '');
     }
 
     public function getConnection() {

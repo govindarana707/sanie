@@ -1,2 +1,5 @@
-# Backend directory - API routing is handled by backend/api/.htaccess
-# This file intentionally left empty to prevent rewrite conflicts
+Options -Indexes
+
+# Backend implementation is private by default. Child access rules explicitly
+# open only the API entry point and validated public avatar files.
+Require all denied

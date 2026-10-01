@@ -4,6 +4,12 @@ require_once __DIR__ . '/../config/database.php';
 
 class BudgetValidationException extends InvalidArgumentException {}
 
+class DuplicateBudgetException extends BudgetValidationException {
+    public function __construct(public array $existingBudget) {
+        parent::__construct('A budget already exists for this category and subcategory for the selected period.');
+    }
+}
+
 class Budget {
     private $conn;
     private $table = 'budgets';
@@ -15,6 +21,7 @@ class Budget {
 
     public function create($data) {
         $data=$this->normalize($data,(int)$data['user_id']);
+        $this->assertNoOverlappingScope($data);
         $query = "INSERT INTO " . $this->table . " 
                   (user_id, category_id, subcategory_id, name, amount, period, start_date, end_date, alert_threshold, is_active) 
                   VALUES (:user_id, :category_id, :subcategory_id, :name, :amount, :period, :start_date, :end_date, :alert_threshold, :is_active)";
@@ -79,6 +86,7 @@ class Budget {
 
     public function update($id, $userId, $data) {
         $data=$this->normalize($data,(int)$userId);
+        $this->assertNoOverlappingScope($data, (int)$id);
         $query = "UPDATE " . $this->table . " SET 
                   category_id = :category_id,
                   subcategory_id = :subcategory_id,
@@ -143,6 +151,9 @@ class Budget {
             );
 
             foreach ($entries as $e) {
+                // This runs inside the transaction, so entries earlier in the
+                // same bulk request are also considered duplicate candidates.
+                $this->assertNoOverlappingScope($e);
                 $stmt->bindValue(':user_id', $userId);
                 $stmt->bindValue(':category_id', $e['category_id'] ?? null);
                 $stmt->bindValue(':subcategory_id', $e['subcategory_id'] ?? null);
@@ -159,11 +170,73 @@ class Budget {
 
             $this->conn->commit();
             return $inserted;
+        } catch (BudgetValidationException $e) {
+            $this->conn->rollBack();
+            throw $e;
         } catch (Exception $e) {
             $this->conn->rollBack();
             error_log('Budget::bulkCreate failed: ' . $e->getMessage());
             return false;
         }
+    }
+
+    public function copyMonthlyBudgets($userId, array $budgetIds, string $sourceMonth, string $targetMonth) {
+        if (!preg_match('/^\d{4}-(0[1-9]|1[0-2])$/', $sourceMonth) ||
+            !preg_match('/^\d{4}-(0[1-9]|1[0-2])$/', $targetMonth)) {
+            throw new BudgetValidationException('Source and destination months must be valid.');
+        }
+        if ($sourceMonth === $targetMonth) {
+            throw new BudgetValidationException('Source and destination months must be different.');
+        }
+
+        $budgetIds = array_values(array_unique(array_filter(array_map('intval', $budgetIds), fn($id) => $id > 0)));
+        if (!$budgetIds) throw new BudgetValidationException('Select at least one budget to copy.');
+
+        $sourceStart = $sourceMonth . '-01';
+        $sourceEnd = (new DateTimeImmutable($sourceStart))->format('Y-m-t');
+        $targetStart = $targetMonth . '-01';
+        $targetEnd = (new DateTimeImmutable($targetStart))->format('Y-m-t');
+        $selected = array_fill_keys($budgetIds, true);
+        $all = $this->findAll($userId);
+        $existingKeys = [];
+        foreach ($all as $budget) {
+            if ($budget['start_date'] > $targetEnd || $budget['end_date'] < $targetStart) continue;
+            $existingKeys[$this->copyKey($budget)] = true;
+        }
+
+        $entries = [];
+        $skipped = [];
+        foreach ($all as $budget) {
+            if (!isset($selected[(int)$budget['id']])) continue;
+            if ($budget['period'] !== 'monthly' || $budget['start_date'] > $sourceEnd || $budget['end_date'] < $sourceStart) continue;
+            $key = $this->copyKey($budget);
+            if (isset($existingKeys[$key])) {
+                $skipped[] = ['id' => (int)$budget['id'], 'name' => $budget['name'], 'reason' => 'already_exists'];
+                continue;
+            }
+            $existingKeys[$key] = true;
+            $entries[] = [
+                'name' => $budget['name'],
+                'amount' => (float)$budget['amount'],
+                'period' => 'monthly',
+                'category_id' => $budget['category_id'],
+                'subcategory_id' => $budget['subcategory_id'],
+                'start_date' => $targetStart,
+                'end_date' => $targetEnd,
+                'alert_threshold' => (float)$budget['alert_threshold'],
+                'is_active' => (bool)$budget['is_active']
+            ];
+        }
+
+        if (!$entries && !$skipped) throw new BudgetValidationException('The selected budgets do not belong to the source month.');
+        $ids = $entries ? $this->bulkCreate($entries, $userId) : [];
+        if ($ids === false) return false;
+        return ['created' => count($ids), 'ids' => $ids, 'skipped' => $skipped];
+    }
+
+    private function copyKey(array $budget): string {
+        return (string)($budget['category_id'] ?? 'null') . '|' .
+            (string)($budget['subcategory_id'] ?? 'null');
     }
 
     public function getSuggestions($userId, $period = 'monthly', $months = 3) {
@@ -251,12 +324,9 @@ class Budget {
                     AND (b.subcategory_id IS NULL OR t.subcategory_id = b.subcategory_id)";
         $params = [];
 
-        if ($periodStart) {
-            $query .= " AND t.date >= ?";
+        if ($periodStart !== null && $periodEnd !== null) {
+            $query .= " AND t.date >= ? AND t.date <= ?";
             $params[] = $periodStart;
-        }
-        if ($periodEnd) {
-            $query .= " AND t.date <= ?";
             $params[] = $periodEnd;
         }
 
@@ -283,6 +353,7 @@ class Budget {
                     'amount' => $r['budget_amount'],
                     'category_id'=>$r['category_id'],'subcategory_id'=>$r['subcategory_id'],
                     'period'=>$r['period'],'start_date'=>$r['start_date'],'end_date'=>$r['end_date'],
+                    'alert_threshold'=>$r['alert_threshold'],
                     'category_name' => $r['category_name'],
                     'category_icon' => $r['category_icon'],
                     'category_color' => $r['category_color'],
@@ -298,6 +369,26 @@ class Budget {
         }
 
         return $progress;
+    }
+
+    public function getAggregateProgress($ids, $userId, $periodStart = null, $periodEnd = null): array {
+        $ids=array_values(array_unique(array_filter(array_map('intval',(array)$ids),fn($id)=>$id>0)));
+        if (empty($ids)) return ['allocated_budget'=>0.0,'unique_spent'=>0.0,'remaining'=>0.0,'budget_count'=>0,'transaction_count'=>0];
+        $placeholders=implode(',',array_fill(0,count($ids),'?'));
+        $rangeSql='';$rangeParams=[];
+        if($periodStart!==null&&$periodEnd!==null){$rangeSql=' AND t.date >= ? AND t.date <= ?';$rangeParams=[$periodStart,$periodEnd];}
+        $sql="SELECT COALESCE(SUM(t.amount),0) unique_spent,COUNT(t.id) transaction_count
+              FROM transactions t
+              WHERE t.user_id=? AND t.type='expense'{$rangeSql}
+                AND EXISTS(SELECT 1 FROM budgets b WHERE b.id IN ({$placeholders}) AND b.user_id=?
+                  AND t.date BETWEEN b.start_date AND b.end_date
+                  AND (b.category_id IS NULL OR t.category_id=b.category_id)
+                  AND (b.subcategory_id IS NULL OR t.subcategory_id=b.subcategory_id))";
+        $stmt=$this->conn->prepare($sql);$stmt->execute(array_merge([$userId],$rangeParams,$ids,[$userId]));$spent=$stmt->fetch(PDO::FETCH_ASSOC);
+        $sum=$this->conn->prepare("SELECT COALESCE(SUM(amount),0) allocated_budget,COUNT(*) budget_count FROM budgets WHERE id IN ({$placeholders}) AND user_id=?");
+        $sum->execute(array_merge($ids,[$userId]));$allocated=$sum->fetch(PDO::FETCH_ASSOC);
+        $budgetAmount=(float)$allocated['allocated_budget'];$uniqueSpent=(float)$spent['unique_spent'];
+        return ['allocated_budget'=>$budgetAmount,'unique_spent'=>$uniqueSpent,'remaining'=>$budgetAmount-$uniqueSpent,'budget_count'=>(int)$allocated['budget_count'],'transaction_count'=>(int)$spent['transaction_count']];
     }
 
     private function normalize(array$data,int$userId):array {
@@ -326,6 +417,41 @@ class Budget {
         }
         $active=array_key_exists('is_active',$data)?(!empty($data['is_active'])?1:0):1;
         return array_merge($data,['user_id'=>$userId,'name'=>$name,'amount'=>round($amount,2),'period'=>$period,'start_date'=>$start,'end_date'=>$end,'category_id'=>$categoryId,'subcategory_id'=>$subcategoryId,'alert_threshold'=>round((float)$threshold,2),'is_active'=>$active]);
+    }
+
+    /**
+     * A budget scope is the exact category/subcategory pair. Period labels are
+     * descriptive; date ranges are authoritative, so daily, weekly, monthly,
+     * yearly, and custom ranges cannot overlap for the same scope.
+     */
+    private function assertNoOverlappingScope(array $data, ?int $excludeBudgetId = null): void {
+        $sql = "SELECT b.*, c.name AS category_name, sc.name AS subcategory_name
+                FROM {$this->table}
+                b LEFT JOIN categories c ON c.id = b.category_id
+                LEFT JOIN subcategories sc ON sc.id = b.subcategory_id
+                WHERE b.user_id = :user_id
+                  AND b.category_id <=> :category_id
+                  AND b.subcategory_id <=> :subcategory_id
+                  AND b.start_date <= :end_date
+                  AND b.end_date >= :start_date";
+        if ($excludeBudgetId !== null) $sql .= ' AND b.id <> :exclude_budget_id';
+        $sql .= ' LIMIT 1';
+
+        $stmt = $this->conn->prepare($sql);
+        $params = [
+            ':user_id' => (int)$data['user_id'],
+            ':category_id' => $data['category_id'],
+            ':subcategory_id' => $data['subcategory_id'],
+            ':start_date' => $data['start_date'],
+            ':end_date' => $data['end_date'],
+        ];
+        if ($excludeBudgetId !== null) $params[':exclude_budget_id'] = $excludeBudgetId;
+        $stmt->execute($params);
+        $existing = $stmt->fetch(PDO::FETCH_ASSOC);
+        if ($existing) {
+            $existing['scope_label'] = $this->scopeLabel($existing['category_name'], $existing['subcategory_name']);
+            throw new DuplicateBudgetException($existing);
+        }
     }
 
     private function nullableId($value,string$label):?int {

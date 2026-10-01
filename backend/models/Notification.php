@@ -43,14 +43,15 @@ class Notification {
             $params[':type'] = $filters['type'];
         }
 
-        if (!empty($filters['is_read'])) {
+        if (array_key_exists('is_read', $filters) && in_array($filters['is_read'], [0, 1, '0', '1'], true)) {
             $query .= " AND is_read = :is_read";
-            $params[':is_read'] = $filters['is_read'];
+            $params[':is_read'] = (int)$filters['is_read'];
         }
 
         if (!empty($filters['search'])) {
-            $query .= " AND (title LIKE :search OR message LIKE :search)";
-            $params[':search'] = '%' . $filters['search'] . '%';
+            $query .= " AND (title LIKE :search_title OR message LIKE :search_message)";
+            $params[':search_title'] = '%' . $filters['search'] . '%';
+            $params[':search_message'] = '%' . $filters['search'] . '%';
         }
 
         if (!empty($filters['period'])) {
@@ -91,14 +92,15 @@ class Notification {
             $params[':type'] = $filters['type'];
         }
 
-        if (!empty($filters['is_read'])) {
+        if (array_key_exists('is_read', $filters) && in_array($filters['is_read'], [0, 1, '0', '1'], true)) {
             $query .= " AND is_read = :is_read";
-            $params[':is_read'] = $filters['is_read'];
+            $params[':is_read'] = (int)$filters['is_read'];
         }
 
         if (!empty($filters['search'])) {
-            $query .= " AND (title LIKE :search OR message LIKE :search)";
-            $params[':search'] = '%' . $filters['search'] . '%';
+            $query .= " AND (title LIKE :search_title OR message LIKE :search_message)";
+            $params[':search_title'] = '%' . $filters['search'] . '%';
+            $params[':search_message'] = '%' . $filters['search'] . '%';
         }
 
         if (!empty($filters['period'])) {
@@ -149,6 +151,15 @@ class Notification {
         $stmt->bindParam(':user_id', $userId);
         $stmt->execute();
         return $stmt->fetch(PDO::FETCH_ASSOC);
+    }
+
+    public function findLatestByReferenceTypes($userId, $referenceType, $referenceId, array $types) {
+        $types=array_values(array_filter(array_map('strval',$types)));
+        if(!$types)return false;
+        $placeholders=implode(',',array_fill(0,count($types),'?'));
+        $stmt=$this->conn->prepare("SELECT * FROM {$this->table} WHERE user_id=? AND reference_type=? AND reference_id=? AND type IN ({$placeholders}) ORDER BY id DESC LIMIT 1");
+        $stmt->execute(array_merge([$userId,$referenceType,$referenceId],$types));
+        return$stmt->fetch(PDO::FETCH_ASSOC);
     }
 
     public function markAsRead($id, $userId) {

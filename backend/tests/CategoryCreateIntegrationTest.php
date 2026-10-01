@@ -30,17 +30,16 @@ try {
         'color' => '#EF4444',
         'description' => '',
         'is_default' => false,
-        'status' => 'active',
-        'sort_order' => 0
+        'status' => 'active'
     ]);
     if (!$categoryId) throw new RuntimeException('category insert returned no ID');
 
     $created = $model->findById((int)$categoryId, $userId);
-    if (!$created || (int)$created['is_default'] !== 0 || (int)$created['sort_order'] !== 0) {
-        throw new RuntimeException('created category did not retain integer boolean/order values');
+    if (!$created || (int)$created['is_default'] !== 0 || (int)$created['is_pinned'] !== 0 || (int)$created['sort_order'] !== 999) {
+        throw new RuntimeException('created category did not retain priority defaults');
     }
 
-    fwrite(STDOUT, "PASS: user category creation binds boolean and integer fields safely\n");
+    fwrite(STDOUT, "PASS: user category creation binds boolean and priority defaults safely\n");
 } catch (Throwable $error) {
     fwrite(STDERR, 'FAIL: ' . $error->getMessage() . "\n");
     exit(1);

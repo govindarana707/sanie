@@ -15,7 +15,7 @@ require_once __DIR__ . '/../config/database.php';
  *                     - Expense (account_id)
  *                     - Transfer Out (from_account_id)
  *
- * Net Worth = Total Balance + Total Receivable - Total Payable
+ * Dashboard Net Worth = Net Balance + Goal Assets + Total Receivable - Total Payable
  */
 class BalanceService {
     private $conn;
@@ -73,6 +73,27 @@ class BalanceService {
              - floatval($row['total_expense'] ?? 0)
              - floatval($row['goal_contributions_out'] ?? 0)
              - floatval($row['transfer_out'] ?? 0);
+    }
+
+    /**
+     * Rebuild the cached account balance from the authoritative ledgers.
+     * This is required when an editable opening balance changes.
+     */
+    public function recalculateAndPersistAccountBalance($accountId, $userId): float {
+        $calculated = $this->calculateAccountBalance($accountId, $userId);
+        $stmt = $this->conn->prepare(
+            'UPDATE accounts SET balance = :balance WHERE id = :id AND user_id = :user_id'
+        );
+        $stmt->bindValue(':balance', $calculated);
+        $stmt->bindValue(':id', $accountId, PDO::PARAM_INT);
+        $stmt->bindValue(':user_id', $userId, PDO::PARAM_INT);
+        $stmt->execute();
+
+        if ($stmt->rowCount() === 0 && !$this->getAccount($accountId, $userId)) {
+            throw new RuntimeException('Account not found');
+        }
+
+        return $calculated;
     }
 
     /**
@@ -346,17 +367,23 @@ class BalanceService {
     }
 
     /**
-     * Total balance across all active accounts.
+     * Net Balance: active account balances explicitly included by the user.
+     * The stored inclusion preference is the sole eligibility rule.
      */
-    public function getTotalBalance($userId): float {
+    public function getNetBalance($userId): float {
         $accounts = $this->getAccountsWithBalances($userId);
         $total = 0;
         foreach ($accounts as $acct) {
-            if ($acct['is_active']) {
+            if (!empty($acct['is_active']) && !empty($acct['include_in_net_balance'])) {
                 $total += $acct['calculated_balance'];
             }
         }
         return $total;
+    }
+
+    /** Backward-compatible alias for callers that previously requested total balance. */
+    public function getTotalBalance($userId): float {
+        return $this->getNetBalance($userId);
     }
 
     /**
@@ -425,7 +452,7 @@ class BalanceService {
             : "";
 
         $query = "SELECT a.id, a.name, a.type, a.color, a.icon, a.is_active,
-                         a.is_default, a.account_number, a.created_at, a.opening_balance,
+                         a.is_default, a.include_in_savings, a.include_in_net_balance, a.account_number, a.created_at, a.opening_balance,
                          (SELECT MAX(t.date) FROM transactions t
                            WHERE (t.account_id = a.id OR t.from_account_id = a.id OR t.to_account_id = a.id)
                              AND t.user_id = a.user_id

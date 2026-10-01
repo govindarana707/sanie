@@ -40,6 +40,11 @@ class NotificationController {
 
     public function unreadCount() {
         $userId = Middleware::auth();
+        try {
+            $this->service->processKarobarReminders((int)$userId);
+        } catch (Throwable $e) {
+            error_log('Karobar reminder processing failed: ' . $e->getMessage());
+        }
         $count = $this->service->getUnreadCount($userId);
         Response::success(['unread_count' => $count]);
     }

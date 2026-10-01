@@ -128,7 +128,7 @@ function createControllerHarness() {
 (async () => {
     const sw = createWorkerHarness();
     await dispatchWaitable(sw.listeners.install);
-    assert(sw.cacheData.has('sanie-static-v24'), 'Version B static cache was not created');
+    assert(sw.cacheData.has('sanie-static-v109'), 'Version B static cache was not created');
     assert.strictEqual(sw.skipped, 0, 'Worker activated immediately instead of waiting for user approval');
 
     sw.listeners.message({ data: { type: 'SKIP_WAITING' } });
@@ -144,7 +144,7 @@ function createControllerHarness() {
         request: { method: 'GET', url: 'https://example.test/sanie/frontend/assets/js/app.js?v=8', destination: 'script', signal: null },
         respondWith: promise => { staticResponse = Promise.resolve(promise); }
     });
-    assert.strictEqual((await staticResponse).release, 'sanie-static-v24', 'Version B served an old static asset');
+    assert.strictEqual((await staticResponse).release, 'sanie-static-v109', 'Version B served an old static asset');
 
     for (const url of [
         'https://example.test/sanie/backend/api/accounts',

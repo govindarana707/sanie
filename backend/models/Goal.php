@@ -57,7 +57,7 @@ class Goal {
         return $stmt->fetch(PDO::FETCH_ASSOC);
     }
 
-    public function update($id, $userId, $data) {
+    public function update($id, $userId, $data, $expectedVersion = null) {
         $query = "UPDATE " . $this->table . " SET 
                   name = :name,
                   target_amount = :target_amount,
@@ -69,6 +69,7 @@ class Goal {
                   version = version + 1,
                   updated_at = CURRENT_TIMESTAMP
                   WHERE id = :id AND user_id = :user_id";
+        if ($expectedVersion !== null) $query .= " AND version = :expected_version";
         
         $stmt = $this->conn->prepare($query);
         
@@ -81,8 +82,10 @@ class Goal {
         $stmt->bindParam(':color', $data['color']);
         $stmt->bindParam(':description', $data['description']);
         $stmt->bindParam(':status', $data['status']);
+        if ($expectedVersion !== null) $stmt->bindValue(':expected_version', (int)$expectedVersion, PDO::PARAM_INT);
         
-        return $stmt->execute();
+        $stmt->execute();
+        return $stmt->rowCount() === 1;
     }
 
     public function delete($id, $userId) {
@@ -109,10 +112,18 @@ class Goal {
              SET g.current_amount = g.initial_amount + COALESCE((
                  SELECT SUM(t.amount) FROM transactions t
                  WHERE t.goal_id = g.id AND t.user_id = g.user_id AND t.type = 'goal_contribution'
-             ), 0), g.updated_at = CURRENT_TIMESTAMP
+             ), 0),
+             g.status = CASE WHEN g.status = 'active' AND g.current_amount >= g.target_amount THEN 'completed' ELSE g.status END,
+             g.updated_at = CURRENT_TIMESTAMP
              WHERE g.id = :id AND g.user_id = :user_id"
         );
         return $stmt->execute([':id' => $id, ':user_id' => $userId]);
+    }
+
+    public function synchronizeCompletion($id, $userId): bool {
+        $stmt=$this->conn->prepare("UPDATE {$this->table} SET status='completed',updated_at=CURRENT_TIMESTAMP WHERE id=:id AND user_id=:user_id AND status='active' AND current_amount>=target_amount");
+        $stmt->execute([':id'=>$id,':user_id'=>$userId]);
+        return $stmt->rowCount()===1;
     }
 
     public function findContributions($goalId, $userId): array {

@@ -10,6 +10,7 @@ require_once __DIR__ . '/../models/Goal.php';
 require_once __DIR__ . '/../services/KarobarService.php';
 require_once __DIR__ . '/../services/AccountingService.php';
 require_once __DIR__ . '/../services/BalanceService.php';
+require_once __DIR__ . '/../services/FinancialHealthService.php';
 
 class DashboardController {
     private $transactionModel;
@@ -19,6 +20,7 @@ class DashboardController {
     private $karobarService;
     private $accountingService;
     private $balanceService;
+    private $financialHealthService;
 
     public function __construct() {
         $this->transactionModel = new Transaction();
@@ -28,6 +30,7 @@ class DashboardController {
         $this->karobarService = new KarobarService();
         $this->accountingService = new AccountingService();
         $this->balanceService = new BalanceService();
+        $this->financialHealthService = new FinancialHealthService();
     }
 
     public function index() {
@@ -38,8 +41,9 @@ class DashboardController {
 
         // All calculations use BalanceService
         $statistics = $this->balanceService->getStatistics($userId, $startDate, $endDate);
-        $allAccountsBalance = $this->balanceService->getTotalBalance($userId);
-        $cashBalance = $this->balanceService->getCashBalance($userId);
+        $today = date('Y-m-d');
+        $todayStatistics = $this->balanceService->getStatistics($userId, $today, $today);
+        $netBalance = $this->balanceService->getNetBalance($userId);
         $savingsBalance = $this->balanceService->getSavingsBalance($userId);
         $recentTransactions = $this->transactionModel->findAll($userId, [
             'start_date' => $startDate,
@@ -58,6 +62,9 @@ class DashboardController {
         $budgetProgress = !empty($activeBudgets)
             ? $this->budgetModel->getBatchProgress(array_column($activeBudgets, 'id'), $userId, $startDate, $endDate)
             : [];
+        $budgetAggregate=!empty($activeBudgets)
+            ?$this->budgetModel->getAggregateProgress(array_column($activeBudgets,'id'),$userId,$startDate,$endDate)
+            :['allocated_budget'=>0,'unique_spent'=>0,'remaining'=>0,'budget_count'=>0,'transaction_count'=>0];
 
         $goals = $this->goalModel->findAll($userId);
         $goalAssets = $this->goalModel->getTotalSaved($userId);
@@ -74,18 +81,26 @@ class DashboardController {
         $karobarData = $this->karobarService->getDashboardData($userId);
         $totalReceivable = $karobarData['total_receivable'] ?? 0;
         $totalPayable = $karobarData['total_payable'] ?? 0;
-        $netWorth = $allAccountsBalance + $goalAssets + $totalReceivable - $totalPayable;
+        // Goal savings remain an owned asset after money is moved out of an account.
+        $netWorth = $netBalance + $goalAssets + $totalReceivable - $totalPayable;
 
-        $financialHealthScore = $this->calculateFinancialHealthScore(
-            $statistics, $budgetProgress, $goalProgress,
-            $allAccountsBalance + $goalAssets, $savingsBalance + $goalAssets, $totalReceivable, $totalPayable
-        );
+        $financialHealthScore = $this->financialHealthService->calculate([
+            'income' => $statistics['total_income'] ?? 0,
+            'expense' => $statistics['total_expense'] ?? 0,
+            'savings' => $savingsBalance + $goalAssets,
+            'net_balance' => $netBalance,
+            'payable' => $totalPayable,
+            'receivable' => $totalReceivable,
+            'income_count' => $statistics['income_count'] ?? 0,
+            'expense_count' => $statistics['expense_count'] ?? 0,
+        ]);
 
         $accountsOverview = $this->balanceService->getAccountOverview($userId, $startDate, $endDate);
 
         Response::success([
             'statistics' => $statistics,
-            'total_balance' => $cashBalance,
+            'today_statistics' => $todayStatistics,
+            'total_balance' => $netBalance,
             'savings_balance' => $savingsBalance + $goalAssets,
             'goal_assets' => $goalAssets,
             'total_receivable' => $totalReceivable,
@@ -96,6 +111,7 @@ class DashboardController {
             'income_breakdown' => $incomeBreakdown,
             'monthly_data' => $monthlyData,
             'budget_progress' => $budgetProgress,
+            'budget_aggregate' => $budgetAggregate,
             'goal_progress' => $goalProgress,
             'financial_health_score' => $financialHealthScore,
             'accounts_overview' => $accountsOverview,
@@ -104,56 +120,6 @@ class DashboardController {
                 'end_date' => $endDate
             ]
         ]);
-    }
-
-    private function calculateFinancialHealthScore($statistics, $budgetProgress, $goalProgress, $totalBalance, $savingsBalance, $totalReceivable, $totalPayable) {
-        $score = 0;
-        $factors = 0;
-
-        if ($statistics['total_income'] > 0) {
-            $savingsRate = ($savingsBalance / $statistics['total_income']) * 100;
-            $score += min(25, max(0, $savingsRate / 2));
-        }
-        $factors++;
-
-        $overBudgetCount = 0;
-        foreach ($budgetProgress as $budget) {
-            if ($budget['is_over_budget']) {
-                $overBudgetCount++;
-            }
-        }
-        if (count($budgetProgress) > 0) {
-            $budgetScore = 25 * (1 - ($overBudgetCount / count($budgetProgress)));
-            $score += max(0, $budgetScore);
-        }
-        $factors++;
-
-        $activeGoals = count($goalProgress);
-        if ($activeGoals > 0) {
-            $avgGoalProgress = array_sum(array_column($goalProgress, 'percentage')) / $activeGoals;
-            $score += min(25, $avgGoalProgress / 4);
-        }
-        $factors++;
-
-        $netWorth = $totalBalance + $totalReceivable - $totalPayable;
-        if ($netWorth > 0) {
-            $score += 25;
-        }
-        $factors++;
-
-        $finalScore = $factors > 0 ? round(($score / $factors) * 100 / 100) : 0;
-
-        $status = 'Critical';
-        if ($finalScore >= 80) $status = 'Excellent';
-        elseif ($finalScore >= 60) $status = 'Good';
-        elseif ($finalScore >= 40) $status = 'Average';
-        elseif ($finalScore >= 20) $status = 'Needs Improvement';
-
-        return [
-            'score' => $finalScore,
-            'status' => $status,
-            'max_score' => 100
-        ];
     }
 
     public function quickStats() {

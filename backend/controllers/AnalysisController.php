@@ -4,13 +4,19 @@ require_once __DIR__ . '/../includes/cors.php';
 require_once __DIR__ . '/../includes/response.php';
 require_once __DIR__ . '/../includes/middleware.php';
 require_once __DIR__ . '/../config/database.php';
+require_once __DIR__ . '/../models/Budget.php';
+require_once __DIR__ . '/../services/BalanceService.php';
 
 class AnalysisController {
     private $conn;
+    private $budgetModel;
+    private $balanceService;
 
     public function __construct() {
         $database = new Database();
         $this->conn = $database->getConnection();
+        $this->budgetModel = new Budget();
+        $this->balanceService = new BalanceService();
     }
 
     public function index() {
@@ -49,7 +55,7 @@ class AnalysisController {
         $monthlyData = $this->getMonthlyData($userId);
 
         // Budget data
-        $budgets = $this->getBudgetData($userId);
+        $budgets = $this->getBudgetData($userId,$startDate,$endDate);
         $budgetHealth = $budgets['health_score'];
         $budgetStatuses = $budgets['statuses'];
 
@@ -157,40 +163,46 @@ class AnalysisController {
         ]);
     }
 
-    private function getPeriodDates($period) {
+    private function getPeriodDates($period, ?DateTimeImmutable $now = null) {
+        $now = $now ?? new DateTimeImmutable('now');
         switch ($period) {
             case 'today':
-                return ['start' => date('Y-m-d'), 'end' => date('Y-m-d')];
+                return ['start' => $now->format('Y-m-d'), 'end' => $now->format('Y-m-d')];
             case 'week':
-                return ['start' => date('Y-m-d', strtotime('monday this week')), 'end' => date('Y-m-d', strtotime('sunday this week'))];
+                return ['start' => $now->modify('monday this week')->format('Y-m-d'), 'end' => $now->modify('sunday this week')->format('Y-m-d')];
             case 'month':
-                return ['start' => date('Y-m-01'), 'end' => date('Y-m-t')];
+                return ['start' => $now->format('Y-m-01'), 'end' => $now->format('Y-m-t')];
             case 'year':
-                return ['start' => date('Y-01-01'), 'end' => date('Y-12-31')];
+                return ['start' => $now->format('Y-01-01'), 'end' => $now->format('Y-12-31')];
             default:
                 if (isset($_GET['start_date']) && isset($_GET['end_date'])) {
                     return ['start' => $_GET['start_date'], 'end' => $_GET['end_date']];
                 }
-                return ['start' => date('Y-m-01'), 'end' => date('Y-m-t')];
+                return ['start' => $now->format('Y-m-01'), 'end' => $now->format('Y-m-t')];
         }
     }
 
-    private function getPreviousPeriodDates($period) {
+    private function getPreviousPeriodDates($period, ?DateTimeImmutable $now = null) {
+        $now = $now ?? new DateTimeImmutable('now');
         switch ($period) {
             case 'today':
-                return ['start' => date('Y-m-d', strtotime('-1 day')), 'end' => date('Y-m-d', strtotime('-1 day'))];
+                $yesterday = $now->modify('-1 day')->format('Y-m-d');
+                return ['start' => $yesterday, 'end' => $yesterday];
             case 'week':
-                $lastMon = date('Y-m-d', strtotime('monday last week'));
-                $lastSun = date('Y-m-d', strtotime('sunday last week'));
+                $lastMon = $now->modify('monday last week')->format('Y-m-d');
+                $lastSun = $now->modify('sunday last week')->format('Y-m-d');
                 return ['start' => $lastMon, 'end' => $lastSun];
             case 'month':
-                $first = date('Y-m-01', strtotime('first day of last month'));
-                $last = date('Y-m-t', strtotime('last day of last month'));
+                $previousMonth = $now->modify('first day of last month');
+                $first = $previousMonth->format('Y-m-01');
+                $last = $previousMonth->format('Y-m-t');
                 return ['start' => $first, 'end' => $last];
             case 'year':
-                return ['start' => date('Y-01-01', strtotime('-1 year')), 'end' => date('Y-12-31', strtotime('-1 year'))];
+                $previousYear = $now->modify('-1 year');
+                return ['start' => $previousYear->format('Y-01-01'), 'end' => $previousYear->format('Y-12-31')];
             default:
-                return ['start' => date('Y-m-01', strtotime('-1 month')), 'end' => date('Y-m-t', strtotime('-1 month'))];
+                $previousMonth = $now->modify('-1 month');
+                return ['start' => $previousMonth->format('Y-m-01'), 'end' => $previousMonth->format('Y-m-t')];
         }
     }
 
@@ -234,7 +246,7 @@ class AnalysisController {
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
     }
 
-    private function getMonthlyData($userId) {
+    private function getMonthlyData($userId, ?DateTimeImmutable $now = null) {
         $query = "SELECT
                     DATE_FORMAT(date, '%b') AS month,
                     MONTH(date) AS month_num,
@@ -251,67 +263,46 @@ class AnalysisController {
         $stmt->execute();
         $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-        // Ensure we always have 6 months (pad with empty if needed)
+        // Ensure we always have 6 months (pad with empty if needed).
+        // Use year-month identity internally so equal month names in different years never collide.
+        $byYearMonth = [];
+        foreach ($rows as $row) {
+            $key = sprintf('%04d-%02d', (int)$row['year'], (int)$row['month_num']);
+            $byYearMonth[$key] = $row;
+        }
         $result = [];
-        $now = new DateTime();
+        $now = $now ?: new DateTimeImmutable();
         for ($i = 5; $i >= 0; $i--) {
-            $dt = (clone $now)->modify("-{$i} months");
+            $dt = $now->modify("-{$i} months");
             $m = $dt->format('M');
-            $found = false;
-            foreach ($rows as $r) {
-                if ($r['month'] === $m) {
-                    $result[] = [
-                        'month' => $m,
-                        'income' => (float)$r['income'],
-                        'expense' => (float)$r['expense']
-                    ];
-                    $found = true;
-                    break;
-                }
-            }
-            if (!$found) {
-                $result[] = ['month' => $m, 'income' => 0, 'expense' => 0];
-            }
+            $row = $byYearMonth[$dt->format('Y-m')] ?? null;
+            $result[] = [
+                'month' => $m,
+                'income' => $row ? (float)$row['income'] : 0,
+                'expense' => $row ? (float)$row['expense'] : 0
+            ];
         }
         return $result;
     }
 
-    private function getBudgetData($userId) {
-        $query = "SELECT b.* FROM budgets b WHERE b.user_id = :uid ORDER BY b.is_active DESC";
-        $stmt = $this->conn->prepare($query);
-        $stmt->bindValue(':uid', $userId);
-        $stmt->execute();
-        $budgets = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    private function getBudgetData($userId,$periodStart,$periodEnd) {
+        $budgets=array_values(array_filter($this->budgetModel->findAll($userId),fn($budget)=>!empty($budget['is_active'])&&$budget['start_date']<=$periodEnd&&$budget['end_date']>=$periodStart));
+        $progress=$this->budgetModel->getBatchProgress(array_column($budgets,'id'),$userId,$periodStart,$periodEnd);
 
         $totalHealth = 0;
         $count = 0;
         $statuses = [];
 
-        foreach ($budgets as $b) {
-            if (!$b['is_active']) continue;
-
-            $spent = 0;
-            $startDate = $b['start_date'];
-            $endDate = $b['end_date'];
-
-            $stmt2 = $this->conn->prepare("SELECT COALESCE(SUM(amount), 0) as spent FROM transactions WHERE user_id = :uid AND type = 'expense' AND date BETWEEN :start AND :end AND category_id = :cat_id");
-            $stmt2->bindValue(':uid', $userId);
-            $stmt2->bindValue(':start', $startDate);
-            $stmt2->bindValue(':end', $endDate);
-            $stmt2->bindValue(':cat_id', $b['category_id']);
-            $stmt2->execute();
-            $result = $stmt2->fetch(PDO::FETCH_ASSOC);
-            $spent = (float)$result['spent'];
-
-            $limit = (float)$b['amount'];
-            $percentage = $limit > 0 ? ($spent / $limit) * 100 : 0;
+        foreach ($progress as $row) {
+            $percentage=(float)$row['percentage'];
+            $limit=(float)$row['budget_amount'];
             $health = $limit > 0 ? max(0, 100 - $percentage) : 0;
             $totalHealth += $health;
             $count++;
 
             if ($percentage >= 100) {
                 $statuses[] = 'exceeded';
-            } elseif ($percentage >= (float)($b['alert_threshold'] ?? 80)) {
+            } elseif ($percentage >= (float)($row['budget']['alert_threshold'] ?? 80)) {
                 $statuses[] = 'warning';
             } else {
                 $statuses[] = 'on_track';
@@ -346,18 +337,9 @@ class AnalysisController {
     }
 
     private function getSavingsData($userId) {
-        $query = "SELECT
-                    COALESCE(SUM(CASE WHEN type != 'savings' AND include_in_savings = 0 THEN balance ELSE 0 END), 0) as total_balance,
-                    COALESCE(SUM(CASE WHEN type = 'savings' OR include_in_savings = 1 THEN balance ELSE 0 END), 0) as savings_balance
-                  FROM accounts
-                  WHERE user_id = :uid AND is_active = 1";
-        $stmt = $this->conn->prepare($query);
-        $stmt->bindValue(':uid', $userId);
-        $stmt->execute();
-        $result = $stmt->fetch(PDO::FETCH_ASSOC);
         return [
-            'total_balance' => (float)($result['total_balance'] ?? 0),
-            'savings_balance' => (float)($result['savings_balance'] ?? 0)
+            'total_balance' => $this->balanceService->getNetBalance($userId),
+            'savings_balance' => $this->balanceService->getSavingsBalance($userId)
         ];
     }
 

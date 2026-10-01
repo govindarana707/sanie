@@ -1,0 +1,12 @@
+const fs=require('fs');const assert=require('assert');
+const transactions=fs.readFileSync('frontend/assets/js/transactions.js','utf8');
+const karobar=fs.readFileSync('frontend/assets/js/karobar.js','utf8');
+const accounts=fs.readFileSync('frontend/assets/js/accounts.js','utf8');
+assert(transactions.includes('this._ordinaryRequestId = null'),'ordinary request state is missing');
+assert(transactions.includes("data.client_request_id = this._ordinaryRequestId || (this._ordinaryRequestId = this._createOrdinaryRequestId())"),'ordinary submit does not reuse a stable identity');
+assert(transactions.includes('_createOrdinaryRequestId()'),'ordinary ID generator is missing');
+assert(karobar.includes("if (!this._editingTxId) {\n            data.client_request_id = this._paymentRequestId"),'Karobar origins do not send the modal-stable identity');
+assert(karobar.includes("if (!this._editingTxId) this._paymentRequestId = null"),'Karobar identity is not cleared after definite success');
+assert(accounts.includes("const opening = String(document.getElementById('acct-opening')?.value ?? '').trim()"),'opening balance is coerced before authoritative validation');
+assert(accounts.includes("/^-?(?:0|[1-9]\\d{0,11})(?:\\.\\d{1,2})?$/"),'opening balance strict signed rule is missing');
+console.log('PASS: Phase 15 frontend preserves retry identities and strict opening-balance text');

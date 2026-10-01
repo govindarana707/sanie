@@ -2,15 +2,20 @@
 class BudgetsManager {
     constructor() {
         this.budgets = [];
+        this.visibleBudgets = [];
+        this.progressById = new Map();
         this._mounted = false;
         this._listeners = {};
+        this._budgetSubmitInProgress = false;
+        const now = DateUtils.getKathmanduDateParts();
+        this.selectedMonth = `${now.year}-${String(now.month).padStart(2, '0')}`;
     }
 
     onMount() {
         if (this._mounted) return;
         this._mounted = true;
         this.setupEventListeners();
-        window.addEventListener('app:data-changed', this._onDataChanged = () => this.loadBudgets());
+        document.addEventListener('app:data-changed', this._onDataChanged = () => this.loadBudgets());
         if (window.authManager?.isAuthenticated()) {
             this.loadBudgets();
         }
@@ -19,7 +24,7 @@ class BudgetsManager {
     onUnmount() {
         this._mounted = false;
         if (this._onDataChanged) {
-            window.removeEventListener('app:data-changed', this._onDataChanged);
+            document.removeEventListener('app:data-changed', this._onDataChanged);
         }
         const addBtn = document.getElementById('add-budget-btn');
         if (addBtn && this._listeners.addClick) {
@@ -29,6 +34,12 @@ class BudgetsManager {
         if (bulkBtn && this._listeners.bulkClick) {
             bulkBtn.removeEventListener('click', this._listeners.bulkClick);
         }
+        const monthInput = document.getElementById('budget-month');
+        if (monthInput && this._listeners.monthChange) {
+            monthInput.removeEventListener('change', this._listeners.monthChange);
+        }
+        document.getElementById('budget-report-btn')?.removeEventListener('click', this._listeners.reportClick);
+        document.getElementById('copy-budget-btn')?.removeEventListener('click', this._listeners.copyClick);
     }
 
     setupEventListeners() {
@@ -42,23 +53,45 @@ class BudgetsManager {
             this._listeners.bulkClick = () => this.showBulkBudgetModal();
             bulkBtn.addEventListener('click', this._listeners.bulkClick);
         }
+        const monthInput = document.getElementById('budget-month');
+        if (monthInput) {
+            monthInput.value = this.selectedMonth;
+            this._listeners.monthChange = () => {
+                if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(monthInput.value)) return;
+                this.selectedMonth = monthInput.value;
+                this.loadBudgets();
+            };
+            monthInput.addEventListener('change', this._listeners.monthChange);
+        }
+        const reportBtn = document.getElementById('budget-report-btn');
+        if (reportBtn) {
+            this._listeners.reportClick = () => this.showReportModal();
+            reportBtn.addEventListener('click', this._listeners.reportClick);
+        }
+        const copyBtn = document.getElementById('copy-budget-btn');
+        if (copyBtn) {
+            this._listeners.copyClick = () => this.showCopyBudgetModal();
+            copyBtn.addEventListener('click', this._listeners.copyClick);
+        }
     }
 
     async loadBudgets() {
         if (!window.authManager?.isAuthenticated()) return;
 
-        AjaxService?.showSkeleton('budgets-grid');
+        AjaxService?.showSkeleton('#budgets-grid');
         try {
             const response = await budgetsAPI.getAll();
             if (response.success) {
                 this.budgets = response.data;
                 await this.renderBudgets();
+            } else {
+                throw new Error(response?.message || 'Failed to load budgets');
             }
         } catch (error) {
             console.error('Failed to load budgets:', error);
             NotificationService.error('Failed to load budgets');
         } finally {
-            AjaxService?.hideSkeleton('budgets-grid');
+            AjaxService?.hideSkeleton('#budgets-grid');
         }
     }
 
@@ -66,21 +99,23 @@ class BudgetsManager {
         const container = document.getElementById('budgets-grid');
         container.innerHTML = '';
         this._setOverview(0, 0);
+        const { startDate, endDate } = this._selectedMonthRange();
+        this.visibleBudgets = this.budgets.filter(budget => budget.start_date <= endDate && budget.end_date >= startDate);
 
-        if (this.budgets.length === 0) {
+        if (this.visibleBudgets.length === 0) {
             container.innerHTML = `
                 <div class="budget-empty-state">
                     <span><i class="bi bi-pie-chart"></i></span>
-                    <h3>Plan your spending</h3>
-                    <p>Create your first budget to track expenses and avoid overspending.</p>
+                    <h3>No budgets for this month</h3>
+                    <p>Create a budget for the selected month or copy a previous period.</p>
                     <button class="btn btn-primary" onclick="budgetsManager.showAddBudgetModal()"><i class="fas fa-plus"></i> Create Budget</button>
                 </div>`;
             return;
         }
 
-        this._setOverview(this.budgets.reduce((sum, b) => sum + Number(b.amount || 0), 0), 0);
+        this._setOverview(this.visibleBudgets.reduce((sum, b) => sum + Number(b.amount || 0), 0), 0);
 
-        this.budgets.forEach(budget => {
+        this.visibleBudgets.forEach(budget => {
             const card = document.createElement('div');
             card.className = 'budget-card';
             card.dataset.budgetId = budget.id;
@@ -116,12 +151,16 @@ class BudgetsManager {
         });
 
         // Batch fetch all progress in one request
-        const ids = this.budgets.map(b => b.id);
+        const ids = this.visibleBudgets.map(b => b.id);
         try {
-            const response = await budgetsAPI.getBatchProgress(ids);
+            const [response,aggregateResponse] = await Promise.all([
+                budgetsAPI.getBatchProgress(ids, startDate, endDate),
+                budgetsAPI.getAggregateProgress(ids, startDate, endDate)
+            ]);
             if (response.success) {
-                const totalSpent = response.data.reduce((sum, p) => sum + Number(p.spent || 0), 0);
-                const totalLimit = this.budgets.reduce((sum, b) => sum + Number(b.amount || 0), 0);
+                this.progressById = new Map(response.data.map(progress => [String(progress.budget_id), progress]));
+                const totalSpent = Number(aggregateResponse?.data?.unique_spent || 0);
+                const totalLimit = this.visibleBudgets.reduce((sum, b) => sum + Number(b.amount || 0), 0);
                 this._setOverview(totalLimit, totalSpent);
                 response.data.forEach(progress => {
                     const card = container.querySelector(`[data-budget-id="${progress.budget_id}"]`);
@@ -147,7 +186,7 @@ class BudgetsManager {
         percentageText.textContent = `${Formatters.currency(progress.spent)} spent`;
         card.querySelector('.budget-progress-rate').textContent = `${percentage.toFixed(0)}%`;
         const remaining = Number(progress.budget_amount || progress.amount || 0) - Number(progress.spent || 0);
-        const fallbackLimit = Number(this.budgets.find(b => String(b.id) === String(progress.budget_id))?.amount || 0);
+        const fallbackLimit = Number(this.visibleBudgets.find(b => String(b.id) === String(progress.budget_id))?.amount || 0);
         const finalRemaining = Number(progress.remaining ?? (fallbackLimit - Number(progress.spent || 0)));
         const remainingEl = card.querySelector('.budget-remaining');
         remainingEl.textContent = finalRemaining >= 0 ? `${Formatters.currency(finalRemaining)} left` : `${Formatters.currency(Math.abs(finalRemaining))} over`;
@@ -164,7 +203,227 @@ class BudgetsManager {
         document.getElementById('budget-total-remaining')?.classList.toggle('text-danger', remaining < 0);
     }
 
-    showAddBudgetModal() {
+    _selectedMonthRange(selectedMonth = this.selectedMonth) {
+        const [year, month] = selectedMonth.split('-').map(Number);
+        const endDay = new Date(year, month, 0).getDate();
+        return {
+            startDate: `${selectedMonth}-01`,
+            endDate: `${selectedMonth}-${String(endDay).padStart(2, '0')}`
+        };
+    }
+
+    showReportModal() {
+        if (!this.budgets.length) {
+            NotificationService.warning('No budgets available to report');
+            return;
+        }
+        window.modalService?.open({
+            title: 'Budget Report',
+            subtitle: 'Choose the month you want to print.',
+            icon: 'fa-print',
+            bodyHTML: `<div class="form-group"><label for="budget-report-month">Report month</label><div class="form-control-icon"><i class="fas fa-calendar-alt"></i><input type="month" id="budget-report-month" value="${this.selectedMonth}" required></div><small class="d-block text-muted mt-2">The printable report will include all budgets and their spending for the selected month.</small></div>`,
+            saveText: '<i class="fas fa-print me-1"></i> Preview Report',
+            onSave: () => this.openReportPreview()
+        });
+    }
+
+    async openReportPreview() {
+        const reportMonth = document.getElementById('budget-report-month')?.value || '';
+        if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(reportMonth)) {
+            NotificationService.warning('Select a valid report month');
+            return;
+        }
+        const preview = window.open('', '_blank', 'width=1050,height=760');
+        if (!preview) {
+            NotificationService.error('Please allow pop-ups to open the report preview');
+            return;
+        }
+        preview.document.write('<!doctype html><title>Preparing budget report...</title><p style="font:16px Arial;padding:32px">Preparing budget report...</p>');
+        preview.document.close();
+        const { startDate, endDate } = this._selectedMonthRange(reportMonth);
+        const reportBudgets=this.budgets.filter(budget=>budget.start_date<=endDate&&budget.end_date>=startDate);
+        if(!reportBudgets.length){preview.document.open();preview.document.write('<!doctype html><title>No budgets</title><p style="font:16px Arial;padding:32px">No budgets exist for the selected month.</p>');preview.document.close();NotificationService.warning('No budgets exist for the selected month');return;}
+        let reportProgress,aggregateResponse;
+        try {
+            const [response,aggregate] = await Promise.all([
+                budgetsAPI.getBatchProgress(reportBudgets.map(budget => budget.id), startDate, endDate),
+                budgetsAPI.getAggregateProgress(reportBudgets.map(budget=>budget.id),startDate,endDate)
+            ]);
+            if (!response?.success) throw new Error(response?.message || 'Unable to load budget report');
+            reportProgress = new Map(response.data.map(progress => [String(progress.budget_id), progress]));
+            aggregateResponse=aggregate;
+        } catch (error) {
+            preview.document.open();
+            preview.document.write('<!doctype html><title>Report Error</title><p style="font:16px Arial;padding:32px">Unable to load the budget report.</p>');
+            preview.document.close();
+            NotificationService.error(error.message || 'Unable to load budget report');
+            return;
+        }
+        const money = value => 'Rs ' + Number(value || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        let totalLimit = 0;
+        let totalSpent = 0;
+        const rows = reportBudgets.map(budget => {
+            const progress = reportProgress.get(String(budget.id)) || {};
+            const limit = Number(budget.amount || 0);
+            const spent = Number(progress.spent || 0);
+            const remaining = Number(progress.remaining ?? (limit - spent));
+            const percentage = limit > 0 ? (spent / limit) * 100 : 0;
+            totalLimit += limit;
+            totalSpent += spent;
+            return `<tr><td><strong>${Formatters.escapeHTML(budget.name)}</strong><small>${Formatters.escapeHTML(budget.scope_label || budget.category_name || 'All expenses')}</small></td><td>${money(limit)}</td><td>${money(spent)}</td><td class="${remaining < 0 ? 'over' : ''}">${money(remaining)}</td><td>${percentage.toFixed(1)}%</td></tr>`;
+        }).join('');
+        totalSpent=Number(aggregateResponse?.data?.unique_spent||0);
+        const totalRemaining = totalLimit - totalSpent;
+        const reportMonthLabel = this._monthLabel(reportMonth);
+        preview.document.open();
+        preview.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>SanIE Budget Report - ${reportMonthLabel}</title><style>*{box-sizing:border-box}body{margin:0;padding:24px;background:linear-gradient(145deg,#dff5ed,#eef3f8);color:#172033;font-family:Inter,Arial,sans-serif}.sheet{position:relative;width:210mm;min-height:297mm;margin:0 auto;background:#fff;border-radius:20px;overflow:hidden;box-shadow:0 24px 70px #0f172a2b}.sheet:after{content:'SanIE';position:absolute;right:-18px;bottom:58px;color:#10b9810a;font-size:92px;font-weight:900;transform:rotate(-12deg);pointer-events:none}.hero{position:relative;display:flex;justify-content:space-between;align-items:center;padding:30px 36px;color:#fff;background:linear-gradient(125deg,#052e2b,#047857 62%,#34d399);overflow:hidden}.hero:after{content:'';position:absolute;width:180px;height:180px;border:34px solid #ffffff12;border-radius:50%;right:-55px;top:-95px}.brand{font-size:32px;font-weight:900;letter-spacing:-1px}.hero small{display:block;opacity:.78;letter-spacing:2px;font-weight:700}.meta{position:relative;z-index:1;text-align:right}.meta strong{font-size:21px}.meta div{margin-top:5px;opacity:.85}.content{padding:30px 36px 36px}.toolbar{text-align:right;margin-bottom:18px}.print{border:0;border-radius:11px;background:linear-gradient(135deg,#10b981,#047857);color:#fff;padding:12px 20px;font-weight:800;cursor:pointer;box-shadow:0 7px 18px #10b98140}.summary{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-bottom:27px}.box{position:relative;padding:17px 16px;border:1px solid #dce9e4;border-radius:14px;background:linear-gradient(145deg,#fff,#f3faf7);overflow:hidden}.box:before{content:'';position:absolute;left:0;top:0;bottom:0;width:4px;background:#10b981}.box:nth-child(2):before{background:#fb7185}.box:nth-child(3):before{background:#60a5fa}.box span,td small{display:block;color:#64748b;font-size:10px;margin-bottom:7px;text-transform:uppercase;letter-spacing:.45px}.box strong{font-size:19px}table{position:relative;z-index:1;width:100%;border-collapse:separate;border-spacing:0;font-size:11px;border:1px solid #dce6e2;border-radius:13px;overflow:hidden}th,td{padding:12px 10px;border-bottom:1px solid #e5ece9;text-align:left}th{background:#e9f9f2;color:#066449;text-transform:uppercase;font-size:9px;letter-spacing:.45px}tbody tr:nth-child(even){background:#f8fbfa}tbody tr:last-child td{border-bottom:0}.over{color:#dc2626;font-weight:700}.footer{position:absolute;left:0;right:0;bottom:0;padding:15px 36px;background:#f4f8f6;color:#82938c;font-size:9px;display:flex;justify-content:space-between;border-top:1px solid #e3ebe7}@media(max-width:850px){body{padding:0}.sheet{width:100%;min-height:100vh;border-radius:0}.content{padding:24px 20px}.hero{padding:25px 20px}}@media print{body{padding:0;background:#fff}.sheet{width:100%;min-height:277mm;margin:0;border-radius:0;box-shadow:none}.toolbar{display:none}.hero,.box,th,tbody tr:nth-child(even),.footer{-webkit-print-color-adjust:exact;print-color-adjust:exact}.content{padding:24px 26px 32mm}.footer{position:fixed}@page{size:A4 portrait;margin:10mm}}</style></head><body><main class="sheet"><header class="hero"><div><div class="brand">SanIE</div><small>FINANCE MANAGER</small></div><div class="meta"><strong>Budget Report</strong><div>${reportMonthLabel}</div></div></header><div class="content"><div class="toolbar"><button class="print" id="print-budget-report">Print / Save PDF</button></div><section class="summary"><div class="box"><span>Total budget</span><strong>${money(totalLimit)}</strong></div><div class="box"><span>Total spent</span><strong>${money(totalSpent)}</strong></div><div class="box"><span>Remaining</span><strong>${money(totalRemaining)}</strong></div></section><table><thead><tr><th>Budget</th><th>Limit</th><th>Spent</th><th>Remaining</th><th>Used</th></tr></thead><tbody>${rows}</tbody></table></div><footer class="footer"><span>Generated by SanIE Finance Manager</span><span>${new Date().toLocaleString()}</span></footer></main></body></html>`);
+        preview.document.close();
+        preview.document.getElementById('print-budget-report')?.addEventListener('click', () => preview.print());
+        window.modalService?.close();
+    }
+
+    _monthLabel(selectedMonth = this.selectedMonth) {
+        const [year, month] = selectedMonth.split('-').map(Number);
+        return new Intl.DateTimeFormat('en-US', { month: 'long', year: 'numeric' }).format(new Date(year, month - 1, 1));
+    }
+
+    showCopyBudgetModal() {
+        const [year, month] = this.selectedMonth.split('-').map(Number);
+        const previous = new Date(year, month - 2, 1);
+        const sourceMonth = `${previous.getFullYear()}-${String(previous.getMonth() + 1).padStart(2, '0')}`;
+        window.modalService?.open({
+            title: 'Copy Monthly Budgets',
+            subtitle: 'Reuse a previous or custom month without changing the original budgets.',
+            icon: 'fa-copy',
+            saveText: '<i class="fas fa-copy me-1"></i> Copy Selected Budgets',
+            bodyHTML: `
+                <div class="copy-budget-flow">
+                    <div class="row g-3 align-items-end mb-3">
+                        <div class="col-md-5">
+                            <label class="form-label fw-semibold" for="copy-budget-source-month">Copy from</label>
+                            <input class="form-control" type="month" id="copy-budget-source-month" value="${sourceMonth}" required>
+                        </div>
+                        <div class="col-md-5">
+                            <label class="form-label fw-semibold" for="copy-budget-target-month">Paste into</label>
+                            <input class="form-control" type="month" id="copy-budget-target-month" value="${this.selectedMonth}" required>
+                        </div>
+                        <div class="col-md-2 d-grid">
+                            <button type="button" class="btn btn-outline-secondary" id="copy-budget-previous-btn" title="Use the month before the destination"><i class="fas fa-history me-1"></i> Previous</button>
+                        </div>
+                    </div>
+                    <div class="d-flex justify-content-between align-items-center rounded-3 p-3 mb-2" style="background:var(--bg-secondary,#f4f8f7)">
+                        <div><strong id="copy-budget-source-label"></strong><small class="d-block text-muted">Choose the limits you want to reuse.</small></div>
+                        <button type="button" class="btn btn-sm btn-outline-primary" id="copy-budget-select-all">Select all</button>
+                    </div>
+                    <div id="copy-budget-list" class="d-grid gap-2" style="max-height:340px;overflow:auto"></div>
+                    <div class="alert alert-light border mt-3 mb-0 d-flex justify-content-between align-items-center">
+                        <span id="copy-budget-count">0 selected</span>
+                        <strong id="copy-budget-total">Rs 0.00</strong>
+                    </div>
+                </div>`,
+            onSave: () => this.copySelectedBudgets()
+        });
+
+        const source = document.getElementById('copy-budget-source-month');
+        const target = document.getElementById('copy-budget-target-month');
+        const rerender = () => this.renderCopyBudgetChoices(source?.value, target?.value);
+        source?.addEventListener('change', rerender);
+        target?.addEventListener('change', rerender);
+        document.getElementById('copy-budget-previous-btn')?.addEventListener('click', () => {
+            if (!target?.value || !source) return;
+            const [targetYear, targetMonth] = target.value.split('-').map(Number);
+            const prior = new Date(targetYear, targetMonth - 2, 1);
+            source.value = `${prior.getFullYear()}-${String(prior.getMonth() + 1).padStart(2, '0')}`;
+            rerender();
+        });
+        document.getElementById('copy-budget-select-all')?.addEventListener('click', () => {
+            document.querySelectorAll('.copy-budget-check:not(:disabled)').forEach(box => { box.checked = true; });
+            this.updateCopyBudgetSummary();
+        });
+        rerender();
+    }
+
+    _copyBudgetKey(budget) {
+        return `${String(budget.name || '').trim().toLowerCase()}|${budget.category_id || ''}|${budget.subcategory_id || ''}`;
+    }
+
+    renderCopyBudgetChoices(sourceMonth, targetMonth) {
+        const list = document.getElementById('copy-budget-list');
+        const label = document.getElementById('copy-budget-source-label');
+        if (!list || !/^\d{4}-(0[1-9]|1[0-2])$/.test(sourceMonth || '') || !/^\d{4}-(0[1-9]|1[0-2])$/.test(targetMonth || '')) return;
+        const sourceRange = this._selectedMonthRange(sourceMonth);
+        const targetRange = this._selectedMonthRange(targetMonth);
+        const sourceBudgets = this.budgets.filter(b => b.period === 'monthly' && b.start_date <= sourceRange.endDate && b.end_date >= sourceRange.startDate);
+        const targetKeys = new Set(this.budgets
+            .filter(b => b.period === 'monthly' && b.start_date <= targetRange.endDate && b.end_date >= targetRange.startDate)
+            .map(b => this._copyBudgetKey(b)));
+        if (label) label.textContent = `Budgets from ${this._monthLabel(sourceMonth)}`;
+        if (!sourceBudgets.length) {
+            list.innerHTML = '<div class="text-center text-muted border rounded-3 p-4"><i class="fas fa-calendar-times fa-2x mb-2"></i><div>No monthly budgets found for this source month.</div></div>';
+            this.updateCopyBudgetSummary();
+            return;
+        }
+        list.innerHTML = sourceBudgets.map(budget => {
+            const duplicate = targetKeys.has(this._copyBudgetKey(budget));
+            return `<label class="d-flex align-items-center gap-3 border rounded-3 p-3 ${duplicate ? 'opacity-75' : ''}" style="cursor:${duplicate ? 'not-allowed' : 'pointer'}">
+                <input class="form-check-input copy-budget-check" type="checkbox" value="${Number(budget.id)}" data-amount="${Number(budget.amount || 0)}" ${duplicate ? 'disabled' : 'checked'}>
+                <span class="budget-card-icon flex-shrink-0"><i class="bi bi-pie-chart-fill"></i></span>
+                <span class="flex-grow-1"><strong class="d-block">${Formatters.escapeHTML(budget.name)}</strong><small class="text-muted">${Formatters.escapeHTML(budget.scope_label || budget.category_name || 'All expenses')}</small></span>
+                <span class="text-end"><strong>${Formatters.currency(budget.amount)}</strong>${duplicate ? '<small class="d-block text-success">Already exists</small>' : ''}</span>
+            </label>`;
+        }).join('');
+        list.querySelectorAll('.copy-budget-check').forEach(box => box.addEventListener('change', () => this.updateCopyBudgetSummary()));
+        this.updateCopyBudgetSummary();
+    }
+
+    updateCopyBudgetSummary() {
+        const selected = [...document.querySelectorAll('.copy-budget-check:checked')];
+        const count = document.getElementById('copy-budget-count');
+        const total = document.getElementById('copy-budget-total');
+        if (count) count.textContent = `${selected.length} selected`;
+        if (total) total.textContent = Formatters.currency(selected.reduce((sum, box) => sum + Number(box.dataset.amount || 0), 0));
+    }
+
+    async copySelectedBudgets() {
+        const sourceMonth = document.getElementById('copy-budget-source-month')?.value || '';
+        const targetMonth = document.getElementById('copy-budget-target-month')?.value || '';
+        if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(sourceMonth) || !/^\d{4}-(0[1-9]|1[0-2])$/.test(targetMonth)) {
+            NotificationService.warning('Choose valid source and destination months');
+            return;
+        }
+        if (sourceMonth === targetMonth) {
+            NotificationService.warning('Source and destination months must be different');
+            return;
+        }
+        const ids = [...document.querySelectorAll('.copy-budget-check:checked')].map(box => Number(box.value));
+        if (!ids.length) {
+            NotificationService.warning('Select at least one budget to copy');
+            return;
+        }
+        const saveBtn = document.getElementById('modal-save-btn');
+        AjaxService?.showButtonLoading(saveBtn, 'Copying...');
+        try {
+            const response = await budgetsAPI.copyToMonth(ids, sourceMonth, targetMonth);
+            if (!response?.success) throw new Error(response?.message || 'Unable to copy budgets');
+            const created = Number(response.data?.created || 0);
+            const skipped = response.data?.skipped?.length || 0;
+            NotificationService.success(`${created} budget(s) copied to ${this._monthLabel(targetMonth)}${skipped ? `; ${skipped} already existed` : ''}`);
+            this.selectedMonth = targetMonth;
+            const monthInput = document.getElementById('budget-month');
+            if (monthInput) monthInput.value = targetMonth;
+            window.modalService?.close();
+        } catch (error) {
+            NotificationService.error(error.message || 'Unable to copy budgets');
+        } finally {
+            AjaxService?.hideButtonLoading(saveBtn);
+        }
+    }
+
+    showAddBudgetModal(draft = {}) {
+        const escapeAttribute = value => String(value ?? '').replace(/[&<>'"]/g, character => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', "'":'&#39;', '"':'&quot;' }[character]));
+        const selectedPeriod = draft.period || 'monthly';
+        const startDate = draft.start_date || DateUtils.getKathmanduDateString();
+        const endDate = draft.end_date || '';
         const formHTML = `
             <form id="budget-form">
                 <div class="row g-4">
@@ -173,7 +432,7 @@ class BudgetsManager {
                             <label>Budget Name</label>
                             <div class="form-control-icon">
                                 <i class="fas fa-tag"></i>
-                                <input type="text" id="budget-name" placeholder="e.g. Monthly Groceries" required>
+                                <input type="text" id="budget-name" value="${escapeAttribute(draft.name)}" placeholder="e.g. Monthly Groceries" required>
                             </div>
                         </div>
                     </div>
@@ -182,7 +441,7 @@ class BudgetsManager {
                             <label>Amount</label>
                             <div class="form-control-icon">
                                 <i class="fas fa-rupee-sign"></i>
-                                <input type="number" id="budget-amount" step="0.01" placeholder="Rs 25,000" required>
+                                <input type="number" id="budget-amount" value="${escapeAttribute(draft.amount)}" step="0.01" placeholder="Rs 25,000" required>
                             </div>
                         </div>
                     </div>
@@ -192,10 +451,10 @@ class BudgetsManager {
                             <div class="form-control-icon">
                                 <i class="fas fa-calendar"></i>
                                 <select id="budget-period" required>
-                                    <option value="daily">Daily</option>
-                                    <option value="weekly">Weekly</option>
-                                    <option value="monthly" selected>Monthly</option>
-                                    <option value="yearly">Yearly</option>
+                                    <option value="daily" ${selectedPeriod === 'daily' ? 'selected' : ''}>Daily</option>
+                                    <option value="weekly" ${selectedPeriod === 'weekly' ? 'selected' : ''}>Weekly</option>
+                                    <option value="monthly" ${selectedPeriod === 'monthly' ? 'selected' : ''}>Monthly</option>
+                                    <option value="yearly" ${selectedPeriod === 'yearly' ? 'selected' : ''}>Yearly</option>
                                 </select>
                             </div>
                         </div>
@@ -227,7 +486,7 @@ class BudgetsManager {
                             <label>Start Date</label>
                             <div class="form-control-icon">
                                 <i class="fas fa-calendar-check"></i>
-                                <input type="date" id="budget-start-date" value="${new Date().toISOString().split('T')[0]}" required>
+                                <input type="date" id="budget-start-date" value="${escapeAttribute(startDate)}" required>
                             </div>
                         </div>
                     </div>
@@ -236,7 +495,7 @@ class BudgetsManager {
                             <label>End Date</label>
                             <div class="form-control-icon">
                                 <i class="fas fa-calendar-times"></i>
-                                <input type="date" id="budget-end-date" required>
+                                <input type="date" id="budget-end-date" value="${escapeAttribute(endDate)}" required>
                             </div>
                         </div>
                     </div>
@@ -245,7 +504,7 @@ class BudgetsManager {
                             <label>Alert Threshold (%)</label>
                             <div class="form-control-icon">
                                 <i class="fas fa-bell"></i>
-                                <input type="number" id="budget-alert-threshold" value="80" min="0" max="100" required>
+                                <input type="number" id="budget-alert-threshold" value="${escapeAttribute(draft.alert_threshold ?? 80)}" min="0" max="100" required>
                             </div>
                         </div>
                     </div>
@@ -275,10 +534,10 @@ class BudgetsManager {
             DatePickerManager.bind('#budget-end-date');
         }
 
-        this.loadCategoriesForForm();
+        this.loadCategoriesForForm(draft.category_id, draft.subcategory_id);
     }
 
-    async loadCategoriesForForm() {
+    async loadCategoriesForForm(selectedCategoryId = null, selectedSubcategoryId = null) {
         try {
             const response = await categoriesAPI.getAll('expense');
 
@@ -293,6 +552,10 @@ class BudgetsManager {
                         select.appendChild(option);
                     });
                     select.addEventListener('change',()=>this.loadSubcategoriesForForm(select.value));
+                    if (selectedCategoryId) {
+                        select.value = String(selectedCategoryId);
+                        await this.loadSubcategoriesForForm(select.value, selectedSubcategoryId);
+                    }
                 }
             }
         } catch (error) {
@@ -300,7 +563,7 @@ class BudgetsManager {
         }
     }
 
-    async loadSubcategoriesForForm(categoryId){
+    async loadSubcategoriesForForm(categoryId, selectedSubcategoryId = null){
         const select=document.getElementById('budget-subcategory');
         if(!select)return;
         select.innerHTML='<option value="">All subcategories</option>';
@@ -311,10 +574,12 @@ class BudgetsManager {
             if(response.success)response.data.forEach(subcategory=>{
                 const option=document.createElement('option');option.value=subcategory.id;option.textContent=subcategory.name;select.appendChild(option);
             });
+            if (selectedSubcategoryId) select.value = String(selectedSubcategoryId);
         }catch(error){console.error('Failed to load budget subcategories:',error);}
     }
 
     async handleBudgetSubmit() {
+        if (this._budgetSubmitInProgress) return;
         const form = document.getElementById('budget-form');
         if (form && !form.checkValidity()) {
             form.reportValidity();
@@ -332,7 +597,8 @@ class BudgetsManager {
             alert_threshold: parseFloat(document.getElementById('budget-alert-threshold').value)
         };
 
-        const saveBtn = document.querySelector('#modal-footer .btn-primary');
+        const saveBtn = document.getElementById('modal-save-btn') || document.querySelector('#modal-footer .btn-primary');
+        this._budgetSubmitInProgress = true;
         AjaxService?.showButtonLoading(saveBtn);
         try {
             const response = await budgetsAPI.create(data);
@@ -341,14 +607,86 @@ class BudgetsManager {
                 if (window.modalService) modalService.close();
                 else if (window.premiumModal) premiumModal.close();
                 NotificationService.success('Budget created successfully');
-                window.dispatchEvent(new CustomEvent('app:data-changed'));
             }
         } catch (error) {
             console.error('Failed to create budget:', error);
-            NotificationService.error('Failed to create budget');
+            if (this.isDuplicateBudgetConflict(error)) {
+                await this.confirmDuplicateBudgetUpdate(error.details.existing_budget, data);
+            } else {
+                // Keep the modal and its values open so any validation error
+                // can be corrected without re-entering the form.
+                NotificationService.error(error.message || 'Failed to create budget');
+            }
         } finally {
+            this._budgetSubmitInProgress = false;
             AjaxService?.hideButtonLoading(saveBtn);
         }
+    }
+
+    isDuplicateBudgetConflict(error) {
+        return error?.status === 409
+            && error?.details?.code === 'BUDGET_DUPLICATE'
+            && Number.isInteger(Number(error.details?.existing_budget?.id));
+    }
+
+    async confirmDuplicateBudgetUpdate(existingBudget, submittedData) {
+        const escape = value => window.Formatters?.escapeHTML
+            ? Formatters.escapeHTML(String(value ?? ''))
+            : String(value ?? '').replace(/[&<>'"]/g, character => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', "'":'&#39;', '"':'&quot;' }[character]));
+        const category = existingBudget.category_name || 'All Categories';
+        const scope = existingBudget.subcategory_name
+            ? `${category} → ${existingBudget.subcategory_name}`
+            : existingBudget.category_name ? `${category} → All Subcategories` : category;
+        const period = String(existingBudget.period || submittedData.period || 'monthly').toLowerCase();
+        const range = this.formatBudgetDateRange(existingBudget.start_date, existingBudget.end_date);
+        const money = value => window.Formatters?.currency ? Formatters.currency(value) : `Rs ${Number(value || 0).toFixed(2)}`;
+
+        if (!window.modalService) {
+            NotificationService.error('A matching budget already exists. Please update it from the budget list.');
+            return;
+        }
+
+        window.modalService.open({
+            title: 'Budget Already Exists',
+            subtitle: 'Choose whether to keep the current budget or update it with your entered values.',
+            icon: 'fa-triangle-exclamation',
+            bodyHTML: `<p>A ${escape(period)} budget already exists for <strong>${escape(scope)}</strong> for <strong>${escape(range)}</strong>.</p>
+                <div class="text-start border rounded-3 p-3 mt-3">
+                    <div class="d-flex justify-content-between gap-3"><span>Existing amount</span><strong>${escape(money(existingBudget.amount))}</strong></div>
+                    <div class="d-flex justify-content-between gap-3 mt-2"><span>New amount</span><strong>${escape(money(submittedData.amount))}</strong></div>
+                </div>`,
+            saveText: 'Update Existing',
+            onCancel: () => this.showAddBudgetModal(submittedData),
+            onSave: async () => {
+                if (this._duplicateBudgetUpdateInProgress) return;
+                this._duplicateBudgetUpdateInProgress = true;
+                const saveBtn = document.getElementById('modal-save-btn');
+                AjaxService?.showButtonLoading(saveBtn, 'Updating...');
+                try {
+                    const response = await budgetsAPI.update(existingBudget.id, submittedData);
+                    if (!response?.success) throw new Error(response?.message || 'Unable to update the existing budget.');
+                    window.modalService.close();
+                    await this.loadBudgets();
+                    NotificationService.success('Budget updated successfully.');
+                } catch (error) {
+                    NotificationService.error(error.message || 'Unable to update the existing budget.');
+                } finally {
+                    this._duplicateBudgetUpdateInProgress = false;
+                    AjaxService?.hideButtonLoading(saveBtn);
+                }
+            }
+        });
+    }
+
+    formatBudgetDateRange(startDate, endDate) {
+        const start = new Date(`${startDate}T00:00:00`);
+        const end = new Date(`${endDate}T00:00:00`);
+        if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return `${startDate} to ${endDate}`;
+        const month = new Intl.DateTimeFormat('en-US', { month: 'short' });
+        if (start.getFullYear() === end.getFullYear() && start.getMonth() === end.getMonth()) {
+            return `${month.format(start)} ${start.getDate()}–${end.getDate()}, ${start.getFullYear()}`;
+        }
+        return `${month.format(start)} ${start.getDate()}, ${start.getFullYear()}–${month.format(end)} ${end.getDate()}, ${end.getFullYear()}`;
     }
 
     /* =============== BULK BUDGET CREATION =============== */
@@ -356,7 +694,7 @@ class BudgetsManager {
     showBulkBudgetModal() {
         this._bulkState = {
             period: 'monthly',
-            startDate: new Date().toISOString().split('T')[0],
+            startDate: DateUtils.getKathmanduDateString(),
             endDate: '',
             categories: [],
             suggestions: null,
@@ -364,11 +702,9 @@ class BudgetsManager {
             searchQuery: ''
         };
 
-        const now = new Date();
-        const firstDay = new Date(now.getFullYear(), now.getMonth(), 1);
-        const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0);
-        this._bulkState.startDate = firstDay.toISOString().split('T')[0];
-        this._bulkState.endDate = lastDay.toISOString().split('T')[0];
+        const monthRange = DateUtils.getKathmanduRange('month');
+        this._bulkState.startDate = monthRange.start;
+        this._bulkState.endDate = monthRange.end;
 
         const bodyHTML = this._renderBulkModalBody();
 
@@ -815,7 +1151,6 @@ class BudgetsManager {
                     confirmButtonColor: '#10b981'
                 });
                 if (window.modalService) modalService.close();
-                window.dispatchEvent(new CustomEvent('app:data-changed'));
             }
         } catch (err) {
             NotificationService.error(err.message || 'Failed to create budgets');
@@ -974,7 +1309,6 @@ class BudgetsManager {
 
             if (response.success) {
                 NotificationService.success('Budget deleted successfully');
-                window.dispatchEvent(new CustomEvent('app:data-changed'));
             }
         } catch (error) {
             console.error('Failed to delete budget:', error);

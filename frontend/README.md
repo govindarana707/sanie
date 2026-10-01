@@ -20,7 +20,7 @@ AI-Powered Personal Finance Management System - Frontend
 
 ## PWA Development and Deployment
 
-- The deployed PWA identity is explicitly rooted at `/sanie/frontend/`: its manifest URL, `id`, `start_url`, manifest scope, service-worker URL, and worker scope all use that path. If the project is intentionally moved to another base path, update those values together before installing it.
+- The manifest, service-worker URL, and worker scope resolve from the directory that serves the frontend. The filtered production release serves that directory at `/`; the existing local `/sanie/frontend/` setup remains supported without hard-coded production prefixes.
 - Bump `CACHE_VERSION` in `service-worker.js` whenever a release changes the precached app shell. The active shell stays consistent until the user accepts the fully cached replacement.
 - Service workers require a secure context in production. `localhost` is treated as secure for development; a plain-HTTP LAN IP may not register a service worker or expose installation in some browsers. Use HTTPS for production and realistic device testing rather than weakening browser security.
 - After changing the service worker, reload/reopen once and use the in-app **Update** action when the new worker is waiting. The action is deferred while a financial form is open or synchronization is active. Pending offline changes do not block a safely installed update and remain in IndexedDB with their original idempotency IDs. Do not clear IndexedDB as part of normal releases.

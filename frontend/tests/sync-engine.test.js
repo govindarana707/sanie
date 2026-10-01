@@ -1,6 +1,10 @@
 const fs = require('fs');
 const vm = require('vm');
 
+const utilityContext = { window: {}, Intl, Date, Object, String, Number, TypeError };
+vm.createContext(utilityContext);
+vm.runInContext(fs.readFileSync('frontend/assets/js/utils.js', 'utf8'), utilityContext);
+
 const events = new Map();
 const records = [
     { localId: 'local_1', clientRequestId: '11111111-1111-4111-a111-111111111111', userId: '7', action: 'create', endpoint: '/transactions', payload: { type: 'expense', amount: 10 }, status: 'pending', retryCount: 0, createdAt: '2026-01-01T00:00:00Z' },
@@ -60,6 +64,7 @@ const context = {
     document: { dispatchEvent: () => true },
     CustomEvent: class CustomEvent { constructor(type, init) { this.type = type; this.detail = init?.detail; } },
     BroadcastChannel: undefined,
+    DateUtils: utilityContext.window.DateUtils,
     console,
     setTimeout,
     clearTimeout

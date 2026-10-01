@@ -217,7 +217,10 @@ class Subcategory {
         $stmt->execute();
         
         $result = $stmt->fetch(PDO::FETCH_ASSOC);
-        return $result['count'] > 0;
+        if ($result['count'] > 0) return true;
+        $stmt = $this->conn->prepare('SELECT COUNT(*) FROM recurring_transactions WHERE subcategory_id = :id');
+        $stmt->execute([':id'=>(int)$id]);
+        return (int)$stmt->fetchColumn() > 0;
     }
 
     public function hasBudgets($id):bool {

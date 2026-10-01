@@ -7,9 +7,17 @@ class RateLimiter {
     }
 
     public static function hit($key, $limit = 5, $windowSeconds = 300) {
+        return self::record($key, $limit, $windowSeconds, true);
+    }
+
+    public static function hitStrict($key, $limit = 5, $windowSeconds = 300) {
+        return self::record($key, $limit, $windowSeconds, false);
+    }
+
+    private static function record($key, $limit, $windowSeconds, $failOpen) {
         $path = self::path($key);
         $handle = fopen($path, 'c+');
-        if (!$handle) return true; // Authentication must not fail merely because telemetry storage is unavailable.
+        if (!$handle) return (bool)$failOpen;
 
         try {
             flock($handle, LOCK_EX);

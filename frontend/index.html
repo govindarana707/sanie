@@ -4,12 +4,23 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
     <meta name="theme-color" content="#0f172a">
+    <script>
+        // Apply the saved theme before styles load so installed dark-mode PWA
+        // launches do not flash a light document background.
+        try {
+            const savedTheme = localStorage.getItem('theme');
+            if (savedTheme === 'dark') {
+                document.documentElement.setAttribute('data-bs-theme', 'dark');
+                document.documentElement.setAttribute('data-theme', 'dark');
+            }
+        } catch (error) {}
+    </script>
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="SanIE">
     <meta name="application-name" content="SanIE">
-    <link rel="manifest" href="/sanie/frontend/manifest.webmanifest">
+    <link rel="manifest" href="manifest.webmanifest">
     <link rel="icon" href="assets/favicon/favicon.ico" sizes="any">
     <link rel="icon" type="image/png" sizes="32x32" href="assets/favicon/favicon-32x32.png">
     <link rel="icon" type="image/png" sizes="16x16" href="assets/favicon/favicon-16x16.png">
@@ -47,16 +58,15 @@
     <!-- DataTables CSS -->
     <link rel="stylesheet" href="https://cdn.datatables.net/1.13.6/css/dataTables.bootstrap5.min.css">
     <link rel="stylesheet" href="https://cdn.datatables.net/responsive/2.5.0/css/responsive.bootstrap5.min.css">
-    <link rel="stylesheet" href="https://cdn.datatables.net/buttons/2.4.1/css/buttons.bootstrap5.min.css">
     
     <!-- Flatpickr CSS -->
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr@4.6.13/dist/flatpickr.min.css">
     
     <!-- Custom CSS -->
-    <link rel="stylesheet" href="assets/css/styles.css?v=26">
+    <link rel="stylesheet" href="assets/css/styles.css?v=80">
     <!-- Karobar Module CSS -->
-    <link rel="stylesheet" href="assets/css/karobar.css">
-    <link rel="stylesheet" href="assets/css/category.css">
+    <link rel="stylesheet" href="assets/css/karobar.css?v=8">
+    <link rel="stylesheet" href="assets/css/category.css?v=3">
 </head>
 <body>
     <div id="app">
@@ -101,6 +111,7 @@
                             <label for="login-password">Password</label>
                             <div class="auth-input-wrap"><i class="bi bi-lock"></i><input type="password" id="login-password" name="password" autocomplete="current-password" placeholder="Enter your password" required><button type="button" class="auth-password-toggle" data-password-target="login-password" aria-label="Show password"><i class="bi bi-eye"></i></button></div>
                         </div>
+                        <button type="button" class="auth-text-button auth-forgot-link" id="forgot-password-link">Forgot password?</button>
                         <button type="submit" class="btn btn-primary auth-submit-btn"><span>Sign in</span><i class="bi bi-arrow-right" aria-hidden="true"></i></button>
                         <p class="auth-error" id="login-error" aria-live="polite"></p>
                     </form>
@@ -128,6 +139,36 @@
                         </div>
                         <button type="submit" class="btn btn-primary auth-submit-btn"><span>Create account</span><i class="bi bi-arrow-right" aria-hidden="true"></i></button>
                         <p class="auth-error" id="register-error" aria-live="polite"></p>
+                    </form>
+
+                    <form id="forgot-password-form" class="auth-form" aria-hidden="true">
+                        <div class="auth-form-heading"><h2>Reset your password</h2><p>Enter the email address currently associated with your account.</p></div>
+                        <div class="form-group">
+                            <label for="forgot-password-email">Email address</label>
+                            <div class="auth-input-wrap"><i class="bi bi-envelope"></i><input type="email" id="forgot-password-email" name="email" autocomplete="email" placeholder="you@example.com" required></div>
+                        </div>
+                        <button type="submit" class="btn btn-primary auth-submit-btn"><span>Request reset</span><i class="bi bi-send" aria-hidden="true"></i></button>
+                        <p class="auth-success" id="forgot-password-success" aria-live="polite"></p>
+                        <p class="auth-error" id="forgot-password-error" aria-live="polite"></p>
+                        <button type="button" class="auth-text-button auth-back-to-login">Back to login</button>
+                    </form>
+
+                    <form id="reset-password-form" class="auth-form" aria-hidden="true">
+                        <div class="auth-form-heading"><h2>Choose a new password</h2><p>Use 12–72 characters and a password you do not use elsewhere.</p></div>
+                        <div id="reset-password-fields">
+                            <div class="form-group">
+                                <label for="reset-new-password">New Password</label>
+                                <div class="auth-input-wrap"><i class="bi bi-lock"></i><input type="password" id="reset-new-password" autocomplete="new-password" minlength="12" maxlength="72" required><button type="button" class="auth-password-toggle" data-password-target="reset-new-password" aria-label="Show password"><i class="bi bi-eye"></i></button></div>
+                            </div>
+                            <div class="form-group">
+                                <label for="reset-confirm-password">Confirm Password</label>
+                                <div class="auth-input-wrap"><i class="bi bi-lock-check"></i><input type="password" id="reset-confirm-password" autocomplete="new-password" minlength="12" maxlength="72" required><button type="button" class="auth-password-toggle" data-password-target="reset-confirm-password" aria-label="Show password"><i class="bi bi-eye"></i></button></div>
+                            </div>
+                            <button type="submit" class="btn btn-primary auth-submit-btn"><span>Update password</span><i class="bi bi-key" aria-hidden="true"></i></button>
+                        </div>
+                        <p class="auth-success" id="reset-password-success" aria-live="polite"></p>
+                        <p class="auth-error" id="reset-password-error" aria-live="polite"></p>
+                        <button type="button" class="auth-text-button auth-back-to-login">Back to login</button>
                     </form>
 
                     <p class="auth-privacy-note"><i class="bi bi-shield-lock" aria-hidden="true"></i> Your financial data stays private and protected.</p>
@@ -161,6 +202,10 @@
                         <i class="bi bi-arrow-left-right"></i>
                         <span>Transactions</span>
                     </a>
+                    <a href="#recurring-transactions" class="nav-item" data-page="recurring-transactions">
+                        <i class="bi bi-arrow-repeat"></i>
+                        <span>Recurring</span>
+                    </a>
                     <a href="#budgets" class="nav-item" data-page="budgets">
                         <i class="bi bi-wallet2"></i>
                         <span>Budgets</span>
@@ -172,6 +217,10 @@
                     <a href="#savings" class="nav-item" data-page="savings">
                         <i class="bi bi-piggy-bank"></i>
                         <span>Savings</span>
+                    </a>
+                    <a href="#tasks" class="nav-item" data-page="tasks">
+                        <i class="bi bi-check2-square"></i>
+                        <span>Tasks</span>
                     </a>
                     <div class="nav-section-label">Money</div>
                     <a href="#accounts" class="nav-item" data-page="accounts">
@@ -332,107 +381,64 @@
                         </div>
                     </div>
 
-                    <!-- Statistics Cards - Premium Redesign -->
-                    <div class="stats-grid">
-                        <!-- Income -->
-                        <div class="stat-card income">
-                            <div class="stat-icon">
-                                <i class="bi bi-arrow-down-left"></i>
+                    <!-- Primary financial summary -->
+                    <div class="dashboard-summary-grid">
+                        <article class="net-balance-card" aria-labelledby="net-balance-label">
+                            <div class="net-balance-icon" aria-hidden="true"><i class="bi bi-wallet2"></i></div>
+                            <div>
+                                <p class="stat-label" id="net-balance-label">Net Balance</p>
+                                <p class="net-balance-value" id="stat-balance">Rs 0</p>
+                                <p class="stat-change">Included active accounts</p>
                             </div>
-                            <div class="stat-content">
-                                <p class="stat-label">Income</p>
-                                <p class="stat-value" id="stat-income">Rs 0</p>
-                                <p class="stat-change" id="stat-income-change">No data yet</p>
-                            </div>
-                            <div class="stat-sparkline" data-type="income"></div>
-                        </div>
-                        <!-- Expense -->
-                        <div class="stat-card expense">
-                            <div class="stat-icon">
-                                <i class="bi bi-arrow-up-right"></i>
-                            </div>
-                            <div class="stat-content">
-                                <p class="stat-label">Expense</p>
-                                <p class="stat-value" id="stat-expense">Rs 0</p>
-                                <p class="stat-change" id="stat-expense-change">No data yet</p>
-                            </div>
-                            <div class="stat-sparkline" data-type="expense"></div>
-                        </div>
-                        <!-- Savings -->
-                        <div class="stat-card savings">
-                            <div class="stat-icon">
-                                <i class="bi bi-piggy-bank"></i>
-                            </div>
-                            <div class="stat-content">
-                                <p class="stat-label">Savings</p>
-                                <p class="stat-value" id="stat-savings">Rs 0</p>
-                                <p class="stat-change" id="stat-savings-change">No data yet</p>
-                            </div>
-                            <div class="stat-sparkline" data-type="savings"></div>
-                        </div>
-                        <!-- Cash Balance -->
-                        <div class="stat-card balance">
-                            <div class="stat-icon">
-                                <i class="bi bi-wallet2"></i>
-                            </div>
-                            <div class="stat-content">
-                                <p class="stat-label">Cash Balance</p>
-                                <p class="stat-value" id="stat-balance">Rs 0</p>
-                                <p class="stat-change">Across all accounts</p>
-                            </div>
-                            <div class="stat-sparkline" data-type="balance"></div>
-                        </div>
-                        <!-- Net Worth -->
-                        <div class="stat-card networth">
-                            <div class="stat-icon">
-                                <i class="bi bi-graph-up-arrow"></i>
-                            </div>
-                            <div class="stat-content">
-                                <p class="stat-label">Net Worth</p>
-                                <p class="stat-value" id="stat-net-worth">Rs 0</p>
-                                <p class="stat-change" id="stat-net-worth-change">Cash + Receivable - Payable</p>
-                            </div>
-                            <div class="stat-sparkline" data-type="networth"></div>
-                        </div>
-                        <!-- Receivable -->
-                        <div class="stat-card receivable">
-                            <div class="stat-icon">
-                                <i class="bi bi-person-arrow-down-left"></i>
-                            </div>
-                            <div class="stat-content">
-                                <p class="stat-label">You Will Receive</p>
-                                <p class="stat-value" id="stat-receivable">Rs 0</p>
-                                <p class="stat-change" id="stat-receivable-change">2 people owe you</p>
-                            </div>
-                            <div class="stat-sparkline" data-type="receivable"></div>
-                        </div>
-                        <!-- Payable -->
-                        <div class="stat-card payable">
-                            <div class="stat-icon">
-                                <i class="bi bi-person-arrow-up-right"></i>
-                            </div>
-                            <div class="stat-content">
-                                <p class="stat-label">You Need to Pay</p>
-                                <p class="stat-value" id="stat-payable">Rs 0</p>
-                                <p class="stat-change" id="stat-payable-change">Nothing pending</p>
-                            </div>
-                            <div class="stat-sparkline" data-type="payable"></div>
+                        </article>
+                        <div class="primary-metrics-grid">
+                            <article class="compact-metric today-expense">
+                                <div class="compact-metric-content">
+                                    <div class="compact-metric-heading">
+                                        <span class="compact-metric-icon" aria-hidden="true"><i class="bi bi-calendar2-day"></i></span>
+                                        <p class="stat-label">Today's Expense</p>
+                                    </div>
+                                    <p class="stat-value" id="stat-today-expense">Rs 0</p>
+                                    <p class="stat-change" id="stat-today-expense-change">Today</p>
+                                </div>
+                            </article>
+                            <article class="compact-metric income">
+                                <div class="compact-metric-content">
+                                    <div class="compact-metric-heading">
+                                        <span class="compact-metric-icon" aria-hidden="true"><i class="bi bi-arrow-down-left"></i></span>
+                                        <p class="stat-label">Income</p>
+                                    </div>
+                                    <p class="stat-value" id="stat-income">Rs 0</p>
+                                    <p class="stat-change" id="stat-income-change">This period</p>
+                                </div>
+                            </article>
+                            <article class="compact-metric expense">
+                                <div class="compact-metric-content">
+                                    <div class="compact-metric-heading">
+                                        <span class="compact-metric-icon" aria-hidden="true"><i class="bi bi-arrow-up-right"></i></span>
+                                        <p class="stat-label">Expense</p>
+                                    </div>
+                                    <p class="stat-value" id="stat-expense">Rs 0</p>
+                                    <p class="stat-change" id="stat-expense-change">This period</p>
+                                </div>
+                            </article>
                         </div>
                     </div>
 
-                    <!-- My Accounts Section -->
-                    <div class="my-accounts-section">
+                    <!-- My Accounts -->
+                    <section class="my-accounts-section" aria-labelledby="my-accounts-heading">
                         <div class="section-header">
-                            <h3>My Accounts</h3>
+                            <h3 id="my-accounts-heading">My Accounts</h3>
+                            <button class="view-all" type="button" onclick="window.appRouter?.navigate('accounts')">View All Accounts <i class="bi bi-arrow-right"></i></button>
                         </div>
-                        <div class="accounts-grid" id="accounts-grid">
+                        <div class="accounts-grid dashboard-accounts-grid" id="accounts-grid">
                             <!-- Account cards rendered by JS -->
                         </div>
-                    </div>
+                    </section>
 
                     <!-- Charts Section -->
-                    <div class="row g-4 mb-4">
-                        <div class="col-lg-8">
+                    <div class="row g-4 mb-4 dashboard-analytics">
+                        <div class="col-lg-6">
                             <div class="card-premium p-4">
                                 <div class="d-flex align-items-center justify-content-between mb-3">
                                     <h4 class="mb-0">Income vs Expense</h4>
@@ -450,7 +456,7 @@
                                 </div>
                             </div>
                         </div>
-                        <div class="col-lg-4">
+                        <div class="col-lg-6">
                             <div class="card-premium p-4">
                                 <div class="d-flex align-items-center justify-content-between mb-3">
                                     <h4 class="mb-0">Spending by Category</h4>
@@ -467,24 +473,73 @@
                         </div>
                     </div>
 
-                    <!-- Financial Health Score -->
-                    <div class="health-score-card">
-                        <div class="health-score-content">
-                            <h3>Financial Health Score</h3>
-                            <div class="score-display">
-                                <span class="score-value" id="health-score">--</span>
-                                <span class="score-max">/100</span>
-                            </div>
-                            <p class="score-status" id="health-status">Add transactions to calculate your score</p>
+                    <!-- Recent Transactions -->
+                    <section class="recent-transactions dashboard-section-card mb-4" aria-labelledby="recent-transactions-heading">
+                        <div class="section-header">
+                            <h3 id="recent-transactions-heading">Recent Transactions</h3>
+                            <button class="view-all" type="button" onclick="window.appRouter?.navigate('transactions')">View all <i class="bi bi-arrow-right"></i></button>
                         </div>
-                        <div class="health-score-chart">
-                            <div class="score-circle">
-                                <svg viewBox="0 0 36 36">
-                                    <path class="score-bg" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"/>
-                                    <path class="score-progress" id="health-progress" stroke-dasharray="0, 100" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"/>
-                                </svg>
+                        <div class="transactions-list" id="recent-transactions-list"></div>
+                    </section>
+
+                    <div class="dashboard-bottom-grid">
+                        <!-- Financial Health Score -->
+                        <div class="health-score-card" data-health-state="neutral">
+                            <div class="health-score-content">
+                                <div class="health-score-heading">
+                                    <h3>Financial Health Score</h3>
+                                    <button class="health-breakdown-toggle" id="health-breakdown-toggle" type="button" aria-expanded="false" aria-controls="health-breakdown" hidden>
+                                        View breakdown <i class="bi bi-chevron-down" aria-hidden="true"></i>
+                                    </button>
+                                </div>
+                                <div class="score-display">
+                                    <span class="score-value" id="health-score">—</span>
+                                    <span class="score-max">/100</span>
+                                </div>
+                                <p class="score-status" id="health-status">Not enough data</p>
+                                <div class="health-breakdown" id="health-breakdown" hidden aria-live="polite">
+                                    <div class="health-breakdown-row"><span>Savings Rate</span><strong id="health-breakdown-savings-rate">—/30</strong></div>
+                                    <div class="health-breakdown-row"><span>Income vs Expense</span><strong id="health-breakdown-income-expense">—/25</strong></div>
+                                    <div class="health-breakdown-row"><span>Net Balance / Liquidity</span><strong id="health-breakdown-net-balance">—/20</strong></div>
+                                    <div class="health-breakdown-row"><span>Payable Burden</span><strong id="health-breakdown-payable">—/15</strong></div>
+                                    <div class="health-breakdown-row"><span>Financial Stability</span><strong id="health-breakdown-stability">—/10</strong></div>
+                                </div>
+                            </div>
+                            <div class="health-score-chart">
+                                <div class="score-circle">
+                                    <svg viewBox="0 0 36 36" role="img" aria-labelledby="health-gauge-label">
+                                        <title id="health-gauge-label">Financial health score unavailable</title>
+                                        <path class="score-bg" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"/>
+                                        <path class="score-progress" id="health-progress" stroke-dasharray="0, 100" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"/>
+                                    </svg>
+                                </div>
                             </div>
                         </div>
+
+                        <!-- Compact secondary metrics -->
+                        <section class="financial-overview" aria-labelledby="financial-overview-heading">
+                            <div class="section-header">
+                                <h3 id="financial-overview-heading">Financial Overview</h3>
+                            </div>
+                            <div class="financial-overview-grid">
+                                <div class="financial-overview-item" title="Money held in savings accounts and savings goals." aria-label="Savings: money held in savings accounts and savings goals">
+                                    <span>Savings</span>
+                                    <strong id="stat-savings">Rs 0</strong>
+                                </div>
+                                <div class="financial-overview-item" title="Net Balance plus goal savings and money to receive, minus money to pay." aria-label="Net Worth: Net Balance plus goal savings and money to receive, minus money to pay">
+                                    <span>Net Worth</span>
+                                    <strong id="stat-net-worth">Rs 0</strong>
+                                </div>
+                                <div class="financial-overview-item" title="Money that other people currently owe you." aria-label="To Receive: money that other people currently owe you">
+                                    <span>To Receive</span>
+                                    <strong id="stat-receivable">Rs 0</strong>
+                                </div>
+                                <div class="financial-overview-item" title="Money that you currently owe to other people." aria-label="To Pay: money that you currently owe to other people">
+                                    <span>To Pay</span>
+                                    <strong id="stat-payable">Rs 0</strong>
+                                </div>
+                            </div>
+                        </section>
                     </div>
 
                 </section>
@@ -534,8 +589,9 @@
                         </div>
                         <div class="tx-header-actions">
                             <div class="tx-header-actions-secondary">
-                                <button class="btn btn-light tx-btn" id="refresh-transactions-btn" title="Refresh" onclick="transactionsManager.loadTransactions()">
+                                <button class="btn btn-light tx-btn" id="refresh-transactions-btn" type="button" title="Refresh transactions" onclick="transactionsManager.loadTransactions()">
                                     <i class="bi bi-arrow-clockwise"></i>
+                                    <span class="tx-btn-label">Refresh</span>
                                 </button>
                                 <button class="btn btn-light tx-btn" id="export-btn" title="Export">
                                     <i class="bi bi-download"></i>
@@ -598,6 +654,16 @@
                     </div>
 
                     <div class="tx-table-area">
+                        <div class="tx-table-toolbar">
+                            <div class="tx-scope-filter" aria-label="Transaction scope filter">
+                                <label for="tx-scope-filter"><i class="bi bi-layers" aria-hidden="true"></i>Scope</label>
+                                <select id="tx-scope-filter" class="form-select form-select-sm" aria-label="Transaction scope">
+                                    <option value="all" selected>All</option>
+                                    <option value="personal">Personal</option>
+                                    <option value="karobar">Karobar</option>
+                                </select>
+                            </div>
+                        </div>
                         <div id="tx-bulk-actions" class="alert alert-light border d-none align-items-center justify-content-between mb-3" role="region" aria-label="Bulk transaction actions">
                             <span><strong id="tx-selected-count">0</strong> transactions selected</span>
                             <button type="button" class="btn btn-sm btn-danger" id="tx-bulk-delete-btn">
@@ -646,15 +712,15 @@
                             <table id="transactions-datatable" class="table table-hover mb-0" style="width:100%">
                                 <thead>
                                     <tr>
-                                        <th class="text-center"><input type="checkbox" class="form-check-input" id="tx-select-all" aria-label="Select all transactions"></th>
-                                        <th>Date</th>
-                                        <th>Type</th>
-                                        <th>Category</th>
-                                        <th>Subcategory</th>
-                                        <th>Account</th>
-                                        <th>Description</th>
-                                        <th>Amount</th>
-                                        <th class="text-center">Actions</th>
+                                        <th scope="col" class="text-center tx-select-column"><input type="checkbox" class="form-check-input" id="tx-select-all" aria-label="Select all transactions"></th>
+                                        <th scope="col">Date</th>
+                                        <th scope="col">Type</th>
+                                        <th scope="col">Category</th>
+                                        <th scope="col">Subcategory</th>
+                                        <th scope="col">Account / Party</th>
+                                        <th scope="col">Description</th>
+                                        <th scope="col" class="text-end">Amount</th>
+                                        <th scope="col" class="text-center">Actions</th>
                                     </tr>
                                 </thead>
                                 <tbody id="transactions-table-body">
@@ -678,6 +744,23 @@
                             </div>
                         </div>
 
+                        <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mt-3" id="tx-server-pagination" aria-label="Transaction pages">
+                            <small class="text-muted" id="tx-server-page-info">Page 1</small>
+                            <div class="d-flex align-items-center gap-2">
+                                <label class="small text-muted mb-0" for="tx-server-page-size">Rows</label>
+                                <select class="form-select form-select-sm" id="tx-server-page-size" style="width:auto">
+                                    <option value="25">25</option>
+                                    <option value="50" selected>50</option>
+                                    <option value="100">100</option>
+                                    <option value="200">200</option>
+                                </select>
+                                <div class="btn-group btn-group-sm">
+                                    <button class="btn btn-outline-secondary" id="tx-server-page-prev" type="button">Previous</button>
+                                    <button class="btn btn-outline-secondary" id="tx-server-page-next" type="button">Next</button>
+                                </div>
+                            </div>
+                        </div>
+
                         <div class="tx-mobile-cards" id="tx-mobile-cards" style="display:none;">
                             <div class="tx-mobile-pagination" id="tx-mobile-pagination">
                                 <button class="tx-mob-page-btn" id="tx-mob-page-prev" title="Previous"><i class="bi bi-caret-left-fill"></i></button>
@@ -689,6 +772,38 @@
                     </div>
                 </section>
 
+                <!-- Recurring Transactions Page -->
+                <section id="recurring-transactions-page" class="page">
+                    <div class="recurring-page-header">
+                        <div>
+                            <span class="recurring-eyebrow"><i class="bi bi-arrow-repeat"></i> Automatic money routine</span>
+                            <h2>Recurring Transactions</h2>
+                            <p>Schedule ordinary income and expenses, and review missed dates before money is recorded.</p>
+                        </div>
+                        <div class="recurring-header-actions">
+                            <button class="btn btn-outline-primary" id="process-recurring-btn" type="button">
+                                <i class="bi bi-play-circle"></i> Process Due Transactions
+                            </button>
+                            <button class="btn btn-primary" id="add-recurring-btn" type="button">
+                                <i class="bi bi-plus-lg"></i> Add Recurring
+                            </button>
+                        </div>
+                    </div>
+                    <div class="recurring-summary" aria-label="Recurring transaction overview">
+                        <div><span>Active</span><strong id="recurring-active-count">0</strong></div>
+                        <div><span>Needs review</span><strong id="recurring-review-count">0</strong></div>
+                        <div><span>Next scheduled</span><strong id="recurring-next-date">—</strong></div>
+                    </div>
+                    <div id="recurring-alert" class="alert d-none" role="status"></div>
+                    <div id="recurring-grid" class="recurring-grid" aria-live="polite"></div>
+                    <div id="recurring-empty" class="recurring-empty d-none">
+                        <span class="recurring-empty-icon"><i class="bi bi-calendar2-plus"></i></span>
+                        <h3>No recurring transactions yet</h3>
+                        <p>Create a schedule for regular income or expenses. Nothing is posted until it becomes due.</p>
+                        <button class="btn btn-primary" type="button" id="recurring-empty-add"><i class="bi bi-plus-lg"></i> Create schedule</button>
+                    </div>
+                </section>
+
                 <!-- Budgets Page -->
                 <section id="budgets-page" class="page">
                     <div class="budget-page-header">
@@ -697,15 +812,31 @@
                             <h2>Budgets</h2>
                             <p>Set clear limits and stay ahead of your monthly spending.</p>
                         </div>
-                        <div class="page-actions budget-page-actions">
-                            <button class="btn btn-outline-primary" id="bulk-budget-btn">
-                                <i class="fas fa-layer-group"></i>
-                                Bulk Budgets
-                            </button>
-                            <button class="btn btn-primary" id="add-budget-btn">
-                                <i class="fas fa-plus"></i>
-                                Add Budget
-                            </button>
+                        <div class="page-actions budget-page-actions" aria-label="Budget actions">
+                            <div class="budget-primary-controls">
+                                <label class="budget-month-picker" for="budget-month">
+                                    <span>Budget month</span>
+                                    <input type="month" id="budget-month" aria-label="Budget month">
+                                </label>
+                                <button class="btn btn-primary" id="add-budget-btn">
+                                    <i class="fas fa-plus"></i>
+                                    Add Budget
+                                </button>
+                            </div>
+                            <div class="budget-secondary-actions">
+                                <button class="btn btn-outline-primary" id="budget-report-btn">
+                                    <i class="fas fa-print"></i>
+                                    Report
+                                </button>
+                                <button class="btn btn-outline-primary" id="copy-budget-btn">
+                                    <i class="fas fa-copy"></i>
+                                    Copy Budgets
+                                </button>
+                                <button class="btn btn-outline-primary" id="bulk-budget-btn">
+                                    <i class="fas fa-layer-group"></i>
+                                    Bulk Budgets
+                                </button>
+                            </div>
                         </div>
                     </div>
                     <div class="budget-overview" aria-label="Budget overview">
@@ -723,7 +854,7 @@
                         </div>
                         <div class="budget-overview-item">
                             <span class="budget-overview-icon is-violet"><i class="bi bi-grid-1x2-fill"></i></span>
-                            <div><small>Active budgets</small><strong id="budget-active-count">0</strong></div>
+                            <div><small title="Budget records across all months">Total budgets</small><strong id="budget-active-count">0</strong></div>
                         </div>
                     </div>
                     <div class="budgets-grid" id="budgets-grid">
@@ -742,6 +873,47 @@
                     </div>
                     <div class="goals-grid" id="goals-grid">
                         <!-- Goals will be loaded here -->
+                    </div>
+                </section>
+
+                <!-- Savings Page -->
+                <section id="tasks-page" class="page">
+                    <div class="tasks-page-shell container-fluid px-0">
+                        <div class="page-header tasks-page-header d-flex flex-column flex-sm-row align-items-sm-center justify-content-between gap-3">
+                            <div class="tasks-heading-copy">
+                                <span class="tasks-page-kicker">Productivity</span>
+                                <h2 class="mb-1">Tasks</h2>
+                                <p class="text-muted mb-0">Plan daily work and track board preparation.</p>
+                            </div>
+                            <div class="d-flex gap-2"><button class="btn btn-outline-secondary btn-sm" id="deleted-tasks-btn"><i class="bi bi-arrow-counterclockwise me-1"></i> Recently Deleted</button><button class="btn btn-primary btn-sm tasks-add-btn flex-shrink-0" id="add-task-btn"><i class="bi bi-plus-lg me-1" aria-hidden="true"></i> Add Task</button></div>
+                        </div>
+
+                        <section class="tasks-summary row row-cols-2 row-cols-lg-4 g-2" aria-label="Task summary">
+                            <div class="col"><div class="task-summary-item h-100"><span class="task-summary-icon is-total"><i class="bi bi-list-check" aria-hidden="true"></i></span><div><small>Total Tasks</small><strong id="task-summary-total">0</strong></div></div></div>
+                            <div class="col"><div class="task-summary-item h-100"><span class="task-summary-icon is-today"><i class="bi bi-calendar2-check" aria-hidden="true"></i></span><div><small>Today</small><strong id="task-summary-today">0</strong></div></div></div>
+                            <div class="col"><div class="task-summary-item h-100"><span class="task-summary-icon is-completed"><i class="bi bi-check2-circle" aria-hidden="true"></i></span><div><small>Completed</small><strong id="task-summary-completed">0</strong></div></div></div>
+                            <div class="col"><div class="task-summary-item h-100"><span class="task-summary-icon is-board"><i class="bi bi-mortarboard" aria-hidden="true"></i></span><div><small>Board Progress</small><strong id="task-summary-board">0%</strong></div></div></div>
+                        </section>
+
+                        <div class="task-tabs-scroller" tabindex="0" aria-label="Scrollable task filters">
+                            <div class="nav-pills d-flex flex-nowrap task-view-tabs" role="tablist" aria-label="Task views">
+                                <button type="button" class="nav-link task-view-tab" data-task-view="all" role="tab">All <span class="task-tab-count">0</span></button>
+                                <button type="button" class="nav-link task-view-tab active" data-task-view="today" role="tab" aria-selected="true">Today <span class="task-tab-count">0</span></button>
+                                <button type="button" class="nav-link task-view-tab" data-task-view="tomorrow" role="tab">Tomorrow <span class="task-tab-count">0</span></button>
+                                <button type="button" class="nav-link task-view-tab" data-task-view="upcoming" role="tab">Upcoming <span class="task-tab-count">0</span></button>
+                                <button type="button" class="nav-link task-view-tab" data-task-view="overdue" role="tab">Overdue <span class="task-tab-count">0</span></button>
+                                <button type="button" class="nav-link task-view-tab" data-task-view="completed" role="tab">Completed <span class="task-tab-count">0</span></button>
+                                <button type="button" class="nav-link task-view-tab task-board-tab" data-task-view="board" role="tab">Board Study <span class="task-tab-count">0</span></button>
+                            </div>
+                        </div>
+                        <div class="task-toolbar" id="task-toolbar" aria-label="Filter tasks">
+                            <div class="task-filter-field"><label for="task-filter-subject">Subject</label><select class="form-select form-select-sm" id="task-filter-subject" data-task-filter="subject"><option value="all">All subjects</option></select></div>
+                            <div class="task-filter-field"><label for="task-filter-unit">Unit</label><select class="form-select form-select-sm" id="task-filter-unit" data-task-filter="unit"><option value="all">All units</option></select></div>
+                            <div class="task-filter-field"><label for="task-filter-priority">Priority</label><select class="form-select form-select-sm" id="task-filter-priority" data-task-filter="priority"><option value="all">All priorities</option><option value="low">Low</option><option value="normal">Normal</option><option value="high">High</option><option value="urgent">Urgent</option></select></div>
+                            <div class="task-filter-field"><label for="task-filter-status">Status</label><select class="form-select form-select-sm" id="task-filter-status" data-task-filter="status"><option value="all">All statuses</option><option value="pending">Pending</option><option value="in_progress">In Progress</option><option value="completed">Completed</option></select></div>
+                            <button type="button" class="btn btn-outline-secondary btn-sm task-filter-clear" data-task-clear-filters hidden><i class="bi bi-x-circle me-1" aria-hidden="true"></i>Clear</button>
+                        </div>
+                        <div id="tasks-content" aria-live="polite" aria-busy="false"></div>
                     </div>
                 </section>
 
@@ -999,45 +1171,64 @@
                 <!-- Categories Page -->
                 <section id="categories-page" class="page">
 
+                    <!-- Compact Page Header -->
+                    <div class="categories-page-header">
+                        <div class="categories-page-heading">
+                            <h2>Categories</h2>
+                            <p>Organize the categories used across your transactions.</p>
+                        </div>
+                        <div class="categories-page-actions" aria-label="Category actions">
+                            <button class="btn btn-sm btn-outline-secondary" id="import-categories-btn" title="Import categories from a file">
+                                <i class="fas fa-file-import" aria-hidden="true"></i><span>Import</span>
+                            </button>
+                            <button class="btn btn-sm btn-outline-secondary" id="export-categories-btn" title="Export categories to CSV">
+                                <i class="fas fa-file-export" aria-hidden="true"></i><span>Export</span>
+                            </button>
+                            <button class="btn btn-sm btn-primary" id="add-category-btn" title="Create a new category">
+                                <i class="fas fa-plus" aria-hidden="true"></i><span>Add Category</span>
+                            </button>
+                        </div>
+                    </div>
+
                     <!-- Statistics Cards -->
-                    <div class="row g-3 mb-4" id="categories-statistics">
-                        <div class="col-md-2 col-6">
-                            <div class="card-premium p-3 text-center h-100 d-flex flex-column justify-content-center">
+                    <div class="row g-2 mb-3" id="categories-statistics">
+                        <div class="col-xl-2 col-md-4 col-6">
+                            <div class="category-stat-card card-premium text-center h-100 d-flex flex-column justify-content-center">
                                 <div class="text-muted small text-uppercase fw-semibold mb-1" style="font-size:10px;letter-spacing:0.5px;">Total</div>
                                 <div class="fw-bold fs-4" id="stat-total-categories">0</div>
                                 <small class="text-muted" style="font-size:9px;">Categories</small>
                             </div>
                         </div>
-                        <div class="col-md-2 col-6">
-                            <div class="card-premium p-3 text-center h-100 d-flex flex-column justify-content-center" style="border-left:3px solid #10B981;">
+                        <div class="col-xl-2 col-md-4 col-6">
+                            <div class="category-stat-card card-premium text-center h-100 d-flex flex-column justify-content-center" style="--stat-accent:#10B981;">
                                 <div class="text-muted small text-uppercase fw-semibold mb-1" style="font-size:10px;letter-spacing:0.5px;">Income</div>
                                 <div class="fw-bold fs-4" style="color:#10B981;" id="stat-income-categories">0</div>
                                 <small class="text-muted" style="font-size:9px;">Categories</small>
                             </div>
                         </div>
-                        <div class="col-md-2 col-6">
-                            <div class="card-premium p-3 text-center h-100 d-flex flex-column justify-content-center" style="border-left:3px solid #EF4444;">
+                        <div class="col-xl-2 col-md-4 col-6">
+                            <div class="category-stat-card card-premium text-center h-100 d-flex flex-column justify-content-center" style="--stat-accent:#EF4444;">
                                 <div class="text-muted small text-uppercase fw-semibold mb-1" style="font-size:10px;letter-spacing:0.5px;">Expense</div>
                                 <div class="fw-bold fs-4" style="color:#EF4444;" id="stat-expense-categories">0</div>
                                 <small class="text-muted" style="font-size:9px;">Categories</small>
                             </div>
                         </div>
-                        <div class="col-md-2 col-6">
-                            <div class="card-premium p-3 text-center h-100 d-flex flex-column justify-content-center" style="border-left:3px solid #F59E0B;">
+                        <div class="col-xl-2 col-md-4 col-6">
+                            <div class="category-stat-card card-premium text-center h-100 d-flex flex-column justify-content-center" style="--stat-accent:#F59E0B;">
                                 <div class="text-muted small text-uppercase fw-semibold mb-1" style="font-size:10px;letter-spacing:0.5px;">Inactive</div>
                                 <div class="fw-bold fs-4" style="color:#F59E0B;" id="stat-inactive-categories">0</div>
                                 <small class="text-muted" style="font-size:9px;">Categories</small>
                             </div>
                         </div>
-                        <div class="col-md-2 col-6">
-                            <div class="card-premium p-3 text-center h-100 d-flex flex-column justify-content-center" style="border-left:3px solid #8B5CF6;">
+                        <div class="col-xl-2 col-md-4 col-6">
+                            <div class="category-stat-card card-premium text-center h-100 d-flex flex-column justify-content-center" style="--stat-accent:#8B5CF6;">
                                 <div class="text-muted small text-uppercase fw-semibold mb-1" style="font-size:10px;letter-spacing:0.5px;">Subcats</div>
                                 <div class="fw-bold fs-4" style="color:#8B5CF6;" id="stat-total-subcategories">0</div>
                                 <small class="text-muted" style="font-size:9px;">Total</small>
                             </div>
                         </div>
-                        <div class="col-md-2 col-6">
-                            <div class="card-premium p-3 text-center h-100 d-flex flex-column justify-content-center" style="border-left:3px solid #3B82F6;">
+                        <div class="col-xl-2 col-md-4 col-6">
+                            <div class="category-stat-card card-premium text-center h-100 d-flex flex-column justify-content-center" style="--stat-accent:#3B82F6;">
                                 <div class="text-muted small text-uppercase fw-semibold mb-1" style="font-size:10px;letter-spacing:0.5px;">Active</div>
                                 <div class="fw-bold fs-4" style="color:#3B82F6;" id="stat-active-categories">0</div>
                                 <small class="text-muted" style="font-size:9px;">Categories</small>
@@ -1062,26 +1253,26 @@
                     </div>
 
                     <!-- Filters -->
-                    <div class="card card-premium mb-4">
-                        <div class="card-body py-3 px-4">
-                            <div class="row g-3 align-items-end">
-                                <div class="col-lg-4 col-md-6">
-                                    <label class="form-label text-muted small fw-semibold mb-1">Search</label>
-                                    <div class="input-group input-group-lg">
+                    <div class="category-filters card card-premium mb-3">
+                        <div class="card-body">
+                            <div class="category-filter-grid">
+                                <div class="category-filter-field category-filter-search">
+                                    <label for="search-categories" class="form-label text-muted small fw-semibold mb-1">Search</label>
+                                    <div class="input-group">
                                         <span class="input-group-text bg-transparent border-end-0"><i class="fas fa-search text-muted"></i></span>
                                         <input type="text" id="search-categories" class="form-control border-start-0" placeholder="Search categories &amp; subcategories...">
                                     </div>
                                 </div>
-                                <div class="col-lg-2 col-md-3 col-6">
-                                    <label class="form-label text-muted small fw-semibold mb-1">Type</label>
+                                <div class="category-filter-field">
+                                    <label for="filter-category-type" class="form-label text-muted small fw-semibold mb-1">Type</label>
                                     <select id="filter-category-type" class="form-select">
                                         <option value="">All Types</option>
                                         <option value="income">Income</option>
                                         <option value="expense">Expense</option>
                                     </select>
                                 </div>
-                                <div class="col-lg-2 col-md-3 col-6">
-                                    <label class="form-label text-muted small fw-semibold mb-1">Status</label>
+                                <div class="category-filter-field">
+                                    <label for="filter-category-status" class="form-label text-muted small fw-semibold mb-1">Status</label>
                                     <select id="filter-category-status" class="form-select">
                                         <option value="active">Active</option>
                                         <option value="archived">Archived</option>
@@ -1089,42 +1280,39 @@
                                         <option value="">All Status</option>
                                     </select>
                                 </div>
-                                <div class="col-lg-2 col-md-3 col-6">
-                                    <label class="form-label text-muted small fw-semibold mb-1">Default</label>
+                                <div class="category-filter-field">
+                                    <label for="filter-category-default" class="form-label text-muted small fw-semibold mb-1">Default</label>
                                     <select id="filter-category-default" class="form-select">
                                         <option value="">All</option>
                                         <option value="default">Default</option>
                                         <option value="custom">Custom</option>
                                     </select>
                                 </div>
-                                <div class="col-lg-2 col-md-3 col-6">
-                                    <label class="form-label text-muted small fw-semibold mb-1">&nbsp;</label>
-                                    <div class="d-flex gap-2">
-                                        <button class="btn btn-primary flex-fill" id="apply-category-filters"><i class="fas fa-filter me-1"></i>Apply</button>
-                                        <button class="btn btn-outline-secondary" id="clear-category-filters" title="Clear">Clear</button>
-                                        <button class="btn btn-outline-secondary" id="import-categories-btn" title="Import"><i class="fas fa-file-import"></i></button>
-                                        <button class="btn btn-outline-secondary" id="export-categories-btn" title="Export"><i class="fas fa-file-export"></i></button>
-                                        <button class="btn btn-success" id="add-category-btn" title="Add Category"><i class="fas fa-plus"></i></button>
-                                    </div>
-                                </div>
+                                <button class="btn btn-primary category-filter-apply" id="apply-category-filters"><i class="fas fa-filter me-1" aria-hidden="true"></i>Apply</button>
+                                <button class="btn btn-link category-filter-clear" id="clear-category-filters" title="Reset all category filters">Clear</button>
                             </div>
                         </div>
                     </div>
 
                     <!-- Header -->
-                    <div class="d-flex justify-content-between align-items-center mb-3">
-                        <div class="d-flex align-items-center gap-3">
+                    <div class="categories-section-header mb-3">
+                        <div class="categories-section-heading">
                             <div class="form-check mb-0">
-                                <input type="checkbox" id="select-all-categories" class="form-check-input" style="cursor:pointer;">
+                                <input type="checkbox" id="select-all-categories" class="form-check-input" aria-label="Select all visible categories">
                             </div>
-                            <h5 class="mb-0 fw-bold">
-                                <i class="fas fa-th-large me-2 text-success"></i>Categories
-                                <span class="badge bg-success text-white ms-2 fw-semibold" id="category-count-badge">0</span>
+                            <h5 class="categories-section-title mb-0 fw-bold">
+                                <i class="fas fa-th-large text-success" aria-hidden="true"></i>
+                                <span>Categories</span>
+                                <span class="badge bg-success text-white fw-semibold" id="category-count-badge" aria-label="0 categories">0</span>
                             </h5>
                         </div>
-                        <div class="d-flex align-items-center gap-2">
-                            <span class="text-muted small fw-semibold">Sort:</span>
-                            <select id="category-sort-select" class="form-select form-select-sm border-0 bg-body-tertiary" style="width: auto;font-size:0.8rem;font-weight:500;">
+                        <div class="categories-section-tools">
+                            <button type="button" class="btn btn-sm btn-outline-success" id="manage-pinned-order-btn" title="Change pinned category order" aria-label="Manage pinned category order">
+                                <i class="fas fa-thumbtack me-1"></i><span class="d-none d-sm-inline">Pinned Order</span>
+                            </button>
+                            <label for="category-sort-select" class="text-muted small fw-semibold">Sort:</label>
+                            <select id="category-sort-select" class="form-select form-select-sm border-0 bg-body-tertiary" aria-label="Sort categories">
+                                <option value="priority">Priority</option>
                                 <option value="name">Name</option>
                                 <option value="type">Type</option>
                                 <option value="created">Date Created</option>
@@ -1136,18 +1324,21 @@
                     </div>
 
                     <!-- Cards Grid -->
-                    <div id="categories-card-grid" class="categories-card-grid">
+                    <div id="categories-card-grid" class="categories-card-grid" aria-live="polite">
                         <!-- Category cards rendered by JS -->
                     </div>
 
                     <!-- Empty State -->
-                    <div id="categories-empty-state" class="d-none">
+                    <div id="categories-empty-state" class="categories-empty-state d-none" role="status">
                         <div class="card card-premium border-0 shadow-sm">
                             <div class="card-body text-center py-5">
                                 <div class="empty-state-icon mx-auto mb-3"><i class="fas fa-tags fa-3x text-muted"></i></div>
-                                <h4 class="fw-bold mb-2">No Categories Found</h4>
-                                <p class="text-muted mb-4" style="max-width:360px;margin-left:auto;margin-right:auto;">Create your first category to organize your transactions. Categories help you track where your money comes from and where it goes.</p>
-                                <button class="btn btn-success btn-lg px-4" id="add-category-btn-empty"><i class="fas fa-plus me-2"></i>Add Category</button>
+                                <h4 class="fw-bold mb-2" id="categories-empty-title">No categories found</h4>
+                                <p class="text-muted mb-4 categories-empty-message" id="categories-empty-message">Create your first category to organize your transactions.</p>
+                                <div class="categories-empty-actions">
+                                    <button class="btn btn-outline-secondary" id="clear-category-filters-empty"><i class="fas fa-filter-circle-xmark me-2"></i>Clear filters</button>
+                                    <button class="btn btn-success" id="add-category-btn-empty"><i class="fas fa-plus me-2"></i>Add category</button>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -1249,7 +1440,7 @@
 
                 <!-- Karobar Overview Page -->
                 <section id="karobar-overview-page" class="page">
-                    <div class="page-header">
+                    <div class="page-header karobar-page-header">
                         <h2><i class="fas fa-handshake me-2" style="color:#6366f1;"></i> Karobar Overview</h2>
                         <div class="karobar-quick-actions">
                             <button class="btn btn-success" onclick="window.karobarManager?.showAddTransactionModal()">
@@ -1270,7 +1461,7 @@
 
                 <!-- Karobar People Page -->
                 <section id="karobar-people-page" class="page">
-                    <div class="page-header">
+                    <div class="page-header karobar-page-header">
                         <h2><i class="fas fa-users me-2" style="color:#6366f1;"></i> People</h2>
                     </div>
                     <div id="karobar-people-content">
@@ -1287,7 +1478,7 @@
 
                 <!-- Karobar Transactions Page -->
                 <section id="karobar-transactions-page" class="page">
-                    <div class="page-header">
+                    <div class="page-header karobar-page-header">
                         <h2><i class="fas fa-exchange-alt me-2" style="color:#6366f1;"></i> Karobar Transactions</h2>
                     </div>
                     <div id="karobar-transactions-content">
@@ -1297,7 +1488,7 @@
 
                 <!-- Karobar Reports Page -->
                 <section id="karobar-reports-page" class="page">
-                    <div class="page-header">
+                    <div class="page-header karobar-page-header">
                         <h2><i class="fas fa-chart-bar me-2" style="color:#6366f1;"></i> Karobar Reports</h2>
                     </div>
                     <div id="karobar-reports-content">
@@ -1307,7 +1498,7 @@
 
                 <!-- Karobar Credit Reports Page -->
                 <section id="karobar-credit-reports-page" class="page">
-                    <div class="page-header">
+                    <div class="page-header karobar-page-header">
                         <h2><i class="fas fa-file-invoice-dollar me-2" style="color:#6366f1;"></i> Credit Reports</h2>
                     </div>
                     <div id="karobar-credit-reports-content">
@@ -1317,7 +1508,7 @@
 
                 <!-- Karobar AI Analysis Page -->
                 <section id="karobar-ai-analysis-page" class="page">
-                    <div class="page-header">
+                    <div class="page-header karobar-page-header">
                         <div>
                             <h2><i class="fas fa-brain me-2" style="color:#EC4899;"></i> Karobar AI Analysis</h2>
                             <p class="text-muted mb-0">Health score, debt trends and actionable recommendations</p>
@@ -1499,6 +1690,15 @@
                                 </div>
                             </div>
                         </div>
+                        <div class="settings-section settings-danger-zone">
+                            <div class="settings-section-heading">
+                                <div class="settings-heading-copy"><span class="settings-heading-icon"><i class="bi bi-exclamation-triangle"></i></span><div><h3>Danger Zone</h3><p>Irreversible account actions.</p></div></div>
+                            </div>
+                            <div class="danger-zone-action">
+                                <div><h4>Fresh Start</h4><p>Permanently delete your financial records, tasks, budgets, categories and other personal application data while keeping your SanIE account.</p></div>
+                                <button type="button" class="btn btn-danger" id="fresh-start-button"><i class="bi bi-trash3 me-1" aria-hidden="true"></i> Reset All Data</button>
+                            </div>
+                        </div>
                     </div>
                 </section>
 
@@ -1515,7 +1715,7 @@
                         </button>
                     </div>
                     <div class="accounts-overview-grid" aria-label="Accounts overview">
-                        <div class="accounts-overview-card"><span class="accounts-overview-icon total"><i class="bi bi-wallet2"></i></span><div><small>Total balance</small><strong id="accounts-total-balance">Rs 0</strong></div></div>
+                        <div class="accounts-overview-card"><span class="accounts-overview-icon total"><i class="bi bi-wallet2"></i></span><div><small>Total tracked balance</small><strong id="accounts-total-balance">Rs 0</strong></div></div>
                         <div class="accounts-overview-card"><span class="accounts-overview-icon count"><i class="bi bi-grid"></i></span><div><small>Total accounts</small><strong id="accounts-total-count">0</strong></div></div>
                         <div class="accounts-overview-card"><span class="accounts-overview-icon saving"><i class="bi bi-piggy-bank"></i></span><div><small>Savings accounts</small><strong id="accounts-savings-count">0</strong></div></div>
                         <div class="accounts-overview-card"><span class="accounts-overview-icon active"><i class="bi bi-shield-check"></i></span><div><small>Active accounts</small><strong id="accounts-active-count">0</strong></div></div>
@@ -1627,88 +1827,72 @@
     </div>
 
     <!-- Bootstrap 5.3 JS -->
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
     
     
     <!-- SweetAlert2 JS -->
-    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11.26.25"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/sweetalert2@11.26.25"></script>
     
     <!-- Toastify JS -->
-    <script type="text/javascript" src="https://cdn.jsdelivr.net/npm/toastify-js@1.12.0"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/toastify-js@1.12.0"></script>
     
     <!-- jQuery (required for DataTables) -->
-    <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+    <script defer src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
     
     <!-- ApexCharts JS -->
-    <script src="https://cdn.jsdelivr.net/npm/apexcharts@6.5.0"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/apexcharts@6.5.0"></script>
     
     <!-- DataTables JS -->
-    <script src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
-    <script src="https://cdn.datatables.net/1.13.6/js/dataTables.bootstrap5.min.js"></script>
-    <script src="https://cdn.datatables.net/responsive/2.5.0/js/dataTables.responsive.min.js"></script>
-    <script src="https://cdn.datatables.net/responsive/2.5.0/js/responsive.bootstrap5.min.js"></script>
-    <script src="https://cdn.datatables.net/rowreorder/1.4.1/js/dataTables.rowReorder.min.js"></script>
-    
-    <!-- DataTables Buttons Extensions -->
-    <script src="https://cdn.datatables.net/buttons/2.4.1/js/dataTables.buttons.min.js"></script>
-    <script src="https://cdn.datatables.net/buttons/2.4.1/js/buttons.bootstrap5.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdfmake/0.2.7/pdfmake.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdfmake/0.2.7/vfs_fonts.js"></script>
-    <script src="https://cdn.datatables.net/buttons/2.4.1/js/buttons.html5.min.js"></script>
-    <script src="https://cdn.datatables.net/buttons/2.4.1/js/buttons.print.min.js"></script>
-    
-    <!-- CountUp.js -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/countup.js/2.0.7/countUp.umd.js"></script>
-    <script>
-        // Make CountUp available globally
-        if (typeof countUp !== 'undefined') {
-            window.CountUp = countUp.CountUp;
-        }
-    </script>
+    <script defer src="https://cdn.datatables.net/1.13.6/js/jquery.dataTables.min.js"></script>
+    <script defer src="https://cdn.datatables.net/1.13.6/js/dataTables.bootstrap5.min.js"></script>
+    <script defer src="https://cdn.datatables.net/responsive/2.5.0/js/dataTables.responsive.min.js"></script>
+    <script defer src="https://cdn.datatables.net/responsive/2.5.0/js/responsive.bootstrap5.min.js"></script>
+    <script defer src="https://cdn.datatables.net/rowreorder/1.4.1/js/dataTables.rowReorder.min.js"></script>
     
     <!-- Flatpickr -->
-    <script src="https://cdn.jsdelivr.net/npm/flatpickr@4.6.13"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/flatpickr@4.6.13"></script>
     
     <!-- Application configuration, utilities, and services -->
     <script defer src="assets/js/config.js"></script>
     <script defer src="assets/js/utils.js?v=2"></script>
-    <script defer src="assets/js/offline-storage.js?v=5"></script>
+    <script defer src="assets/js/offline-storage.js?v=6"></script>
     <script defer src="assets/js/services/notification.js?v=2"></script>
-    <script defer src="assets/js/services/modal.js"></script>
+    <script defer src="assets/js/services/modal.js?v=2"></script>
     <script defer src="assets/js/services/datatable.js"></script>
     <script defer src="assets/js/services/chart.js"></script>
-    <script defer src="assets/js/api.js?v=13"></script>
-    <script defer src="assets/js/ajax.js?v=12"></script>
-    <script defer src="assets/js/router.js?v=13"></script>
-    <script defer src="assets/js/auth.js?v=12"></script>
-    <script defer src="assets/js/sync-engine.js?v=12"></script>
-    <script defer src="assets/js/pwa-controller.js?v=4"></script>
+    <script defer src="assets/js/api.js?v=18"></script>
+    <script defer src="assets/js/ajax.js?v=13"></script>
+    <script defer src="assets/js/router.js?v=15"></script>
+    <script defer src="assets/js/auth.js?v=13"></script>
+    <script defer src="assets/js/sync-engine.js?v=13"></script>
+    <script defer src="assets/js/pwa-controller.js?v=6"></script>
     
     <!-- Feature Modules -->
-    <script defer src="assets/js/dashboard.js?v=8"></script>
-    <script defer src="assets/js/transactions.js?v=19"></script>
-    <script defer src="assets/js/budgets.js?v=3"></script>
-    <script defer src="assets/js/goals.js"></script>
-    <script defer src="assets/js/savings.js?v=2"></script>
-    <script defer src="assets/js/categories.js?v=3"></script>
+    <script defer src="assets/js/dashboard.js?v=15"></script>
+<script defer src="assets/js/transactions.js?v=26"></script>
+    <script defer src="assets/js/recurring-transactions.js?v=1"></script>
+    <script defer src="assets/js/budgets.js?v=5"></script>
+    <script defer src="assets/js/goals.js?v=3"></script>
+    <script defer src="assets/js/tasks.js?v=14"></script>
+    <script defer src="assets/js/savings.js?v=3"></script>
+    <script defer src="assets/js/categories.js?v=5"></script>
     <script defer src="assets/js/subcategories.js"></script>
-    <script defer src="assets/js/analysis.js"></script>
+    <script defer src="assets/js/analysis.js?v=2"></script>
     <script defer src="assets/js/reports.js"></script>
     <script defer src="assets/js/settings.js?v=6"></script>
-    <script defer src="assets/js/notifications.js"></script>
+    <script defer src="assets/js/notifications.js?v=3"></script>
     
     <!-- Karobar Module -->
-    <script defer src="assets/js/karobar-api.js?v=13"></script>
-    <script defer src="assets/js/karobar.js?v=5"></script>
+    <script defer src="assets/js/karobar-api.js?v=14"></script>
+    <script defer src="assets/js/karobar.js?v=9"></script>
 
     <!-- Account Details Module -->
-    <script defer src="assets/js/account-details.js?v=13"></script>
+    <script defer src="assets/js/account-details.js?v=15"></script>
 
     <!-- Accounts Module -->
-    <script defer src="assets/js/accounts.js?v=5"></script>
+    <script defer src="assets/js/accounts.js?v=8"></script>
 
     <!-- Core App Initialization -->
-    <script defer src="assets/js/app.js?v=8"></script>
+    <script defer src="assets/js/app.js?v=12"></script>
 </body>
 </html>

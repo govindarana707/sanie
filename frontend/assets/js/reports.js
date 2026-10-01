@@ -3,9 +3,15 @@ class ReportsManager {
         this._mounted = false;
         this._data = null;
         this._loading = false;
+        this._loadSequence = 0;
         this._incomeExpensePage = 1;
         this._incomeExpenseLimit = 50;
-        this._reportRange = { start_date: '2026-01-01', end_date: '2026-12-31' };
+        this._reportRange = this._defaultRange();
+    }
+
+    _defaultRange(value = new Date()) {
+        const range = DateUtils.getKathmanduRange('year', value);
+        return { start_date: range.start, end_date: range.end };
     }
 
     onMount() {
@@ -19,6 +25,8 @@ class ReportsManager {
 
     onUnmount() {
         this._mounted = false;
+        this._loadSequence++;
+        this._loading = false;
         if (this._dataChangeHandler) {
             document.removeEventListener('app:data-changed', this._dataChangeHandler);
             this._dataChangeHandler = null;
@@ -26,11 +34,14 @@ class ReportsManager {
     }
 
     async loadReportData() {
-        if (this._loading) return;
+        const requestSequence = ++this._loadSequence;
         this._loading = true;
 
         const container = document.querySelector('#reports-page .reports-content');
-        if (!container) return;
+        if (!container) {
+            if (requestSequence === this._loadSequence) this._loading = false;
+            return;
+        }
 
         const showLoading = () => {
             container.querySelectorAll('.report-section .card-body').forEach(el => {
@@ -40,14 +51,16 @@ class ReportsManager {
         showLoading();
 
         try {
-            const params = new URLSearchParams({ ...this._reportRange, page: this._incomeExpensePage, limit: this._incomeExpenseLimit });
-            const aggregateParams = new URLSearchParams(this._reportRange);
+            const activeRange = { ...this._reportRange };
+            const params = new URLSearchParams({ ...activeRange, page: this._incomeExpensePage, limit: this._incomeExpenseLimit });
+            const aggregateParams = new URLSearchParams(activeRange);
 
             const [ieRes, cbRes, bhRes] = await Promise.all([
                 api.get(`/reports/income-expense?${params}`),
                 api.get(`/reports/category-breakdown?${aggregateParams}`),
-                api.get(`/reports/budget-health`)
+                api.get(`/reports/budget-health?${aggregateParams}`)
             ]);
+            if (requestSequence !== this._loadSequence || !this._mounted) return;
 
             this._data = {
                 incomeExpense: ieRes.success ? ieRes.data : null,
@@ -59,12 +72,13 @@ class ReportsManager {
             this.renderCategoryBreakdown();
             this.renderBudgetHealth();
         } catch (error) {
+            if (requestSequence !== this._loadSequence || !this._mounted) return;
             console.error('Failed to load report data:', error);
             container.querySelectorAll('.report-section .card-body').forEach(el => {
                 el.innerHTML = `<div class="text-center py-4"><i class="fas fa-exclamation-triangle text-danger mb-2" style="font-size:2rem;"></i><p class="text-muted small">Failed to load report data</p></div>`;
             });
         } finally {
-            this._loading = false;
+            if (requestSequence === this._loadSequence) this._loading = false;
         }
     }
 
@@ -75,11 +89,21 @@ class ReportsManager {
         container.innerHTML = `
             <div class="row g-4 mb-4">
                 <div class="col-12">
-                    <div class="d-flex align-items-center justify-content-between">
-                        <p class="text-muted mb-0"><i class="fas fa-sync-alt me-1"></i> Reports are generated from your live transaction data</p>
-                        <button class="btn btn-sm btn-outline-secondary" onclick="reportsManager.loadReportData()">
-                            <i class="fas fa-redo me-1"></i> Refresh
-                        </button>
+                    <div class="card-premium p-3">
+                        <div class="d-flex flex-wrap align-items-end gap-3">
+                            <div>
+                                <label class="form-label small text-muted mb-1" for="reports-start-date">Start date</label>
+                                <input class="form-control form-control-sm" type="date" id="reports-start-date" value="${this._reportRange.start_date}">
+                            </div>
+                            <div>
+                                <label class="form-label small text-muted mb-1" for="reports-end-date">End date</label>
+                                <input class="form-control form-control-sm" type="date" id="reports-end-date" value="${this._reportRange.end_date}">
+                            </div>
+                            <button class="btn btn-sm btn-primary" onclick="reportsManager.applyReportRange()">
+                                <i class="fas fa-redo me-1"></i> Apply
+                            </button>
+                            <p class="text-muted small mb-1 ms-md-auto"><i class="fas fa-calendar-alt me-1"></i><span id="reports-active-period">${this._esc(this._rangeLabel())}</span></p>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -153,6 +177,35 @@ class ReportsManager {
         `;
     }
 
+    async applyReportRange() {
+        const start = document.getElementById('reports-start-date')?.value || '';
+        const end = document.getElementById('reports-end-date')?.value || '';
+        if (!DateUtils.isValidCalendarDate(start) || !DateUtils.isValidCalendarDate(end)) {
+            NotificationService.error('Select a valid report start and end date');
+            return;
+        }
+        if (start > end) {
+            NotificationService.error('Start date cannot be after end date');
+            return;
+        }
+        this._reportRange = { start_date: start, end_date: end };
+        this._incomeExpensePage = 1;
+        const label = document.getElementById('reports-active-period');
+        if (label) label.textContent = this._rangeLabel();
+        await this.loadReportData();
+    }
+
+    _calendarLabel(value) {
+        const [year, month, day] = String(value).split('-').map(Number);
+        return new Date(Date.UTC(year, month - 1, day)).toLocaleDateString('en-US', {
+            timeZone: 'UTC', year: 'numeric', month: 'long', day: 'numeric'
+        });
+    }
+
+    _rangeLabel() {
+        return `${this._calendarLabel(this._reportRange.start_date)} – ${this._calendarLabel(this._reportRange.end_date)}`;
+    }
+
     renderIncomeExpense() {
         const el = document.querySelector('#report-income-expense .card-body');
         if (!el) return;
@@ -183,7 +236,7 @@ class ReportsManager {
                 </div>
                 <div class="col-md-4">
                     <div class="p-3 rounded-3" style="background:rgba(59,130,246,0.1);">
-                        <small class="text-muted">Net Balance</small>
+                        <small class="text-muted">Net Cash Flow</small>
                         <h4 class="${stats.balance >= 0 ? 'text-success' : 'text-danger'} mb-0">Rs ${this._fmt(Math.abs(stats.balance))}</h4>
                     </div>
                 </div>
@@ -396,8 +449,8 @@ class ReportsManager {
         let content = '';
 
         const logo = `<div style="text-align:center;margin-bottom:20px;"><h1 style="color:#10B981;font-size:24px;margin:0;">SanIE</h1><p style="color:#64748b;font-size:12px;margin:0;">Personal Finance Manager</p></div>`;
-        const footer = `<div style="text-align:center;margin-top:30px;padding-top:15px;border-top:1px solid #e2e8f0;font-size:11px;color:#94a3b8;">Generated on ${new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })} &middot; SanIE Reports</div>`;
-        const dateRange = `<p style="color:#64748b;font-size:13px;text-align:center;margin:0 0 20px 0;">Period: January 1, 2026 - December 31, 2026</p>`;
+        const footer = `<div style="text-align:center;margin-top:30px;padding-top:15px;border-top:1px solid #e2e8f0;font-size:11px;color:#94a3b8;">Generated on ${this._calendarLabel(DateUtils.getKathmanduDateString())} &middot; SanIE Reports</div>`;
+        const dateRange = `<p style="color:#64748b;font-size:13px;text-align:center;margin:0 0 20px 0;">Period: ${this._esc(this._rangeLabel())}</p>`;
 
         if (type === 'income-expense') {
             const ie = await this._allIncomeExpenseData();
@@ -421,7 +474,7 @@ class ReportsManager {
                             <div style="color:#EF4444;font-size:18px;font-weight:700;">Rs ${this._fmt(stats.total_expense)}</div>
                         </td>
                         <td style="padding:10px;background:#eff6ff;text-align:center;border:1px solid #e2e8f0;">
-                            <div style="color:#64748b;font-size:12px;">Net Balance</div>
+                            <div style="color:#64748b;font-size:12px;">Net Cash Flow</div>
                             <div style="color:#3B82F6;font-size:18px;font-weight:700;">Rs ${this._fmt(Math.abs(stats.balance))}</div>
                         </td>
                     </tr>
@@ -583,6 +636,8 @@ class ReportsManager {
         let headers = [];
         let rows = [];
         let filename = '';
+        let textColumns = new Set();
+        const periodSlug = `${this._reportRange.start_date}_to_${this._reportRange.end_date}`;
 
         if (type === 'income-expense') {
             const ie = await this._allIncomeExpenseData();
@@ -590,14 +645,15 @@ class ReportsManager {
                 NotificationService.warning('No transaction data to export');
                 return;
             }
-            filename = `SanIE_Income_Expense_Report_${new Date().toISOString().split('T')[0]}.csv`;
+            filename = `SanIE_Income_Expense_Report_${periodSlug}.csv`;
             headers = ['Date', 'Type', 'Description', 'Category', 'Account', 'Amount'];
+            textColumns = new Set([1, 2, 3, 4]);
             rows = ie.rows.map(r => [
                 r.date,
                 r.type,
-                `"${(r.description || '').replace(/"/g, '""')}"`,
-                `"${r.category.replace(/"/g, '""')}"`,
-                `"${r.account.replace(/"/g, '""')}"`,
+                r.description || '',
+                r.category,
+                r.account,
                 r.type === 'income' ? r.income : r.expense
             ]);
         } else if (type === 'category-breakdown') {
@@ -606,14 +662,15 @@ class ReportsManager {
                 NotificationService.warning('No category data to export');
                 return;
             }
-            filename = `SanIE_Category_Breakdown_${new Date().toISOString().split('T')[0]}.csv`;
+            filename = `SanIE_Category_Breakdown_${periodSlug}.csv`;
             headers = ['Category', 'Type', 'Total Amount', 'Percentage', 'Transaction Count'];
+            textColumns = new Set([0, 1]);
             rows = [];
             (cb.expense_categories || []).forEach(c => {
-                rows.push([`"${c.category_name}"`, 'Expense', c.total_amount, c.percentage, c.transaction_count]);
+                rows.push([c.category_name, 'Expense', c.total_amount, c.percentage, c.transaction_count]);
             });
             (cb.income_categories || []).forEach(c => {
-                rows.push([`"${c.category_name}"`, 'Income', c.total_amount, c.percentage, c.transaction_count]);
+                rows.push([c.category_name, 'Income', c.total_amount, c.percentage, c.transaction_count]);
             });
             if (rows.length === 0) {
                 NotificationService.warning('No category data to export');
@@ -625,11 +682,12 @@ class ReportsManager {
                 NotificationService.warning('No budget data to export');
                 return;
             }
-            filename = `SanIE_Budget_Health_${new Date().toISOString().split('T')[0]}.csv`;
+            filename = `SanIE_Budget_Health_${periodSlug}.csv`;
             headers = ['Budget Name', 'Category', 'Limit', 'Spent', 'Remaining', 'Percentage', 'Status'];
+            textColumns = new Set([0, 1, 6]);
             rows = bh.budgets.map(b => [
-                `"${b.name}"`,
-                `"${b.scope_label || b.category_name}"`,
+                b.name,
+                b.scope_label || b.category_name,
                 b.amount,
                 b.spent,
                 b.remaining,
@@ -640,8 +698,8 @@ class ReportsManager {
             return;
         }
 
-        const csvContent = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
-        const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' });
+        const csvContent = CSVUtils.document(headers, rows, textColumns);
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
         const url = window.URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;

@@ -71,7 +71,7 @@ class Person {
             $params[':search4'] = $searchTerm;
         }
         
-        $query .= " GROUP BY p.id ORDER BY p.name ASC LIMIT :limit OFFSET :offset";
+        $query .= " GROUP BY p.id ORDER BY p.name ASC,p.id ASC LIMIT :limit OFFSET :offset";
         
         $stmt = $this->conn->prepare($query);
         
@@ -99,6 +99,14 @@ class Person {
         }
         
         return $people;
+    }
+
+    public function countAll($userId, array $filters = []): int {
+        $query='SELECT COUNT(*) FROM people p WHERE p.user_id=:user_id';$params=[':user_id'=>$userId];
+        if(!empty($filters['status'])){$query.=' AND p.status=:status';$params[':status']=$filters['status'];}
+        if(!empty($filters['type'])){$query.=' AND p.type=:type';$params[':type']=$filters['type'];}
+        if(!empty($filters['search'])){$query.=' AND (p.name LIKE :s1 OR p.phone LIKE :s2 OR p.email LIKE :s3 OR p.notes LIKE :s4)';$term='%'.$filters['search'].'%';foreach([':s1',':s2',':s3',':s4']as$key)$params[$key]=$term;}
+        $stmt=$this->conn->prepare($query);$stmt->execute($params);return(int)$stmt->fetchColumn();
     }
 
     public function findById($id, $userId) {
@@ -204,30 +212,29 @@ class Person {
     }
 
     public function getLedger($personId, $userId, $limit = 100, $offset = 0) {
-        $query = "SELECT kt.*, 
-                  a.name as account_name
-                  FROM karobar_transactions kt
-                  LEFT JOIN accounts a ON kt.account_id = a.id
-                  WHERE kt.person_id = :person_id AND kt.user_id = :user_id
-                  ORDER BY kt.transaction_date ASC, kt.created_at ASC
-                  LIMIT :limit OFFSET :offset";
-        
-        $stmt = $this->conn->prepare($query);
-        $stmt->bindParam(':person_id', $personId, PDO::PARAM_INT);
-        $stmt->bindParam(':user_id', $userId, PDO::PARAM_INT);
-        $stmt->bindValue(':limit', (int)$limit, PDO::PARAM_INT);
-        $stmt->bindValue(':offset', (int)$offset, PDO::PARAM_INT);
-        $stmt->execute();
-        
-        $transactions = $stmt->fetchAll(PDO::FETCH_ASSOC);
-        
-        $runningBalance = 0;
-        foreach ($transactions as &$tx) {
-            $runningBalance = $this->calculateRunningBalance($tx, $runningBalance);
-            $tx['running_balance'] = $runningBalance;
-        }
-        
-        return $transactions;
+        return $this->getLedgerPage($personId,$userId,[],max(1,(int)floor($offset/max(1,$limit))+1),$limit)['ledger'];
+    }
+
+    public function getLedgerPage(int $personId,int $userId,array $filters,int $page,int $limit):array {
+        $parts=['kt.person_id=:person_id','kt.user_id=:user_id'];$params=[':person_id'=>$personId,':user_id'=>$userId];
+        if(!empty($filters['start_date'])){$parts[]='kt.transaction_date>=:start_date';$params[':start_date']=$filters['start_date'];}
+        if(!empty($filters['end_date'])){$parts[]='kt.transaction_date<=:end_date';$params[':end_date']=$filters['end_date'];}
+        if(!empty($filters['type'])){$parts[]='kt.type=:ledger_type';$params[':ledger_type']=$filters['type'];}
+        if(!empty($filters['search'])){$parts[]='(kt.description LIKE :search1 OR kt.type LIKE :search2 OR CAST(kt.amount AS CHAR) LIKE :search3)';$term='%'.$filters['search'].'%';$params[':search1']=$term;$params[':search2']=$term;$params[':search3']=$term;}
+        $visible=implode(' AND ',$parts);$offset=($page-1)*$limit;
+        $delta="CASE kt.type WHEN 'lent' THEN kt.amount WHEN 'borrowed' THEN -kt.amount WHEN 'returned' THEN -kt.amount WHEN 'repaid' THEN kt.amount WHEN 'adjustment' THEN kt.amount ELSE 0 END";
+        $scored="SELECT kt.*,a.name account_name,SUM({$delta}) OVER(ORDER BY kt.transaction_date ASC,kt.created_at ASC,kt.id ASC) running_balance
+                 FROM karobar_transactions kt LEFT JOIN accounts a ON a.id=kt.account_id
+                 WHERE kt.person_id=:score_person AND kt.user_id=:score_user";
+        $query="SELECT scored.* FROM ({$scored}) scored JOIN karobar_transactions kt ON kt.id=scored.id WHERE {$visible}
+                ORDER BY scored.transaction_date ASC,scored.created_at ASC,scored.id ASC LIMIT :page_limit OFFSET :page_offset";
+        $queryParams=array_merge([':score_person'=>$personId,':score_user'=>$userId],$params);
+        $stmt=$this->conn->prepare($query);foreach($queryParams as$key=>$value)$stmt->bindValue($key,$value,is_int($value)?PDO::PARAM_INT:PDO::PARAM_STR);$stmt->bindValue(':page_limit',$limit,PDO::PARAM_INT);$stmt->bindValue(':page_offset',$offset,PDO::PARAM_INT);$stmt->execute();$rows=$stmt->fetchAll(PDO::FETCH_ASSOC);
+        foreach($rows as&$row)$row['running_balance']=(float)$row['running_balance'];unset($row);
+        $count=$this->conn->prepare("SELECT COUNT(*) FROM karobar_transactions kt WHERE {$visible}");foreach($params as$key=>$value)$count->bindValue($key,$value,is_int($value)?PDO::PARAM_INT:PDO::PARAM_STR);$count->execute();$total=(int)$count->fetchColumn();
+        $monthlyStmt=$this->conn->prepare("SELECT DATE_FORMAT(transaction_date,'%Y-%m') month,type,SUM(amount) amount FROM karobar_transactions WHERE person_id=? AND user_id=? GROUP BY DATE_FORMAT(transaction_date,'%Y-%m'),type ORDER BY month ASC");$monthlyStmt->execute([$personId,$userId]);
+        $recentStmt=$this->conn->prepare('SELECT kt.*,a.name account_name FROM karobar_transactions kt LEFT JOIN accounts a ON a.id=kt.account_id WHERE kt.person_id=? AND kt.user_id=? ORDER BY kt.transaction_date DESC,kt.created_at DESC,kt.id DESC LIMIT 10');$recentStmt->execute([$personId,$userId]);
+        return['ledger'=>$rows,'pagination'=>['page'=>$page,'limit'=>$limit,'offset'=>$offset,'total_rows'=>$total,'total_pages'=>$total?(int)ceil($total/$limit):0,'has_previous'=>$page>1&&$total>0,'has_next'=>$page*$limit<$total],'history_context'=>['monthly'=>$monthlyStmt->fetchAll(PDO::FETCH_ASSOC),'recent'=>$recentStmt->fetchAll(PDO::FETCH_ASSOC)]];
     }
 
     private function calculateRunningBalance($tx, $currentBalance) {

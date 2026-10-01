@@ -290,7 +290,9 @@ class AjaxService {
                 ? document.querySelector(container)
                 : container;
 
-        if (el) {
+        // A successful render replaces the placeholders before its request
+        // completes. Do not clear that fresh content in the `finally` block.
+        if (el?.querySelector('.skeleton-card, .skeleton-row, .skeleton-chart, .skeleton-text')) {
             el.innerHTML = "";
         }
 

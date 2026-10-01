@@ -4,11 +4,16 @@ require_once __DIR__ . '/../config/database.php';
 require_once __DIR__ . '/../models/Account.php';
 require_once __DIR__ . '/../models/Transaction.php';
 require_once __DIR__ . '/../models/Goal.php';
+require_once __DIR__ . '/MoneyValidator.php';
+require_once __DIR__ . '/../models/RecurringTransaction.php';
 require_once __DIR__ . '/BalanceService.php';
+require_once __DIR__ . '/RecurrenceCalculator.php';
+require_once __DIR__ . '/NotificationService.php';
 
 class TransactionConflictException extends RuntimeException {}
 class TransferAuthorizationException extends RuntimeException {}
 class GoalContributionAuthorizationException extends RuntimeException {}
+class RecurringDefinitionValidationException extends InvalidArgumentException {}
 
 /**
  * AccountingService – Centralized double-entry accounting engine.
@@ -28,8 +33,11 @@ class AccountingService {
     private $transactionModel;
     private $goalModel;
     private $balanceService;
+    private $recurringModel;
+    private $recurrenceCalculator;
     private $transferFailureInjector = null;
     private $goalContributionFailureInjector = null;
+    private $recurringFailureInjector = null;
 
     public function __construct() {
         $database = new Database();
@@ -38,6 +46,8 @@ class AccountingService {
         $this->transactionModel = new Transaction();
         $this->goalModel = new Goal();
         $this->balanceService = new BalanceService();
+        $this->recurringModel = new RecurringTransaction();
+        $this->recurrenceCalculator = new RecurrenceCalculator();
     }
 
     /* ------------------------------------------------------------------
@@ -57,101 +67,153 @@ class AccountingService {
         if (($data['type'] ?? null) === 'transfer') {
             return $this->createTransfer($userId, $data);
         }
+        return $this->createOrdinaryTransaction($userId, $data)['transaction_id'];
+    }
+
+    public function createOrdinaryTransaction(int $userId, array $data): array {
+        $requestId = trim((string)($data['client_request_id'] ?? ''));
+        if ($requestId !== '') {
+            $existing = $this->transactionModel->findByClientRequestId($requestId, $userId);
+            if ($existing) {
+                return ['transaction_id' => $this->replayOrdinary($existing, $data), 'replayed' => true];
+            }
+        }
+
         $this->conn->beginTransaction();
-
         try {
-            $type     = $data['type'];
-            $amount   = floatval($data['amount']);
-            $feeAmount = floatval($data['fee_amount'] ?? 0);
-
-            // For transfers with fee, validate combined balance
-            if ($type === 'transfer' && $feeAmount > 0) {
-                $data['_check_amount'] = $amount + $feeAmount;
-            }
-            $this->validateTransaction($userId, $data, $type);
-
-            $transactionData = [
-                'user_id'              => $userId,
-                'account_id'           => null,
-                'category_id'          => $data['category_id'] ?? null,
-                'subcategory_id'       => $data['subcategory_id'] ?? null,
-                'amount'               => $amount,
-                'type'                 => $type,
-                'payment_method'       => $data['payment_method'] ?? null,
-                'karobar_transaction_id' => $data['karobar_transaction_id'] ?? null,
-                'client_request_id'     => $data['client_request_id'] ?? null,
-                'date'                 => $data['date'],
-                'description'          => $data['description'] ?? '',
-                'from_account_id'      => $data['from_account_id'] ?? null,
-                'to_account_id'        => $data['to_account_id'] ?? null,
-            ];
-
-            switch ($type) {
-                case 'income':
-                    $accountId = $data['to_account_id'] ?? $data['account_id'];
-                    $transactionData['account_id'] = $accountId;
-                    break;
-
-                case 'expense':
-                    $accountId = $data['from_account_id'] ?? $data['account_id'];
-                    $transactionData['account_id'] = $accountId;
-                    break;
-
-                case 'transfer':
-                    $accountId = $data['from_account_id'];
-                    $transactionData['account_id'] = $accountId;
-                    break;
-            }
-
-            $transactionId = $this->transactionModel->create($transactionData);
-
-            if (!$transactionId) {
-                $this->conn->rollBack();
-                return false;
-            }
-
-            // If transfer has a fee, create a linked expense transaction
-            $feeTransactionId = null;
-            if ($type === 'transfer' && $feeAmount > 0) {
-                $feeDesc = ($data['description'] ?? 'Transfer') . ' Fee';
-                $feeTransactionId = $this->transactionModel->create([
-                    'user_id'              => $userId,
-                    'account_id'           => $data['from_account_id'],
-                    'category_id'          => $data['fee_category_id'] ?? null,
-                    'subcategory_id'       => null,
-                    'amount'               => $feeAmount,
-                    'type'                 => 'expense',
-                    'payment_method'       => 'transfer',
-                    'karobar_transaction_id' => null,
-                    'date'                 => $data['date'],
-                    'description'          => $feeDesc,
-                    'from_account_id'      => null,
-                    'to_account_id'        => null,
-                ]);
-
-                if (!$feeTransactionId) {
-                    $this->conn->rollBack();
-                    return false;
+            $transactionId = $this->createOrdinaryInsideCurrentTransaction($userId, $data);
+            $this->conn->commit();
+            return ['transaction_id' => $transactionId, 'replayed' => false];
+        } catch (PDOException $e) {
+            if ($this->conn->inTransaction()) $this->conn->rollBack();
+            if ($requestId !== '' && (string)$e->getCode() === '23000') {
+                $existing = $this->transactionModel->findByClientRequestId($requestId, $userId);
+                if ($existing) {
+                    return ['transaction_id' => $this->replayOrdinary($existing, $data), 'replayed' => true];
                 }
             }
-
-            // Recalculate balances for ALL affected accounts using BalanceService
-            $affectedAccounts = $this->getAffectedAccounts($data);
-            if ($type === 'transfer' && $feeAmount > 0 && !empty($data['from_account_id'])) {
-                $affectedAccounts[] = $data['from_account_id'];
-            }
-            foreach (array_unique($affectedAccounts) as $aid) {
-                $this->recalculateAndUpdateBalance($aid, $userId);
-            }
-
-            $this->conn->commit();
-            return $feeTransactionId ? $feeTransactionId : $transactionId;
-
+            throw $e;
         } catch (\Throwable $e) {
             if ($this->conn->inTransaction()) $this->conn->rollBack();
             throw $e;
         }
     }
+
+    public function validateRecurringTemplate(int $userId, array $definition, string $transactionDate): void {
+        try {
+            $this->validateTransaction($userId, [
+                'type'=>$definition['type']??null,
+                'amount'=>$definition['amount']??null,
+                'account_id'=>$definition['account_id']??null,
+                'category_id'=>$definition['category_id']??null,
+                'subcategory_id'=>$definition['subcategory_id']??null,
+                'date'=>$transactionDate,
+                'description'=>$definition['description']??'',
+            ], (string)($definition['type']??''));
+        } catch (PDOException $e) {
+            throw $e;
+        } catch (Throwable $e) {
+            throw new RecurringDefinitionValidationException($e->getMessage(),0,$e);
+        }
+    }
+
+    public function processRecurringOccurrence(
+        int $definitionId,
+        int $userId,
+        ?string $scheduledDate = null,
+        string $action = 'generate',
+        bool $allowInactive = false,
+        bool $automatic = false
+    ): array {
+        if (!in_array($action,['generate','skip'],true)) throw new InvalidArgumentException('Invalid reconciliation action.');
+        $notification = null;
+        $this->conn->beginTransaction();
+        try {
+            $definition=$this->recurringModel->findByIdForUpdate($definitionId,$userId);
+            if (!$definition) throw new RuntimeException('Recurring definition not found.');
+            if (empty($definition['is_active'])&&!$allowInactive) {
+                $this->conn->commit();
+                return ['status'=>'inactive','definition_id'=>$definitionId];
+            }
+            $cursor=$definition['next_occurrence']??null;
+            if (!$cursor) {
+                $this->conn->commit();
+                return ['status'=>'ended','definition_id'=>$definitionId];
+            }
+            if ($scheduledDate!==null&&$scheduledDate!==$cursor) {
+                throw new InvalidArgumentException('The submitted occurrence is not the current unresolved occurrence.');
+            }
+            $scheduledDate=$cursor;
+            $today=$this->recurrenceCalculator->today();
+            if ($scheduledDate>$today) {
+                if($automatic){$this->conn->commit();return['status'=>'not_due','definition_id'=>$definitionId,'next_occurrence'=>$scheduledDate];}
+                throw new InvalidArgumentException('The occurrence is not due yet.');
+            }
+            if (!$this->recurrenceCalculator->isOccurrenceInSequence($definition,$scheduledDate)) {
+                throw new InvalidArgumentException('The occurrence does not belong to this recurrence schedule.');
+            }
+            if ($automatic) {
+                $due=$this->recurrenceCalculator->dueOccurrences($definition,$today,2);
+                if (count($due)!==1) {
+                    $this->conn->commit();
+                    return ['status'=>count($due)>1?'review_required':'not_due','definition_id'=>$definitionId,'due_occurrences'=>$due];
+                }
+            }
+
+            $next=$this->recurrenceCalculator->nextOccurrence($definition,$scheduledDate);
+            if ($action==='skip') {
+                if (!$this->recurringModel->advanceCursor($definitionId,$userId,$scheduledDate,$next)) {
+                    throw new RuntimeException('Recurring cursor changed before it could be advanced.');
+                }
+                $this->conn->commit();
+                return ['status'=>'skipped','definition_id'=>$definitionId,'occurrence_date'=>$scheduledDate,'next_occurrence'=>$next];
+            }
+
+            $existing=$this->transactionModel->findByRecurringOccurrence($definitionId,$userId,$scheduledDate);
+            if ($existing) {
+                if (!$this->recurringModel->advanceCursor($definitionId,$userId,$scheduledDate,$next)) {
+                    throw new RuntimeException('Recurring cursor changed before it could be repaired.');
+                }
+                $this->conn->commit();
+                return ['status'=>'already_processed','definition_id'=>$definitionId,'occurrence_date'=>$scheduledDate,'next_occurrence'=>$next,'transaction'=>$existing];
+            }
+
+            try {
+                $this->validateRecurringTemplate($userId,$definition,$scheduledDate);
+            } catch (RecurringDefinitionValidationException $e) {
+                $this->recurringModel->setState($definitionId,$userId,false,null,true);
+                $this->conn->commit();
+                $this->notifyRecurringProblem($userId,$definitionId,$e->getMessage());
+                return ['status'=>'failed_validation','definition_id'=>$definitionId,'occurrence_date'=>$scheduledDate,'message'=>$e->getMessage()];
+            }
+
+            $this->invokeRecurringFailure('before_transaction_create');
+            $requestId="recurring:{$definitionId}:{$scheduledDate}";
+            $transactionId=$this->createOrdinaryInsideCurrentTransaction($userId,[
+                'type'=>$definition['type'],'amount'=>$definition['amount'],'account_id'=>$definition['account_id'],
+                'category_id'=>$definition['category_id'],'subcategory_id'=>$definition['subcategory_id'],
+                'date'=>$scheduledDate,'description'=>$definition['description']??'',
+                'client_request_id'=>$requestId,'recurring_definition_id'=>$definitionId,
+                'recurring_occurrence_date'=>$scheduledDate,
+            ]);
+            $this->invokeRecurringFailure('after_transaction_create');
+            if (!$this->recurringModel->advanceCursor($definitionId,$userId,$scheduledDate,$next)) {
+                throw new RuntimeException('Recurring cursor changed before it could be advanced.');
+            }
+            $this->invokeRecurringFailure('after_cursor_advance');
+            $this->conn->commit();
+            $transaction=$this->transactionModel->findById($transactionId,$userId);
+            $notification=['definition'=>$definition,'transaction_id'=>$transactionId,'date'=>$scheduledDate];
+            $result=['status'=>'generated','definition_id'=>$definitionId,'occurrence_date'=>$scheduledDate,'next_occurrence'=>$next,'transaction'=>$transaction];
+        } catch (Throwable $e) {
+            if ($this->conn->inTransaction()) $this->conn->rollBack();
+            throw $e;
+        }
+        if ($notification) $this->notifyRecurringGenerated($userId,$notification);
+        return $result;
+    }
+
+    public function setRecurringFailureInjector(?callable $injector):void{$this->recurringFailureInjector=$injector;}
 
     /* ------------------------------------------------------------------
      *  UPDATE
@@ -171,7 +233,7 @@ class AccountingService {
         $this->conn->beginTransaction();
 
         try {
-            $existing = $this->transactionModel->findById($id, $userId);
+            $existing = $this->transactionModel->findByIdForUpdate($id, $userId);
             if (!$existing) {
                 throw new \Exception("Transaction not found");
             }
@@ -183,7 +245,7 @@ class AccountingService {
                 'account_id'      => $newData['account_id']      ?? $existing['account_id'],
                 'category_id'     => $newData['category_id']     ?? $existing['category_id'],
                 'subcategory_id'  => $newData['subcategory_id']  ?? $existing['subcategory_id'],
-                'amount'          => floatval($newData['amount']  ?? $existing['amount']),
+                'amount'          => $newData['amount']           ?? $existing['amount'],
                 'type'            => $newData['type']             ?? $existing['type'],
                 'date'            => $newData['date']             ?? $existing['date'],
                 'description'     => $newData['description']      ?? $existing['description'],
@@ -193,7 +255,14 @@ class AccountingService {
             ];
 
             $validateData = array_merge($merged, ['user_id' => $userId]);
+            $this->lockOwnedAccounts(array_filter([
+                $existing['account_id'], $merged['account_id'],
+                $merged['from_account_id'], $merged['to_account_id'],
+            ]), $userId);
             $this->validateTransaction($userId, $validateData, $merged['type']);
+            if ($merged['type'] === 'expense') {
+                $this->assertSufficientExpenseBalance($userId, $merged, $existing);
+            }
 
             $updated = $this->transactionModel->update($id, $userId, $merged, $baseVersion);
             if (!$updated) throw new TransactionConflictException('This transaction was changed elsewhere.');
@@ -372,6 +441,9 @@ class AccountingService {
         try {
             $goal = $this->goalModel->findByIdForUpdate($goalId, $userId);
             if (!$goal) throw new GoalContributionAuthorizationException('Goal not found or access denied');
+            if (($goal['status'] ?? '') !== 'active') {
+                throw new InvalidArgumentException('Contributions can only be added to active goals');
+            }
             $account = $this->lockGoalAccount($normalized['account_id'], $userId);
             if ((float)$account['balance'] < $normalized['amount']) {
                 throw new InvalidArgumentException('Insufficient balance in the selected account');
@@ -599,8 +671,9 @@ class AccountingService {
                 $userId
             );
             $this->validateTransferCategory($normalized, $userId);
-            if ((float)$accounts[$normalized['from_account_id']]['balance'] < $normalized['amount'] + $normalized['fee_amount']) {
-                throw new InvalidArgumentException('Insufficient balance in source account');
+            $available = $this->balanceService->calculateAccountBalance($normalized['from_account_id'], $userId);
+            if ($available < $normalized['amount'] + $normalized['fee_amount']) {
+                throw new InvalidArgumentException($this->insufficientBalanceMessage($available));
             }
 
             $transferId = $this->transactionModel->create([
@@ -670,7 +743,7 @@ class AccountingService {
             ]), $userId);
             $this->validateTransferCategory($normalized, $userId);
 
-            $available = (float)$accounts[$normalized['from_account_id']]['balance'];
+            $available = $this->balanceService->calculateAccountBalance($normalized['from_account_id'], $userId);
             if ((int)$normalized['from_account_id'] === (int)$transfer['from_account_id']) {
                 $available += (float)$transfer['amount'] + (float)($oldFee['amount'] ?? 0);
             }
@@ -678,7 +751,7 @@ class AccountingService {
                 $available -= (float)$transfer['amount'];
             }
             if ($available < $normalized['amount'] + $normalized['fee_amount']) {
-                throw new InvalidArgumentException('Insufficient balance in source account');
+                throw new InvalidArgumentException($this->insufficientBalanceMessage($available));
             }
 
             $updated = $this->transactionModel->update($transferId, $userId, [
@@ -763,18 +836,7 @@ class AccountingService {
     }
 
     private function strictMoney($raw, bool $allowZero, string $label): float {
-        if (!is_int($raw) && !is_float($raw) && !is_string($raw)) {
-            throw new InvalidArgumentException("{$label} must be a finite number");
-        }
-        $text = trim((string)$raw);
-        if (!preg_match('/^(?:0|[1-9]\d{0,11})(?:\.\d{1,2})?$/', $text)) {
-            throw new InvalidArgumentException("{$label} must use at most two decimal places");
-        }
-        $value = (float)$text;
-        if (!is_finite($value) || (!$allowZero && $value <= 0) || ($allowZero && $value < 0) || $value > 999999999999.99) {
-            throw new InvalidArgumentException("{$label} is outside the supported range");
-        }
-        return $value;
+        return MoneyValidator::parse($raw, $allowZero, $label);
     }
 
     private function lockOwnedAccounts(array $accountIds, $userId): array {
@@ -845,6 +907,84 @@ class AccountingService {
         if ($this->transferFailureInjector) call_user_func($this->transferFailureInjector, $point);
     }
 
+    private function createOrdinaryInsideCurrentTransaction(int $userId, array $data): int {
+        $type=(string)($data['type']??'');
+        if (!in_array($type,['income','expense'],true)) {
+            throw new InvalidArgumentException('Only ordinary income and expense can use this accounting path.');
+        }
+        $this->validateTransaction($userId,$data,$type);
+        $accountId=(int)($type==='income'
+            ? ($data['to_account_id']??$data['account_id']??0)
+            : ($data['from_account_id']??$data['account_id']??0));
+        $this->lockOwnedAccounts([$accountId], $userId);
+        if ($type === 'expense') {
+            $this->assertSufficientExpenseBalance($userId, $data);
+        }
+        $transactionId=$this->transactionModel->create([
+            'user_id'=>$userId,'account_id'=>$accountId,
+            'from_account_id'=>$data['from_account_id']??null,'to_account_id'=>$data['to_account_id']??null,
+            'category_id'=>$data['category_id']??null,'subcategory_id'=>$data['subcategory_id']??null,
+            'amount'=>(float)$data['amount'],'type'=>$type,'payment_method'=>$data['payment_method']??null,
+            'karobar_transaction_id'=>$data['karobar_transaction_id']??null,
+            'client_request_id'=>$data['client_request_id']??null,'transfer_parent_id'=>null,'goal_id'=>null,
+            'recurring_definition_id'=>$data['recurring_definition_id']??null,
+            'recurring_occurrence_date'=>$data['recurring_occurrence_date']??null,
+            'date'=>$data['date'],'description'=>$data['description']??'',
+        ]);
+        if (!$transactionId) throw new RuntimeException('Transaction creation failed.');
+        if (!$this->recalculateAndUpdateBalance($accountId,$userId)) {
+            throw new RuntimeException('Account balance recalculation failed.');
+        }
+        return (int)$transactionId;
+    }
+
+    private function replayOrdinary(array $existing, array $expected): int {
+        $type = (string)($expected['type'] ?? '');
+        if (!in_array($type, ['income', 'expense'], true) || $existing['type'] !== $type) {
+            throw new TransactionConflictException('Client request ID is already in use');
+        }
+        $amount = MoneyValidator::parse($expected['amount'] ?? null, false, 'Amount');
+        $accountId = (int)($type === 'income'
+            ? ($expected['to_account_id'] ?? $expected['account_id'] ?? 0)
+            : ($expected['from_account_id'] ?? $expected['account_id'] ?? 0));
+        $matches = (int)$existing['account_id'] === $accountId
+            && (int)$existing['category_id'] === (int)($expected['category_id'] ?? 0)
+            && (int)($existing['subcategory_id'] ?? 0) === (int)($expected['subcategory_id'] ?? 0)
+            && number_format((float)$existing['amount'], 2, '.', '') === number_format($amount, 2, '.', '')
+            && (string)$existing['date'] === (string)($expected['date'] ?? '')
+            && (string)$existing['description'] === (string)($expected['description'] ?? '')
+            && (string)($existing['payment_method'] ?? '') === (string)($expected['payment_method'] ?? '');
+        if (!$matches) {
+            throw new TransactionConflictException('Client request ID payload does not match the original transaction');
+        }
+        return (int)$existing['id'];
+    }
+
+    private function notifyRecurringGenerated(int $userId, array $context): void {
+        try {
+            $this->invokeRecurringFailure('notification');
+            $definition=$context['definition'];
+            $type=ucfirst((string)$definition['type']);
+            $amount=number_format((float)$definition['amount'],2);
+            (new NotificationService())->notifyRecurringGeneratedOnce(
+                $userId,(int)$definition['id'],(string)$context['date'],(int)$context['transaction_id'],
+                "{$type} of Rs {$amount} generated for {$context['date']}."
+            );
+        } catch (Throwable $e) {
+            error_log('Recurring transaction notification failed: '.$e->getMessage());
+        }
+    }
+
+    private function notifyRecurringProblem(int $userId,int $definitionId,string $message): void {
+        try {
+            (new NotificationService())->notifyRecurringProblemOnce($userId,$definitionId,$message);
+        } catch (Throwable $e) {
+            error_log('Recurring validation notification failed: '.$e->getMessage());
+        }
+    }
+
+    private function invokeRecurringFailure(string$point):void{if($this->recurringFailureInjector)call_user_func($this->recurringFailureInjector,$point);}
+
     /* ------------------------------------------------------------------
      *  VALIDATION
      * ----------------------------------------------------------------*/
@@ -855,11 +995,7 @@ class AccountingService {
         }
 
         $rawAmount = $data['amount'] ?? null;
-        $amount = is_numeric($rawAmount) ? (float)$rawAmount : 0;
-
-        if (!is_finite($amount) || $amount <= 0 || $amount > 999999999999.99) {
-            throw new \InvalidArgumentException('Amount must be a valid positive value');
-        }
+        $amount = MoneyValidator::parse($rawAmount, false, 'Amount');
 
         $dateValue = (string)($data['date'] ?? '');
         $date = \DateTime::createFromFormat('!Y-m-d', $dateValue);
@@ -929,14 +1065,30 @@ class AccountingService {
                     throw new \Exception("Cannot transfer to the same account");
                 }
 
-                // Check balance using calculated balance (include fee for transfers)
-                $checkAmount = $data['_check_amount'] ?? $amount;
-                $fromBalance = $this->balanceService->calculateAccountBalance($data['from_account_id'], $userId);
-                if ($fromBalance < $checkAmount) {
-                    throw new \Exception("Insufficient balance in source account (needs Rs " . number_format($checkAmount, 0) . ")");
-                }
                 break;
         }
+    }
+
+    /** Validate an outgoing ordinary expense without mutating the cached balance. */
+    private function assertSufficientExpenseBalance(int $userId, array $data, ?array $replacedTransaction = null): void {
+        $accountId = (int)($data['from_account_id'] ?? $data['account_id'] ?? 0);
+        $available = $this->balanceService->calculateAccountBalance($accountId, $userId);
+
+        // The calculated balance already includes the old row. Reverse its
+        // effect only when replacing a transaction on the same account.
+        if ($replacedTransaction && (int)$replacedTransaction['account_id'] === $accountId) {
+            if ($replacedTransaction['type'] === 'expense') $available += (float)$replacedTransaction['amount'];
+            if ($replacedTransaction['type'] === 'income') $available -= (float)$replacedTransaction['amount'];
+        }
+
+        $amount = MoneyValidator::parse($data['amount'] ?? null, false, 'Amount');
+        if ($available + 0.00001 < $amount) {
+            throw new InvalidArgumentException($this->insufficientBalanceMessage($available));
+        }
+    }
+
+    private function insufficientBalanceMessage(float $available): string {
+        return 'Insufficient balance. Available balance: Rs ' . number_format(max(0, $available), 2, '.', ',') . '.';
     }
 
     private function validateAccountOwnership($accountId, $userId) {

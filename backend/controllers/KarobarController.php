@@ -26,11 +26,10 @@ class KarobarController {
             'search' => $_GET['search'] ?? null
         ];
         
-        $limit = (int)($_GET['limit'] ?? 50);
-        $offset = (int)($_GET['offset'] ?? 0);
+        $limit=max(1,min(200,(int)($_GET['limit']??25)));$page=max(1,(int)($_GET['page']??1));
+        if(isset($_GET['offset']))$page=(int)floor(max(0,(int)$_GET['offset'])/$limit)+1;
         
-        $transactions = $this->karobarModel->findAll($userId, $filters, $limit, $offset);
-        Response::success($transactions);
+        Response::success($this->karobarModel->findPage((int)$userId,$filters,$page,$limit));
     }
 
     public function show($id) {
@@ -56,8 +55,8 @@ class KarobarController {
             Response::error('Validation failed', 422, $errors);
         }
 
-        if (in_array($data['type'] ?? '', ['repaid', 'returned'], true) && empty($data['client_request_id'])) {
-            Response::error('Validation failed', 422, ['client_request_id' => 'Client request ID is required for payments']);
+        if (empty($data['client_request_id'])) {
+            Response::error('Validation failed', 422, ['client_request_id' => 'Client request ID is required for Karobar transactions']);
         }
         if (in_array($data['type'] ?? '', ['repaid', 'returned'], true) && empty($data['account_id'])) {
             Response::error('Validation failed', 422, ['account_id' => 'Account is required for payments']);

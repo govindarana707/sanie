@@ -6,6 +6,7 @@ class SettingsManager {
         this._profileDirty = false;
         this._storagePersistenceAttempted = false;
         this._passwordChangeInProgress = false;
+        this._freshStartInProgress = false;
         try {
             this._storagePersistenceAttempted = window.sessionStorage.getItem('sanie_storage_persist_attempted') === '1';
         } catch (error) {}
@@ -46,6 +47,7 @@ class SettingsManager {
         document.getElementById('settings-logout-btn')?.removeEventListener('click', this._listeners.logoutClick);
         document.getElementById('offline-data-clear')?.removeEventListener('click', this._listeners.offlineClearClick);
         document.getElementById('offline-storage-persist')?.removeEventListener('click', this._listeners.storagePersistClick);
+        document.getElementById('fresh-start-button')?.removeEventListener('click', this._listeners.freshStartClick);
         if (this._listeners.offlineStateChanged) {
             window.removeEventListener('offline:pending-changed', this._listeners.offlineStateChanged);
             window.removeEventListener('sync:state', this._listeners.offlineStateChanged);
@@ -119,6 +121,12 @@ class SettingsManager {
         if (persistButton) {
             this._listeners.storagePersistClick = () => this.requestStoragePersistence();
             persistButton.addEventListener('click', this._listeners.storagePersistClick);
+        }
+
+        const freshStartButton = document.getElementById('fresh-start-button');
+        if (freshStartButton) {
+            this._listeners.freshStartClick = () => this.startFreshStart();
+            freshStartButton.addEventListener('click', this._listeners.freshStartClick);
         }
 
         this._listeners.offlineStateChanged = () => {
@@ -382,6 +390,100 @@ class SettingsManager {
             preview?.classList.remove('is-uploading');
             input.value = '';
         }
+    }
+
+    async startFreshStart() {
+        if (this._freshStartInProgress) return;
+        if (!navigator.onLine) { NotificationService.error('Fresh Start requires an internet connection.'); return; }
+        this._freshStartInProgress = true;
+        const trigger = document.getElementById('fresh-start-button');
+        if (trigger) { trigger.disabled = true; trigger.setAttribute('aria-busy', 'true'); }
+        let syncSuspended = false;
+        try {
+            const prepared = await authAPI.prepareFreshStart();
+            const reset = prepared.data;
+            if (!prepared.success || !reset?.operation_id || !reset?.intent_token) throw new Error('Unable to prepare Fresh Start.');
+            const labels = {
+                transactions:'Transactions',accounts:'Accounts',categories:'Categories & subcategories',budgets:'Budgets',
+                goals_and_savings:'Goals & savings',karobar:'Karobar records',tasks:'Tasks & reminders',recurring:'Recurring transactions',
+                notifications:'Notifications',reports_and_analysis:'Reports & analysis',attachments:'Attachments',other:'Other records'
+            };
+            const rows = Object.entries(labels).map(([key,label]) => `<div><span>${label}</span><strong>${Number(reset.summary?.[key])||0}</strong></div>`).join('');
+            const overview = await Swal.fire({
+                icon:'warning',title:'Fresh Start',
+                html:`<p>This permanently deletes your personal application data. It cannot be undone through SanIE.</p><div class="fresh-start-summary">${rows}</div><p class="small text-muted">Your account, login credentials, profile details, and shared system categories will be preserved.</p>`,
+                showCancelButton:true,confirmButtonText:'Continue',cancelButtonText:'Cancel',confirmButtonColor:'#dc2626',focusCancel:true
+            });
+            if (!overview.isConfirmed) return;
+
+            const backup = await Swal.fire({
+                icon:'info',title:'Export before resetting?',
+                text: reset.backup?.limitations || 'The export does not include uploaded attachment files.',
+                showCancelButton:true,showDenyButton:true,confirmButtonText:'Continue without export',denyButtonText:'Download JSON export',cancelButtonText:'Cancel'
+            });
+            if (backup.isDismissed) return;
+            if (backup.isDenied) {
+                await this.downloadFreshStartExport(reset);
+                const continueAfterExport = await Swal.fire({icon:'success',title:'Export downloaded',text:'Keep the file somewhere safe. Continue to security verification?',showCancelButton:true,confirmButtonText:'Continue',cancelButtonText:'Cancel'});
+                if (!continueAfterExport.isConfirmed) return;
+            }
+
+            const verified = await Swal.fire({
+                icon:'warning',title:'Verify your identity',
+                html:'<label class="form-label text-start d-block" for="fresh-start-password">Current password</label><input id="fresh-start-password" class="swal2-input" type="password" autocomplete="current-password"><label class="form-label text-start d-block mt-3" for="fresh-start-phrase">Type RESET ALL DATA</label><input id="fresh-start-phrase" class="swal2-input" type="text" autocomplete="off">',
+                showCancelButton:true,confirmButtonText:'Verify',confirmButtonColor:'#dc2626',focusCancel:true,
+                preConfirm: async () => {
+                    const password=document.getElementById('fresh-start-password')?.value||'';
+                    const phrase=document.getElementById('fresh-start-phrase')?.value||'';
+                    if (!password || phrase.trim() !== 'RESET ALL DATA') { Swal.showValidationMessage('Enter your current password and type RESET ALL DATA exactly.'); return false; }
+                    try {
+                        const response=await authAPI.verifyFreshStart({operation_id:reset.operation_id,password,confirmation_phrase:phrase},reset.intent_token);
+                        document.getElementById('fresh-start-password').value='';
+                        return response.data;
+                    } catch(error) { Swal.showValidationMessage(error.message || 'Authentication could not be verified.'); return false; }
+                }
+            });
+            if (!verified.isConfirmed || !verified.value?.confirmation_token) return;
+
+            const final = await Swal.fire({
+                icon:'error',title:'This action is irreversible',
+                text:'All listed records will be permanently deleted. Your login account will remain.',
+                showCancelButton:true,confirmButtonText:'Permanently Delete My Data',cancelButtonText:'Cancel',confirmButtonColor:'#b91c1c',focusCancel:true
+            });
+            if (!final.isConfirmed) return;
+            syncSuspended = Boolean(window.SanIESync?.suspendForFreshStart?.());
+            if (window.SanIESync && !syncSuspended) throw new Error('Please wait for the current synchronization to finish, then try again.');
+            const completed=await authAPI.executeFreshStart(reset.operation_id,reset.intent_token,verified.value.confirmation_token);
+            if (!completed.success || !completed.data?.token) throw new Error(completed.message || 'Fresh Start failed.');
+            const userId=window.authManager?.getCurrentUser?.()?.id;
+            const cleared=await window.OfflineStorage?.clearAllOfflineUserData(userId);
+            if (cleared === false) throw new Error('Server data was reset, but this device cache could not be cleared. Sign out before adding new data.');
+            api.setToken(completed.data.token);
+            api.constructor.invalidateCache();
+            try { localStorage.setItem('currency','NPR'); localStorage.setItem('language','en'); localStorage.setItem('theme','light'); } catch(error) {}
+            try { const channel=new BroadcastChannel('sanie-fresh-start'); channel.postMessage({type:'completed',userId:String(userId),sender:window.__sanieFreshStartTabId}); channel.close(); } catch(error) {}
+            document.dispatchEvent(new CustomEvent('app:data-changed'));
+            const completeMessage='Fresh start complete. Your personal data has been reset, and your SanIE account is ready to use.';
+            if (completed.data.cleanup_status === 'complete') await Swal.fire({icon:'success',title:'Fresh start complete',text:completeMessage,confirmButtonText:'Go to dashboard'});
+            else await Swal.fire({icon:'warning',title:'Records reset',text:'Your records were reset, but secure file cleanup is still pending. Do not upload new copies yet.',confirmButtonText:'Continue'});
+            window.location.hash='#dashboard';
+            window.location.reload();
+        } catch(error) {
+            if (syncSuspended) window.SanIESync?.resumeAfterFreshStartFailure?.();
+            NotificationService.error(error.message || 'Fresh Start could not be completed.');
+        } finally {
+            this._freshStartInProgress=false;
+            if(trigger){trigger.disabled=false;trigger.removeAttribute('aria-busy');}
+        }
+    }
+
+    async downloadFreshStartExport(reset) {
+        const response=await authAPI.exportFreshStart(reset.operation_id,reset.intent_token);
+        if(!response.success||!response.data)throw new Error(response.message||'Export failed.');
+        const blob=new Blob([JSON.stringify(response.data,null,2)],{type:'application/json'});
+        const link=document.createElement('a');link.href=URL.createObjectURL(blob);
+        link.download=`SanIE_Fresh_Start_Export_${new Date().toISOString().slice(0,10)}.json`;link.click();
+        setTimeout(()=>URL.revokeObjectURL(link.href),0);
     }
 }
 

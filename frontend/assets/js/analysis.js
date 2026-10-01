@@ -47,11 +47,11 @@ class AnalysisManager {
                     <div class="row g-3">
                         <div class="col-6">
                             <label class="form-label small">Start Date</label>
-                            <input type="date" id="custom-start" class="form-control" value="${new Date().toISOString().slice(0, 10)}">
+                            <input type="date" id="custom-start" class="form-control" value="${DateUtils.getKathmanduDateString()}">
                         </div>
                         <div class="col-6">
                             <label class="form-label small">End Date</label>
-                            <input type="date" id="custom-end" class="form-control" value="${new Date().toISOString().slice(0, 10)}">
+                            <input type="date" id="custom-end" class="form-control" value="${DateUtils.getKathmanduDateString()}">
                         </div>
                     </div>
                 `,
@@ -135,18 +135,7 @@ class AnalysisManager {
 
     _updateScore(score, status) {
         const el = document.getElementById('analysis-score');
-        if (el) {
-            const CountUpCtor = window.CountUp || window.countUp?.CountUp || window.countUp;
-            if (CountUpCtor) {
-                try {
-                    const cu = new CountUpCtor(el, score, { duration: 2, decimalPlaces: 0 });
-                    if (!cu.error) cu.start();
-                    else el.textContent = score;
-                } catch(e) { el.textContent = score; }
-            } else {
-                el.textContent = score;
-            }
-        }
+        if (el) el.textContent = score;
         const st = document.getElementById('analysis-status');
         if (st) {
             st.textContent = status;
@@ -267,17 +256,8 @@ class AnalysisManager {
         const anim = (id, val, suffix) => {
             const el = document.getElementById(id);
             if (!el) return;
-            const CountUpCtor = window.CountUp || window.countUp?.CountUp || window.countUp;
             const display = `${val}${suffix || ''}`;
-            if (CountUpCtor) {
-                try {
-                    const cu = new CountUpCtor(el, val, { duration: 1.5, suffix: suffix || '', decimalPlaces: 1 });
-                    if (!cu.error) cu.start();
-                    else el.textContent = display;
-                } catch(e) { el.textContent = display; }
-            } else {
-                el.textContent = display;
-            }
+            el.textContent = display;
         };
         anim('savings-rate', metrics.savings_rate, '%');
         anim('monthly-growth', metrics.monthly_growth, '%');

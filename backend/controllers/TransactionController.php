@@ -10,6 +10,8 @@ require_once __DIR__ . '/../services/NotificationService.php';
 require_once __DIR__ . '/../services/KarobarService.php';
 require_once __DIR__ . '/../services/AccountingService.php';
 require_once __DIR__ . '/../services/BalanceService.php';
+require_once __DIR__ . '/../services/TransactionImportService.php';
+require_once __DIR__ . '/../services/ReportingPaginationService.php';
 
 class TransactionController {
     private $transactionModel;
@@ -19,6 +21,7 @@ class TransactionController {
     private $karobarService;
     private $accountingService;
     private $balanceService;
+    private $reportingService;
 
     public function __construct() {
         $this->transactionModel = new Transaction();
@@ -28,10 +31,33 @@ class TransactionController {
         $this->karobarService = new KarobarService();
         $this->accountingService = new AccountingService();
         $this->balanceService = new BalanceService();
+        $this->reportingService = new ReportingPaginationService();
     }
 
     public function index() {
         $userId = Middleware::auth();
+
+        // Keep the legacy flat response untouched unless a caller explicitly
+        // asks for the unified personal/Karobar read model.
+        if (array_key_exists('scope', $_GET)) {
+            $filters = $this->reportingFilters();
+            if (!in_array($filters['scope'], ['all', 'personal', 'karobar'], true)) {
+                Response::error('Invalid transaction scope.', 422);
+            }
+            foreach (['start_date', 'end_date'] as $field) {
+                if (!empty($filters[$field]) && !$this->validCalendarDate($filters[$field])) {
+                    Response::error('Invalid transaction date range.', 422);
+                }
+            }
+            if (!empty($filters['start_date']) && !empty($filters['end_date']) && $filters['start_date'] > $filters['end_date']) {
+                Response::error('Invalid transaction date range.', 422);
+            }
+
+            $limit = max(1, min(200, (int)($_GET['limit'] ?? 50)));
+            $offset = max(0, (int)($_GET['offset'] ?? 0));
+            $page = max(1, (int)($_GET['page'] ?? (intdiv($offset, $limit) + 1)));
+            Response::success($this->reportingService->transactionPage((int)$userId, $filters, $page, $limit));
+        }
         
         $filters = [
             'type' => $_GET['type'] ?? null,
@@ -47,6 +73,80 @@ class TransactionController {
         
         $transactions = $this->transactionModel->findAll($userId, $filters, $limit, $offset);
         Response::success($transactions);
+    }
+
+    public function query() {
+        $userId = Middleware::auth();
+        $filters = $this->reportingFilters();
+        if (!in_array($filters['scope'], ['all', 'personal', 'karobar'], true)) {
+            Response::error('Invalid transaction scope.', 422);
+        }
+        $page = max(1, (int)($_GET['page'] ?? 1));
+        $limit = max(1, min(200, (int)($_GET['limit'] ?? 50)));
+
+        foreach (['start_date', 'end_date'] as $field) {
+            if (!empty($filters[$field]) && !$this->validCalendarDate($filters[$field])) {
+                Response::error('Invalid transaction date range.', 422);
+            }
+        }
+        if (!empty($filters['start_date']) && !empty($filters['end_date']) && $filters['start_date'] > $filters['end_date']) {
+            Response::error('Invalid transaction date range.', 422);
+        }
+
+        Response::success($this->reportingService->transactionPage((int)$userId, $filters, $page, $limit));
+    }
+
+    private function reportingFilters(): array {
+        return [
+            'type' => $_GET['type'] ?? null,
+            'category_id' => $_GET['category_id'] ?? null,
+            'subcategory_id' => $_GET['subcategory_id'] ?? null,
+            'account_id' => $_GET['account_id'] ?? null,
+            'payment_method' => $_GET['payment_method'] ?? null,
+            'scope' => $_GET['scope'] ?? 'all',
+            'start_date' => $_GET['start_date'] ?? null,
+            'end_date' => $_GET['end_date'] ?? null,
+            'search' => trim((string)($_GET['search'] ?? ''))
+        ];
+    }
+
+    private function validCalendarDate(string $value): bool {
+        $date = DateTime::createFromFormat('!Y-m-d', $value);
+        return $date && $date->format('Y-m-d') === $value;
+    }
+
+    public function importPreview() {
+        $userId = Middleware::auth();
+        $data = json_decode(file_get_contents('php://input'), true) ?: [];
+        try {
+            $result = (new TransactionImportService())->preview(
+                (int)$userId,
+                (string)($data['csv_content'] ?? ''),
+                (string)($data['batch_identity'] ?? '')
+            );
+            Response::success($result, 'CSV preview validated');
+        } catch (InvalidArgumentException $error) {
+            Response::error($error->getMessage(), 422);
+        } catch (Throwable $error) {
+            Response::serverError($error->getMessage());
+        }
+    }
+
+    public function importCsv() {
+        $userId = Middleware::auth();
+        $data = json_decode(file_get_contents('php://input'), true) ?: [];
+        try {
+            $result = (new TransactionImportService())->process(
+                (int)$userId,
+                (string)($data['csv_content'] ?? ''),
+                (string)($data['batch_identity'] ?? '')
+            );
+            Response::success($result, 'CSV import processed');
+        } catch (InvalidArgumentException $error) {
+            Response::error($error->getMessage(), 422);
+        } catch (Throwable $error) {
+            Response::serverError($error->getMessage());
+        }
     }
 
     public function show($id) {
@@ -95,13 +195,12 @@ class TransactionController {
         if ($data['type'] === 'transfer' && !$clientRequestId) {
             Response::error('Validation failed', 422, ['client_request_id' => 'Client request ID is required for transfers']);
         }
-        if ($clientRequestId && $data['type'] !== 'transfer' && ($data['dynamic_subcategory_type'] ?? null) !== 'goal' && $paymentMethod !== 'credit') {
-            $data['client_request_id'] = $clientRequestId;
-            $existing = $this->transactionModel->findByClientRequestId($clientRequestId, $userId);
-            if ($existing) {
-                Response::success($existing, 'Transaction already synchronized');
-            }
+        $isOrdinaryOnline = in_array($data['type'] ?? '', ['income', 'expense'], true)
+            && ($data['dynamic_subcategory_type'] ?? null) !== 'goal' && $paymentMethod !== 'credit';
+        if ($isOrdinaryOnline && !$clientRequestId) {
+            Response::error('Validation failed', 422, ['client_request_id' => 'Client request ID is required for online transactions']);
         }
+        if ($clientRequestId) $data['client_request_id'] = $clientRequestId;
 
         if ($data['type'] === 'expense' && $paymentMethod === 'credit') {
             $errors2 = Middleware::validateRequired($data, ['creditor_id']);
@@ -125,6 +224,7 @@ class TransactionController {
                 ], $userId);
 
                 if ($result) {
+                    $this->notifService->syncUserBudgetAlertStates($userId);
                     Response::success($result, 'Credit purchase recorded successfully', 201);
                 } else {
                     Response::serverError('Failed to record credit purchase');
@@ -169,30 +269,28 @@ class TransactionController {
         }
 
         try {
-            $creationResult = $this->accountingService->createTransaction($userId, $data);
+            $ordinaryResult = $isOrdinaryOnline
+                ? $this->accountingService->createOrdinaryTransaction((int)$userId, $data)
+                : null;
+            $creationResult = $ordinaryResult ?? $this->accountingService->createTransaction($userId, $data);
 
             if ($creationResult) {
                 $isTransfer = $data['type'] === 'transfer';
                 $isGoalContribution = is_array($creationResult) && isset($creationResult['contribution_id']);
-                $transactionId = $isTransfer
+                $transactionId = $ordinaryResult
+                    ? (int)$ordinaryResult['transaction_id']
+                    : ($isTransfer
                     ? $creationResult['transfer_id']
-                    : ($isGoalContribution ? $creationResult['contribution_id'] : $creationResult);
+                    : ($isGoalContribution ? $creationResult['contribution_id'] : $creationResult));
                 $transaction = ($isTransfer || $isGoalContribution)
                     ? $creationResult
                     : $this->transactionModel->findById($transactionId, $userId);
 
-                if ($dynamicType === 'goal' && $dynamicRefId) {
+                if (!empty($ordinaryResult['replayed'])) {
+                    Response::success($transaction, 'Transaction already processed');
+                } elseif ($dynamicType === 'goal' && $dynamicRefId) {
                     $goalId = (int)$dynamicRefId;
-                    $goal = $this->goalModel->findById($goalId, $userId);
-                    if ($goal) {
-                        $percentage = $goal['target_amount'] > 0 ? ($goal['current_amount'] / $goal['target_amount']) * 100 : 0;
-                        if ($percentage >= 100) {
-                            $this->notifService->create($userId, 'goal_achieved',
-                                'Goal Achieved!',
-                                "Congratulations! You've reached your savings goal \"{$goal['name']}\".",
-                                'goal', $goalId);
-                        }
-                    }
+                    $this->notifService->notifyGoalAchievementOnce($userId,$goalId);
                     $this->notifService->create($userId, 'transaction_added',
                         'Savings Contribution',
                         "Rs " . number_format($data['amount'], 0) . " contributed to goal.",
@@ -205,6 +303,8 @@ class TransactionController {
                         "{$typeLabel} of Rs {$amountFormatted} was recorded.",
                         'transaction', $transactionId);
                 }
+
+                $this->notifService->syncUserBudgetAlertStates($userId);
 
                 Response::success($transaction, 'Transaction created successfully', 201);
             }
@@ -245,6 +345,7 @@ class TransactionController {
             if ($baseVersion === null) Response::error('A base version is required for linked credit purchases.', 422);
             try {
                 $resource = $this->karobarService->updateCreditPurchaseByTransaction($id, $data, $userId, $baseVersion);
+                $this->notifService->syncUserBudgetAlertStates($userId);
                 Response::success($resource, 'Credit purchase updated successfully');
             } catch (KarobarAuthorizationException $e) {
                 Response::forbidden($e->getMessage());
@@ -271,6 +372,7 @@ class TransactionController {
                 'Transaction Updated',
                 'Your transaction has been updated.',
                 'transaction', $id);
+            $this->notifService->syncUserBudgetAlertStates($userId);
             Response::success($transaction, 'Transaction updated successfully');
         } catch (TransactionConflictException $e) {
             $this->respondConflict($id, $userId, 'This transaction was changed elsewhere.');
@@ -306,6 +408,7 @@ class TransactionController {
             if ($baseVersion === null) Response::error('A base version is required for linked credit purchases.', 422);
             try {
                 $this->karobarService->deleteCreditPurchaseByTransaction($id, $userId, $baseVersion);
+                $this->notifService->syncUserBudgetAlertStates($userId);
                 Response::success(['id' => (int)$id], 'Credit purchase deleted successfully');
             } catch (KarobarAuthorizationException $e) {
                 Response::forbidden($e->getMessage());
@@ -330,6 +433,7 @@ class TransactionController {
                 'Transaction Deleted',
                 'A transaction has been removed.',
                 'transaction', $id);
+            $this->notifService->syncUserBudgetAlertStates($userId);
             Response::success(['id' => (int)$id], 'Transaction deleted successfully');
         } catch (TransactionConflictException $e) {
             $this->respondConflict($id, $userId, 'This transaction was changed before your delete could sync.');
@@ -388,6 +492,7 @@ class TransactionController {
                 'Transactions Deleted',
                 "{$deleted} transactions were removed.",
                 'transaction', null);
+            $this->notifService->syncUserBudgetAlertStates($userId);
             Response::success(['deleted_count' => $deleted], "{$deleted} transactions deleted successfully");
         } catch (\Throwable $e) {
             Response::error($e->getMessage(), 422);

@@ -2,7 +2,7 @@ const fs = require('fs');
 const vm = require('vm');
 const assert = require('assert');
 
-const APP_PATH = '/sanie/frontend/';
+const LOCAL_PATH = '/sanie/frontend/';
 const LAN_ORIGIN = 'http://192.168.1.10';
 const manifestPaths = [
     'frontend/manifest.webmanifest',
@@ -12,77 +12,83 @@ const manifestPaths = [
 
 for (const path of manifestPaths) {
     const manifest = JSON.parse(fs.readFileSync(path, 'utf8'));
-    assert.strictEqual(manifest.id, APP_PATH, `${path} has the wrong PWA identity`);
-    assert.strictEqual(manifest.start_url, APP_PATH, `${path} has the wrong start_url`);
-    assert.strictEqual(manifest.scope, APP_PATH, `${path} has the wrong scope`);
+    assert.strictEqual(manifest.id, './', `${path} has a deployment-specific PWA identity`);
+    assert.strictEqual(manifest.start_url, './', `${path} has a deployment-specific start_url`);
+    assert.strictEqual(manifest.scope, './', `${path} has a deployment-specific scope`);
     assert.strictEqual(manifest.display, 'standalone', `${path} is not standalone`);
     assert(manifest.icons.length >= 2, `${path} is missing install icons`);
     for (const icon of manifest.icons) {
-        assert(icon.src.startsWith(`${APP_PATH}assets/icons/`), `${path} has an icon outside the frontend path`);
-        assert(fs.existsSync(icon.src.replace(/^\/sanie\//, '')), `${path} references a missing icon: ${icon.src}`);
+        assert(icon.src.startsWith('assets/icons/'), `${path} has an icon outside the deployed frontend`);
+        assert(fs.existsSync(`frontend/${icon.src}`), `${path} references a missing icon: ${icon.src}`);
     }
 }
 
 const index = fs.readFileSync('frontend/index.html', 'utf8');
 const transaction = fs.readFileSync('frontend/transaction.php', 'utf8');
-assert(index.includes('rel="manifest" href="/sanie/frontend/manifest.webmanifest"'), 'Main entry links the wrong manifest URL');
-assert(transaction.includes('rel="manifest" href="/sanie/frontend/manifest.webmanifest"'), 'Transaction entry links the wrong manifest URL');
-assert(index.includes('assets/js/pwa-controller.js?v=4'), 'PWA controller cache buster was not advanced');
+assert(index.includes('rel="manifest" href="manifest.webmanifest"'), 'Main entry manifest is not deployment-relative');
+assert(transaction.includes('rel="manifest" href="manifest.webmanifest"'), 'Transaction entry manifest is not deployment-relative');
+assert(index.includes('assets/js/pwa-controller.js?v=6'), 'PWA controller cache buster was not advanced');
 
 const controllerSource = fs.readFileSync('frontend/assets/js/pwa-controller.js', 'utf8');
-const registrations = [];
-const windowEvents = {};
-const serviceWorkerEvents = {};
-const document = {
-    readyState: 'complete',
-    getElementById: () => null,
-    querySelector: () => null,
-    createElement: () => ({ setAttribute() {}, querySelector: () => null, hidden: true }),
-    body: { appendChild() {} },
-    head: { appendChild() {} }
-};
-const registration = {
-    waiting: null,
-    addEventListener() {},
-    update: async () => undefined
-};
-const navigator = {
-    onLine: true,
-    userAgent: 'Android', platform: 'Linux', maxTouchPoints: 1,
-    serviceWorker: {
-        addEventListener: (name, handler) => { serviceWorkerEvents[name] = handler; },
-        register: async (url, options) => {
-            registrations.push({ url, options });
-            return registration;
+
+async function registrationFor(baseURI) {
+    const registrations = [];
+    const document = {
+        baseURI,
+        readyState: 'complete',
+        getElementById: () => null,
+        querySelector: () => null,
+        createElement: () => ({ setAttribute() {}, querySelector: () => null, hidden: true }),
+        body: { appendChild() {} },
+        head: { appendChild() {} }
+    };
+    const registration = { waiting: null, addEventListener() {}, update: async () => undefined };
+    const navigator = {
+        onLine: true,
+        userAgent: 'Android', platform: 'Linux', maxTouchPoints: 1,
+        serviceWorker: {
+            addEventListener() {},
+            register: async (url, options) => {
+                registrations.push({ url, options });
+                return registration;
+            }
         }
-    }
-};
-const window = {
-    document, navigator, console,
-    location: { origin: LAN_ORIGIN, reload() {} },
-    sessionStorage: { getItem: () => null, setItem() {}, removeItem() {} },
-    matchMedia: () => ({ matches: false, addEventListener() {} }),
-    addEventListener: (name, handler) => { (windowEvents[name] ||= []).push(handler); },
-    setTimeout: () => 1
-};
-vm.runInNewContext(controllerSource, { window, document, navigator, console, URL }, { filename: 'pwa-controller.js' });
+    };
+    const window = {
+        document, navigator, console,
+        location: { href: baseURI, origin: new URL(baseURI).origin, reload() {} },
+        sessionStorage: { getItem: () => null, setItem() {}, removeItem() {} },
+        matchMedia: () => ({ matches: false, addEventListener() {} }),
+        addEventListener() {},
+        setTimeout: () => 1
+    };
+    vm.runInNewContext(controllerSource, { window, document, navigator, console, URL }, { filename: 'pwa-controller.js' });
+    await new Promise(resolve => setImmediate(resolve));
+    return registrations[0];
+}
 
 (async () => {
-    // Registration is asynchronous even when document.readyState is complete.
-    await new Promise(resolve => setImmediate(resolve));
-    assert.strictEqual(registrations.length, 1, 'Service worker was not registered exactly once');
-    assert.strictEqual(registrations[0].url, `${LAN_ORIGIN}${APP_PATH}service-worker.js`);
-    assert.strictEqual(registrations[0].options.scope, APP_PATH);
+    const local = await registrationFor(`${LAN_ORIGIN}${LOCAL_PATH}`);
+    assert.strictEqual(local.url, `${LAN_ORIGIN}${LOCAL_PATH}service-worker.js`);
+    assert.strictEqual(local.options.scope, LOCAL_PATH);
+
+    const production = await registrationFor('https://sanie.govindarana.com.np/');
+    assert.strictEqual(production.url, 'https://sanie.govindarana.com.np/service-worker.js');
+    assert.strictEqual(production.options.scope, '/');
 
     const workerSource = fs.readFileSync('frontend/service-worker.js', 'utf8');
-    assert(workerSource.includes("const CACHE_VERSION = 'v24'"), 'Corrected launch release did not advance cache version');
+    assert(workerSource.includes("const CACHE_VERSION = 'v109'"), 'Root-compatible release did not advance cache version');
 
     const configSource = fs.readFileSync('frontend/assets/js/config.js', 'utf8');
-    const configWindow = { location: { protocol: 'http:', host: '192.168.1.10', pathname: APP_PATH } };
-    vm.runInNewContext(configSource, { window: configWindow });
-    assert.strictEqual(configWindow.APP_CONFIG.API_BASE, `${LAN_ORIGIN}/sanie/backend/api`, 'LAN launch derives the wrong API base');
+    const localWindow = { location: { protocol: 'http:', host: '192.168.1.10', pathname: LOCAL_PATH } };
+    vm.runInNewContext(configSource, { window: localWindow });
+    assert.strictEqual(localWindow.APP_CONFIG.API_BASE, `${LAN_ORIGIN}/sanie/backend/api`, 'Local subdirectory derives the wrong API base');
 
-    process.stdout.write('PASS: PWA manifest, icons, LAN start URL, worker URL/scope, cache version, and API base are subdirectory-safe\n');
+    const productionWindow = { location: { protocol: 'https:', host: 'sanie.govindarana.com.np', pathname: '/' } };
+    vm.runInNewContext(configSource, { window: productionWindow });
+    assert.strictEqual(productionWindow.APP_CONFIG.API_BASE, 'https://sanie.govindarana.com.np/backend/api', 'Production root derives the wrong API base');
+
+    process.stdout.write('PASS: root production and local subdirectory PWA/API paths are deployment-safe\n');
 })().catch(error => {
     console.error(`FAIL: ${error.message}`);
     process.exit(1);

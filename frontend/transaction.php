@@ -9,7 +9,7 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="SanIE">
     <meta name="application-name" content="SanIE">
-    <link rel="manifest" href="/sanie/frontend/manifest.webmanifest">
+    <link rel="manifest" href="manifest.webmanifest">
     <link rel="icon" href="assets/favicon/favicon.ico" sizes="any">
     <link rel="icon" type="image/png" sizes="32x32" href="assets/favicon/favicon-32x32.png">
     <link rel="icon" type="image/png" sizes="16x16" href="assets/favicon/favicon-16x16.png">
@@ -44,7 +44,7 @@
 
     <!-- Custom CSS -->
     <link rel="stylesheet" href="assets/css/styles.css">
-    <link rel="stylesheet" href="assets/css/transaction.css?v=3">
+    <link rel="stylesheet" href="assets/css/transaction.css?v=4">
 </head>
 <body>
     <div class="ledger-page">
@@ -368,6 +368,6 @@
     </script>
 
     <!-- Transaction Ledger Module -->
-    <script src="assets/js/transaction.js?v=2"></script>
+    <script src="assets/js/transaction.js?v=3"></script>
 </body>
 </html>

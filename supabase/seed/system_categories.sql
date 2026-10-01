@@ -1,0 +1,4 @@
+-- Intentionally empty of named categories. Existing MySQL categories may be
+-- personal, fixture, or historical; Phase 1B must not promote them globally.
+-- Add only future, reviewed system-category UUID/name definitions here using
+-- INSERT ... ON CONFLICT after product approval.

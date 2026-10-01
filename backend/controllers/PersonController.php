@@ -21,11 +21,14 @@ class PersonController {
             'search' => $_GET['search'] ?? null
         ];
         
-        $limit = (int)($_GET['limit'] ?? 100);
-        $offset = (int)($_GET['offset'] ?? 0);
+        $limit = max(1,min(200,(int)($_GET['limit'] ?? 20)));
+        $page = max(1,(int)($_GET['page'] ?? 1));
+        $offset = isset($_GET['offset'])?max(0,(int)$_GET['offset']):($page-1)*$limit;
+        $page=(int)floor($offset/$limit)+1;
         
         $people = $this->personModel->findAll($userId, $filters, $limit, $offset);
-        Response::success($people);
+        $total=$this->personModel->countAll($userId,$filters);
+        Response::success(['people'=>$people,'pagination'=>['page'=>$page,'limit'=>$limit,'offset'=>$offset,'total_rows'=>$total,'total_pages'=>$total?(int)ceil($total/$limit):0,'has_previous'=>$page>1&&$total>0,'has_next'=>$offset+$limit<$total]]);
     }
 
     public function show($id) {
@@ -124,19 +127,23 @@ class PersonController {
 
     public function ledger($personId) {
         $userId = Middleware::auth();
-        $limit = (int)($_GET['limit'] ?? 100);
-        $offset = (int)($_GET['offset'] ?? 0);
+        $limit=max(1,min(200,(int)($_GET['limit']??25)));$page=max(1,(int)($_GET['page']??1));
+        if(isset($_GET['offset']))$page=(int)floor(max(0,(int)$_GET['offset'])/$limit)+1;
         
         $person = $this->personModel->findById($personId, $userId);
         if (!$person) {
             Response::notFound('Person not found');
         }
         
-        $ledger = $this->personModel->getLedger($personId, $userId, $limit, $offset);
+        $filters=['start_date'=>$_GET['start_date']??null,'end_date'=>$_GET['end_date']??null,'type'=>$_GET['type']??null,'search'=>$_GET['search']??null];
+        $filters=array_filter($filters,fn($v)=>$v!==null&&$v!=='');
+        $result=$this->personModel->getLedgerPage((int)$personId,(int)$userId,$filters,$page,$limit);
         Response::success([
             'person' => $person,
-            'ledger' => $ledger,
-            'balance' => $person['balance']
+            'ledger' => $result['ledger'],
+            'balance' => $person['balance'],
+            'pagination'=>$result['pagination'],
+            'history_context'=>$result['history_context']
         ]);
     }
 }

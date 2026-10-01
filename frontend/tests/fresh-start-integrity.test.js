@@ -1,0 +1,13 @@
+const fs=require('fs');const path=require('path');const root=path.resolve(__dirname,'..');
+const read=file=>fs.readFileSync(path.join(root,file),'utf8');
+const html=read('index.html'),settings=read('assets/js/settings.js'),api=read('assets/js/api.js'),offline=read('assets/js/offline-storage.js'),sync=read('assets/js/sync-engine.js'),css=read('assets/css/styles.css'),worker=read('service-worker.js');
+for(const text of ['Danger Zone','Fresh Start','Reset All Data'])if(!html.includes(text))throw new Error(`Settings danger zone is missing ${text}`);
+if(!html.includes('id="fresh-start-button"')||!css.includes('.settings-danger-zone')||!css.includes('min-height:44px'))throw new Error('Danger Zone styling or touch target is incomplete');
+for(const method of ['prepareFreshStart','exportFreshStart','verifyFreshStart','executeFreshStart'])if(!api.includes(method))throw new Error(`Fresh Start API is missing ${method}`);
+for(const header of ['X-SanIE-Reset-Intent','X-SanIE-Reset-Confirmation','X-SanIE-Data-Generation'])if(!api.includes(header))throw new Error(`Required security header ${header} is missing`);
+if(!settings.includes("phrase.trim() !== 'RESET ALL DATA'")||!settings.includes('Permanently Delete My Data')||!settings.includes('current-password'))throw new Error('Multi-step confirmation requirements are incomplete');
+if(!settings.includes('clearAllOfflineUserData')||!offline.includes('deleteRecordsByUser(PENDING_STORE, scope)'))throw new Error('Fresh Start does not clear the offline mutation queue');
+if(!sync.includes('suspendForFreshStart')||!sync.includes('action.dataGeneration'))throw new Error('Sync suspension or stale-generation protection is missing');
+if(!worker.includes("pathname.includes('/backend/')")||!worker.includes("pathname.includes('/api/')"))throw new Error('Service worker may cache authenticated data');
+if(!css.includes('@media (max-width:600px)')||!css.includes('.danger-zone-action { align-items:stretch; flex-direction:column; }'))throw new Error('Fresh Start mobile layout is not responsive');
+console.log('PASS: Fresh Start danger zone, multi-step verification, security headers, offline purge, stale queue protection, and mobile layout verified');

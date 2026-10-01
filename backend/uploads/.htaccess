@@ -1,0 +1,12 @@
+Options -Indexes
+
+# Uploaded profile photos are public; every other uploaded file remains private.
+Require all denied
+
+<FilesMatch "\.(?:jpe?g|png|webp)$">
+    Require all granted
+</FilesMatch>
+
+<FilesMatch "\.(?:php\d*|phtml|phar|cgi|pl|py|sh|htm|html|svg)$">
+    Require all denied
+</FilesMatch>

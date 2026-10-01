@@ -84,7 +84,7 @@ function makeClient(fetchImpl, token = 'saved-token') {
     await rotated.client.post('/transactions', { client_request_id: 'stable-id' });
     if (authorization !== 'Bearer rotated-token') throw new Error('Request replay used stale authentication after token rotation');
     if (!karobarSource.includes('this._paymentRequestId || (this._paymentRequestId = this.createClientRequestId())')) throw new Error('Karobar retries do not retain their logical request ID');
-    if (!karobarSource.includes("if (!this._editingTxId && ['repaid', 'returned'].includes(data.type)) this._paymentRequestId = null")) throw new Error('Karobar request ID does not rotate after confirmed success');
+    if (!karobarSource.includes('if (!this._editingTxId) this._paymentRequestId = null')) throw new Error('Karobar request ID does not rotate after confirmed success');
 
     process.stdout.write('PASS: Phase 12 API timeout, abort, retry, auth classification, and token rotation invariants\n');
 })().catch(error => {

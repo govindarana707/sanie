@@ -10,11 +10,13 @@
     class SanIESyncEngine {
         constructor() {
             this.isSyncing = false;
+            this.suspended = false;
             this.retryTimer = null;
             this.lastFocusSyncAt = 0;
             this.ownerId = window.crypto?.randomUUID?.() || `tab_${Date.now()}_${Math.random().toString(36).slice(2)}`;
             this.channel = 'BroadcastChannel' in window ? new BroadcastChannel('sanie-sync') : null;
             this.state = { state: 'idle', total: 0, current: 0, synced: 0, failed: 0, message: '' };
+            this._uiRefreshPending = false;
             this.bindTriggers();
         }
 
@@ -58,7 +60,7 @@
         }
 
         async syncPendingActions(options = {}) {
-            if (this.isSyncing || !window.OfflineStorage || !window.Api) return this.getSyncState();
+            if (this.suspended || this.isSyncing || !window.OfflineStorage || !window.Api) return this.getSyncState();
             const user = window.authManager?.getCurrentUser?.();
             const userId = user?.id === undefined || user?.id === null ? null : String(user.id);
             if (!userId) {
@@ -187,6 +189,10 @@
                 return this.getSyncState();
             } finally {
                 this.isSyncing = false;
+                if (this._uiRefreshPending) {
+                    this._uiRefreshPending = false;
+                    document.dispatchEvent(new CustomEvent('app:data-changed'));
+                }
                 window.refreshPendingSyncStatus?.();
                 this.channel?.postMessage({ type: 'queue-changed', userId });
             }
@@ -229,9 +235,10 @@
                     ...(action.baseVersion ? { base_version: action.baseVersion } : {})
                 };
                 let response;
-                if (action.action === 'create') response = await window.Api.post(action.endpoint, requestData);
-                else if (action.action === 'update') response = await window.Api.put(action.endpoint, requestData);
-                else if (action.action === 'delete') response = await window.Api.delete(action.endpoint, requestData);
+                const generationHeaders = { headers: { 'X-SanIE-Data-Generation': String(Math.max(1, Number(action.dataGeneration) || 1)) } };
+                if (action.action === 'create') response = await window.Api.post(action.endpoint, requestData, generationHeaders);
+                else if (action.action === 'update') response = await window.Api.put(action.endpoint, requestData, generationHeaders);
+                else if (action.action === 'delete') response = await window.Api.delete(action.endpoint, requestData, generationHeaders);
                 else throw Object.assign(new Error('Unsupported pending action.'), { status: 422 });
                 const serverId = response?.data?.id || action.serverId;
                 if (!response?.success || !serverId) throw Object.assign(new Error('Server did not confirm the transaction.'), { status: 502 });
@@ -267,13 +274,10 @@
                     const dashboardResponse = await dashboardAPI.getData(range.startDate, range.endDate);
                     if (!dashboardResponse?.success || !dashboardResponse.data) throw new Error('Dashboard refresh failed.');
                     await window.OfflineStorage.saveDashboardSnapshot(userId, dashboardResponse.data);
-                    window.dashboardManager?.renderDashboardData?.(dashboardResponse.data);
-                    window.dashboardManager?.setOfflineSnapshotStatus?.(null);
                 }
 
                 await window.OfflineStorage.deletePendingAction(action.localId);
-                if (window.transactionsManager) await window.transactionsManager.loadTransactions();
-                document.dispatchEvent(new CustomEvent('app:data-changed'));
+                this._uiRefreshPending = true;
                 return true;
             } catch (error) {
                 await window.OfflineStorage.updatePendingAction(action.localId, {
@@ -378,14 +382,10 @@
         }
 
         defaultDashboardRange() {
-            const now = new Date();
-            const toLocalDate = date => {
-                const local = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
-                return local.toISOString().slice(0, 10);
-            };
+            const range = DateUtils.getKathmanduRange('month');
             return {
-                startDate: toLocalDate(new Date(now.getFullYear(), now.getMonth(), 1)),
-                endDate: toLocalDate(new Date(now.getFullYear(), now.getMonth() + 1, 0))
+                startDate: range.start,
+                endDate: range.end
             };
         }
 
@@ -393,6 +393,15 @@
             clearTimeout(this.retryTimer);
             this.retryTimer = setTimeout(() => this.syncPendingActions({ trigger: 'backoff' }), Math.max(1000, delay));
         }
+
+        suspendForFreshStart() {
+            if (this.isSyncing) return false;
+            this.suspended = true;
+            clearTimeout(this.retryTimer);
+            return true;
+        }
+
+        resumeAfterFreshStartFailure() { this.suspended = false; }
 
         async retryAction(localId) {
             const action = await window.OfflineStorage?.getPendingAction(localId);
@@ -495,10 +504,9 @@
                 const dashboardResponse = await dashboardAPI.getData(range.startDate, range.endDate);
                 if (dashboardResponse?.success && dashboardResponse.data) {
                     await window.OfflineStorage.saveDashboardSnapshot(userId, dashboardResponse.data);
-                    window.dashboardManager?.renderDashboardData?.(dashboardResponse.data);
                 }
             }
-            await window.transactionsManager?.loadTransactions?.();
+            document.dispatchEvent(new CustomEvent('app:data-changed'));
             this.channel?.postMessage({ type: 'queue-changed', userId });
             return true;
         }

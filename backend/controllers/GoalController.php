@@ -7,6 +7,7 @@ require_once __DIR__ . '/../models/Goal.php';
 require_once __DIR__ . '/../models/Transaction.php';
 require_once __DIR__ . '/../services/NotificationService.php';
 require_once __DIR__ . '/../services/AccountingService.php';
+require_once __DIR__ . '/../services/MoneyValidator.php';
 
 class GoalController {
     private $goalModel;
@@ -38,33 +39,45 @@ class GoalController {
 
     public function store() {
         $userId = Middleware::auth();
-        $data = json_decode(file_get_contents('php://input'), true);
+        $data = json_decode(file_get_contents('php://input'), true) ?: [];
         
         $errors = Middleware::validateRequired($data, ['name', 'target_amount']);
         if (!empty($errors)) {
             Response::error('Validation failed', 422, $errors);
         }
 
-        $goalData = [
-            'user_id' => $userId,
-            'name' => $data['name'],
-            'target_amount' => $data['target_amount'],
-            'current_amount' => $data['current_amount'] ?? 0,
-            'deadline' => $data['deadline'] ?? null,
-            'icon' => $data['icon'] ?? 'target',
-            'color' => $data['color'] ?? '#10B981',
-            'description' => $data['description'] ?? '',
-            'status' => $data['status'] ?? 'active'
-        ];
+        try {
+            if (isset($data['status']) && $data['status'] !== 'active') {
+                throw new InvalidArgumentException('New goals must begin in the active state');
+            }
+            $initialRaw = array_key_exists('initial_amount', $data) ? $data['initial_amount'] : ($data['current_amount'] ?? 0);
+            $initial = MoneyValidator::parse($initialRaw, true, 'Initial amount');
+            $goalData = [
+                'user_id' => $userId,
+                'name' => $this->validateName($data['name']),
+                'target_amount' => MoneyValidator::parse($data['target_amount'], false, 'Target amount'),
+                'initial_amount' => $initial,
+                'current_amount' => $initial,
+                'deadline' => $this->validateDeadline($data['deadline'] ?? null),
+                'icon' => $this->validateIcon($data['icon'] ?? 'fa-bullseye'),
+                'color' => $this->validateColor($data['color'] ?? '#10B981'),
+                'description' => trim((string)($data['description'] ?? '')),
+                'status' => 'active'
+            ];
+        } catch (InvalidArgumentException $error) {
+            Response::error($error->getMessage(), 422);
+        }
 
         $goalId = $this->goalModel->create($goalData);
         
         if ($goalId) {
+            $this->goalModel->synchronizeCompletion($goalId,$userId);
             $goal = $this->goalModel->findById($goalId, $userId);
             $this->notifService->create($userId, 'goal_created',
                 'Goal Created',
-                "New goal \"{$data['name']}\" with target Rs " . number_format($data['target_amount'], 0) . " has been created.",
+                "New goal \"{$goalData['name']}\" with target Rs " . number_format($goalData['target_amount'], 2) . " has been created.",
                 'goal', $goalId);
+            $this->notifService->notifyGoalAchievementOnce($userId,$goalId);
             Response::success($goal, 'Goal created successfully', 201);
         }
         
@@ -73,30 +86,49 @@ class GoalController {
 
     public function update($id) {
         $userId = Middleware::auth();
-        $data = json_decode(file_get_contents('php://input'), true);
+        $data = json_decode(file_get_contents('php://input'), true) ?: [];
         
         $existingGoal = $this->goalModel->findById($id, $userId);
         if (!$existingGoal) {
             Response::notFound('Goal not found');
         }
 
-        $goalData = [
-            'name' => $data['name'] ?? $existingGoal['name'],
-            'target_amount' => $data['target_amount'] ?? $existingGoal['target_amount'],
-            'current_amount' => $data['current_amount'] ?? $existingGoal['current_amount'],
-            'deadline' => $data['deadline'] ?? $existingGoal['deadline'],
-            'icon' => $data['icon'] ?? $existingGoal['icon'],
-            'color' => $data['color'] ?? $existingGoal['color'],
-            'description' => $data['description'] ?? $existingGoal['description'],
-            'status' => $data['status'] ?? $existingGoal['status']
-        ];
+        try {
+            $version = $this->readGoalVersion($data);
+            if (array_key_exists('current_amount', $data) || array_key_exists('initial_amount', $data)) {
+                throw new InvalidArgumentException('Goal progress can only be changed through contributions');
+            }
+            $target = array_key_exists('target_amount', $data)
+                ? MoneyValidator::parse($data['target_amount'], false, 'Target amount')
+                : (float)$existingGoal['target_amount'];
+            if ($existingGoal['status'] === 'completed' && abs($target - (float)$existingGoal['target_amount']) > .001) {
+                throw new InvalidArgumentException('A completed goal target cannot be changed');
+            }
+            $status = $this->validateTransition((string)$existingGoal['status'], (string)($data['status'] ?? $existingGoal['status']));
+            $goalData = [
+                'name' => array_key_exists('name', $data) ? $this->validateName($data['name']) : $existingGoal['name'],
+                'target_amount' => $target,
+                'deadline' => array_key_exists('deadline', $data) ? $this->validateDeadline($data['deadline']) : $existingGoal['deadline'],
+                'icon' => array_key_exists('icon', $data) ? $this->validateIcon($data['icon']) : $existingGoal['icon'],
+                'color' => array_key_exists('color', $data) ? $this->validateColor($data['color']) : $existingGoal['color'],
+                'description' => array_key_exists('description', $data) ? trim((string)$data['description']) : $existingGoal['description'],
+                'status' => $status
+            ];
+        } catch (InvalidArgumentException $error) {
+            Response::error($error->getMessage(), 422);
+        }
 
-        if ($this->goalModel->update($id, $userId, $goalData)) {
+        if ($this->goalModel->update($id, $userId, $goalData, $version)) {
+            $this->goalModel->synchronizeCompletion($id,$userId);
             $goal = $this->goalModel->findById($id, $userId);
+            $this->notifService->notifyGoalAchievementOnce($userId,$id);
             Response::success($goal, 'Goal updated successfully');
         }
-        
-        Response::serverError('Goal update failed');
+
+        if ($this->goalModel->findById($id, $userId)) {
+            Response::error('This goal was changed elsewhere. Refresh and try again.', 409);
+        }
+        Response::notFound('Goal not found');
     }
 
     public function destroy($id) {
@@ -152,13 +184,7 @@ class GoalController {
                 $requestId
             );
 
-            $progress = $this->goalModel->getGoalProgress($id, $userId);
-            if ($progress && !empty($progress['is_completed'])) {
-                $this->notifService->create($userId, 'goal_achieved',
-                    'Goal Achieved!',
-                    'Congratulations! You have reached your goal target.',
-                    'goal', $id);
-            }
+            $this->notifService->notifyGoalAchievementOnce($userId,$id);
             Response::success($resource, 'Contribution added successfully', 201);
         } catch (TransactionConflictException $e) {
             Response::error($e->getMessage(), 409);
@@ -185,6 +211,7 @@ class GoalController {
             $existing = (new Transaction())->findById($contributionId, $userId);
             if (!$existing || (int)($existing['goal_id'] ?? 0) !== (int)$goalId) Response::notFound('Goal contribution not found');
             $resource = $this->accountingService->updateGoalContribution($contributionId, $userId, $data, $baseVersion);
+            $this->notifService->notifyGoalAchievementOnce($userId,$goalId);
             Response::success($resource, 'Contribution updated successfully');
         } catch (TransactionConflictException $e) {
             Response::error($e->getMessage(), 409);
@@ -221,5 +248,60 @@ class GoalController {
             Response::error('Validation failed', 422, ['base_version' => 'A valid base version is required']);
         }
         return (int)$version;
+    }
+
+    private function readGoalVersion(array $data): int {
+        $version = filter_var($data['base_version'] ?? null, FILTER_VALIDATE_INT);
+        if ($version === false || $version < 1) {
+            throw new InvalidArgumentException('A valid goal version is required');
+        }
+        return (int)$version;
+    }
+
+    private function validateName($value): string {
+        $name = trim((string)$value);
+        $length = function_exists('mb_strlen') ? mb_strlen($name) : strlen($name);
+        if ($name === '') throw new InvalidArgumentException('Goal name is required');
+        if ($length > 100) throw new InvalidArgumentException('Goal name must be 100 characters or fewer');
+        return $name;
+    }
+
+    private function validateDeadline($value): ?string {
+        if ($value === null || $value === '') return null;
+        $text = (string)$value;
+        $date = DateTime::createFromFormat('!Y-m-d', $text);
+        if (!$date || $date->format('Y-m-d') !== $text || (int)$date->format('Y') < 1000 || (int)$date->format('Y') > 9999) {
+            throw new InvalidArgumentException('Deadline must be a valid YYYY-MM-DD date');
+        }
+        return $text;
+    }
+
+    private function validateIcon($value): string {
+        $icon = trim((string)$value);
+        if ($icon === '' || strlen($icon) > 50) throw new InvalidArgumentException('Goal icon is invalid');
+        return $icon;
+    }
+
+    private function validateColor($value): string {
+        $color = trim((string)$value);
+        if (!preg_match('/^#[0-9A-Fa-f]{6}$/', $color)) throw new InvalidArgumentException('Goal color must use #RRGGBB format');
+        return $color;
+    }
+
+    private function validateTransition(string $current, string $requested): string {
+        if (!in_array($current, ['active', 'paused', 'completed'], true) || !in_array($requested, ['active', 'paused', 'completed'], true)) {
+            throw new InvalidArgumentException('Invalid goal status transition');
+        }
+        if ($current === 'completed' && $requested !== 'completed') {
+            throw new InvalidArgumentException('Completed goals cannot be resumed or reopened');
+        }
+        if ($requested === 'completed' && $current !== 'completed') {
+            throw new InvalidArgumentException('Goals complete automatically when their target is reached');
+        }
+        if (($current === 'active' && !in_array($requested, ['active', 'paused'], true)) ||
+            ($current === 'paused' && !in_array($requested, ['paused', 'active'], true))) {
+            throw new InvalidArgumentException('Invalid goal status transition');
+        }
+        return $requested;
     }
 }

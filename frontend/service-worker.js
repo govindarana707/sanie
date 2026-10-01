@@ -1,6 +1,6 @@
 // Deployment contract: bump this explicit version whenever any precached shell
 // file changes. A new worker precaches the complete release before it waits.
-const CACHE_VERSION = 'v24';
+const CACHE_VERSION = 'v109';
 const STATIC_CACHE = `sanie-static-${CACHE_VERSION}`;
 const RUNTIME_CACHE = `sanie-runtime-${CACHE_VERSION}`;
 const SANIE_CACHE_PREFIX = 'sanie-';
@@ -44,8 +44,10 @@ const PRECACHE_URLS = [
     'assets/js/pwa-controller.js',
     'assets/js/dashboard.js',
     'assets/js/transactions.js',
+    'assets/js/recurring-transactions.js',
     'assets/js/budgets.js',
     'assets/js/goals.js',
+    'assets/js/tasks.js',
     'assets/js/savings.js',
     'assets/js/categories.js',
     'assets/js/subcategories.js',
@@ -152,10 +154,11 @@ async function handleNavigation(request, requestURL) {
 async function cacheFirst(request) {
     try {
         const staticCache = await caches.open(STATIC_CACHE);
+        const staticResponse = await staticCache.match(request, { ignoreSearch: true });
+        if (staticResponse) return staticResponse;
         const runtimeCache = await caches.open(RUNTIME_CACHE);
-        const cachedResponse = await staticCache.match(request, { ignoreSearch: true })
-            || await runtimeCache.match(request, { ignoreSearch: true });
-        if (cachedResponse) return cachedResponse;
+        const runtimeResponse = await runtimeCache.match(request, { ignoreSearch: true });
+        if (runtimeResponse) return runtimeResponse;
     } catch (cacheError) {
         // Continue to the network when cache storage is unavailable.
     }

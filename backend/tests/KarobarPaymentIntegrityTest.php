@@ -118,13 +118,14 @@ try {
     $requestId = function (string $label) use (&$sequence): string {
         return 'karobar-test-' . (++$sequence) . '-' . $label;
     };
-    $source = function (int $personId, string $type, float $amount, ?int $accountId = null) use ($service, $owner, $ownerAccount): int {
+    $source = function (int $personId, string $type, float $amount, ?int $accountId = null) use ($service, $owner, $ownerAccount, $requestId): int {
         return (int)$service->createTransaction([
             'person_id' => $personId,
             'account_id' => $accountId ?? $ownerAccount,
             'type' => $type,
             'amount' => $amount,
             'transaction_date' => '2026-01-10',
+            'client_request_id' => $requestId('source-' . $type),
         ], $owner);
     };
 
@@ -310,6 +311,7 @@ try {
             'type' => 'borrowed',
             'amount' => 500,
             'transaction_date' => '2026-01-10',
+            'client_request_id' => $requestId('foreign-origin'),
         ], $foreign);
         $paymentId = $foreignService->processRepayment(paymentPayload($foreignPerson, $foreignAccount, 100, $requestId('foreign-payment')), $foreign);
         expectException(KarobarAuthorizationException::class, fn() => $service->updateTransaction($paymentId, ['amount' => 50], $owner));

@@ -92,7 +92,7 @@
     border-radius: var(--radius-lg);
     padding: 1.25rem;
     cursor: pointer;
-    transition: all 0.2s ease;
+    transition: background-color var(--motion-fast, 150ms) ease, border-color var(--motion-fast, 150ms) ease, color var(--motion-fast, 150ms) ease, opacity var(--motion-fast, 150ms) ease, transform var(--motion-fast, 150ms) ease, box-shadow var(--motion-normal, 190ms) ease;
     box-shadow: var(--card-shadow);
     position: relative;
     overflow: hidden;
@@ -175,8 +175,9 @@
 
 .karobar-people-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr));
     gap: 1rem;
+    min-width: 0;
 }
 
 /* Ledger Table */
@@ -357,7 +358,7 @@
 /* Report Summary Cards */
 .karobar-report-summary {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 200px), 1fr));
     gap: 1rem;
     margin-bottom: 1.5rem;
 }
@@ -780,5 +781,644 @@
 
     .profile-ledger-card .d-flex.justify-content-between {
         flex-direction: column;
+    }
+}
+
+/* Karobar responsive page shell */
+:is(
+    #karobar-overview-content,
+    #karobar-people-content,
+    #karobar-person-profile-content,
+    #karobar-transactions-content,
+    #karobar-reports-content,
+    #karobar-credit-reports-content,
+    #karobar-ai-analysis-content
+) {
+    min-width: 0;
+}
+
+:is(
+    #karobar-overview-content,
+    #karobar-people-content,
+    #karobar-person-profile-content,
+    #karobar-transactions-content,
+    #karobar-reports-content,
+    #karobar-credit-reports-content,
+    #karobar-ai-analysis-content
+) .row {
+    margin-right: 0;
+    margin-left: 0;
+}
+
+.karobar-page-header,
+.karobar-page-header > *,
+.karobar-stat-content,
+.karobar-person-card,
+.person-card-head,
+.person-card-head > div,
+.karobar-transaction-toolbar,
+.karobar-transaction-filters {
+    min-width: 0;
+}
+
+.karobar-quick-actions .btn,
+.karobar-transaction-filters > * {
+    min-width: 0;
+}
+
+.karobar-people-search {
+    width: min(300px, 100%);
+}
+
+.karobar-stat-content .stat-value,
+.karobar-report-card .report-value,
+.profile-stat-value,
+.outstanding-amount,
+.karobar-person-card .person-balance {
+    overflow-wrap: anywhere;
+}
+
+.person-card-head {
+    padding-right: 5.25rem;
+}
+
+.karobar-person-card .person-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.karobar-report-summary > .karobar-pagination {
+    grid-column: 1 / -1;
+}
+
+.karobar-chart-container,
+.profile-chart-card,
+.profile-ledger-card,
+.table-responsive {
+    min-width: 0;
+    max-width: 100%;
+}
+
+/* Overview layout: every child is allowed to shrink instead of forcing the
+   page wider. The only deliberate horizontal scrolling remains inside tables. */
+#karobar-overview-page,
+#karobar-people-page,
+#karobar-transactions-page,
+#karobar-reports-page,
+#karobar-credit-reports-page,
+#karobar-ai-analysis-page,
+#karobar-overview-content,
+#karobar-people-content,
+#karobar-transactions-content,
+#karobar-reports-content,
+#karobar-credit-reports-content,
+#karobar-ai-analysis-content,
+#karobar-overview-content > .row,
+#karobar-overview-content > .row > [class*="col-"] {
+    min-width: 0;
+}
+
+#karobar-overview-content .karobar-chart-container {
+    width: 100%;
+    min-width: 0;
+}
+
+.karobar-overview-chart {
+    width: 100%;
+    height: clamp(220px, 24vw, 280px);
+    min-width: 0;
+}
+
+.karobar-overview-chart .apexcharts-canvas,
+.karobar-overview-chart svg {
+    max-width: 100%;
+}
+
+.karobar-overview-list-row {
+    gap: .75rem;
+    min-width: 0;
+}
+
+.karobar-overview-list-primary {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.karobar-overview-list-primary > :last-child {
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+
+.karobar-overview-list-amounts,
+.karobar-overview-list-amount {
+    flex: 0 1 auto;
+    min-width: 0;
+    overflow-wrap: anywhere;
+    font-variant-numeric: tabular-nums;
+}
+
+#karobar-people-content,
+.karobar-people-grid,
+.karobar-person-card,
+.person-card-head,
+.person-card-head > div,
+.person-card-footer,
+.person-card-footer > div {
+    min-width: 0;
+}
+
+.karobar-person-card .person-name,
+.karobar-person-card .person-phone,
+.karobar-person-card .person-balance {
+    overflow-wrap: anywhere;
+}
+
+.person-card-footer {
+    gap: 1rem;
+}
+
+.person-card-actions {
+    flex: 0 0 auto;
+}
+
+/* Shared layout guarantees for the remaining Karobar pages. */
+#karobar-transactions-content,
+#karobar-reports-content,
+#karobar-credit-reports-content,
+#karobar-ai-analysis-content,
+#karobar-transactions-content > *,
+#karobar-reports-content > *,
+#karobar-credit-reports-content > *,
+#karobar-ai-analysis-content > *,
+#karobar-transactions-content .row > [class*="col-"],
+#karobar-reports-content .row > [class*="col-"],
+#karobar-credit-reports-content .row > [class*="col-"],
+#karobar-ai-analysis-content .row > [class*="col-"] {
+    min-width: 0;
+}
+
+.karobar-responsive-chart {
+    width: 100%;
+    height: clamp(220px, 26vw, 300px);
+    min-width: 0;
+}
+
+.karobar-responsive-chart .apexcharts-canvas,
+.karobar-responsive-chart svg {
+    max-width: 100%;
+}
+
+.karobar-transaction-mobile-list {
+    display: none;
+}
+
+#karobar-ai-analysis-content :is(p, li, td, th, a),
+#karobar-ai-analysis-content .karobar-chart-container {
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+
+.karobar-ai-summary-grid > [class*="col-"],
+.karobar-ai-insight-grid > [class*="col-"] {
+    display: flex;
+    min-width: 0;
+}
+
+.karobar-ai-summary-grid .karobar-chart-container,
+.karobar-ai-insight-grid .karobar-chart-container {
+    width: 100%;
+    margin-bottom: 0;
+}
+
+.karobar-health-score {
+    width: clamp(104px, 12vw, 120px);
+    height: clamp(104px, 12vw, 120px);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 1rem;
+    border: 8px solid var(--karobar-health-color, #6b7280);
+    border-radius: 50%;
+}
+
+.karobar-health-score > span {
+    color: var(--karobar-health-color, #6b7280);
+    font-size: clamp(2rem, 4vw, 2.5rem);
+    font-weight: 800;
+    line-height: 1;
+}
+
+.karobar-ai-metric-value {
+    max-width: 100%;
+    margin-bottom: 0;
+    font-size: clamp(1rem, 2vw, 1.3rem);
+    font-variant-numeric: tabular-nums;
+    overflow-wrap: anywhere;
+}
+
+.karobar-ai-chart-empty {
+    min-height: 220px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: .75rem;
+    padding: 1.5rem;
+    color: var(--text-secondary);
+    text-align: center;
+}
+
+.karobar-ai-chart-empty > i {
+    font-size: 2rem;
+    opacity: .55;
+}
+
+#karobar-ai-analysis-content [aria-label*="Credit Dependency"] {
+    padding: .35rem;
+    color: var(--text-secondary);
+    cursor: help;
+}
+
+@media (max-width: 1199.98px) {
+    .karobar-report-charts > .col-lg-8,
+    .karobar-report-charts > .col-lg-4 {
+        width: 100%;
+    }
+}
+
+@media (max-width: 1199.98px) {
+    .karobar-overview-charts > .col-lg-8,
+    .karobar-overview-charts > .col-lg-4 {
+        width: 100%;
+    }
+}
+
+@media (max-width: 900px) {
+    .karobar-page-header {
+        align-items: stretch;
+        gap: 1rem;
+    }
+
+    .karobar-quick-actions {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        width: 100%;
+    }
+
+    .karobar-quick-actions .btn {
+        width: 100%;
+        justify-content: center;
+    }
+
+    .karobar-quick-actions .btn:last-child {
+        grid-column: 1 / -1;
+    }
+
+    .karobar-report-summary {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+@media (max-width: 600px) {
+    :is(
+        #karobar-overview-page,
+        #karobar-people-page,
+        #karobar-person-profile-page,
+        #karobar-transactions-page,
+        #karobar-reports-page,
+        #karobar-credit-reports-page,
+        #karobar-ai-analysis-page
+    ) {
+        padding: 14px 12px calc(var(--mobile-bottom-nav-height, 70px) + var(--space-3));
+    }
+
+    .karobar-page-header {
+        margin-bottom: 1rem;
+    }
+
+    .karobar-page-header h2 {
+        font-size: 1.45rem;
+        line-height: 1.2;
+    }
+
+    .karobar-quick-actions {
+        gap: .5rem;
+    }
+
+    .karobar-quick-actions .btn {
+        min-height: 44px;
+        padding-inline: .55rem;
+        font-size: .8rem;
+        line-height: 1.15;
+    }
+
+    .karobar-stats-grid {
+        grid-template-columns: repeat(auto-fit, minmax(min(100%, 170px), 1fr));
+        gap: .55rem;
+        margin-bottom: 1rem;
+    }
+
+    .karobar-stat-card {
+        align-items: flex-start;
+        min-height: 105px;
+        padding: .8rem;
+    }
+
+    .karobar-stat-icon {
+        width: 36px;
+        height: 36px;
+        font-size: 1rem;
+    }
+
+    .karobar-stat-content .stat-label {
+        min-height: 2.4em;
+        margin-bottom: .25rem;
+        font-size: .67rem;
+        line-height: 1.2;
+    }
+
+    .karobar-stat-content .stat-value {
+        font-size: clamp(.95rem, 4vw, 1.05rem);
+        overflow-wrap: anywhere;
+    }
+
+    .karobar-stat-content .stat-sub {
+        font-size: .68rem;
+        line-height: 1.3;
+    }
+
+    .karobar-chart-container,
+    .profile-header-card,
+    .profile-chart-card,
+    .profile-timeline-card,
+    .profile-ledger-card,
+    .profile-outstanding-card {
+        padding: 1rem;
+        border-radius: 14px;
+    }
+
+    .karobar-chart-container {
+        margin-bottom: 1rem;
+    }
+
+    .karobar-chart-container h5 {
+        font-size: .95rem;
+        line-height: 1.3;
+    }
+
+    .karobar-overview-chart {
+        height: 220px;
+    }
+
+    .karobar-overview-list-row {
+        align-items: flex-start !important;
+    }
+
+    .karobar-overview-list-amounts,
+    .karobar-overview-list-amount {
+        max-width: 46%;
+        font-size: clamp(.75rem, 3.7vw, .9rem) !important;
+        white-space: normal;
+    }
+
+    .karobar-report-summary {
+        grid-template-columns: repeat(auto-fit, minmax(min(100%, 155px), 1fr));
+    }
+
+    .karobar-report-card .report-value {
+        font-size: clamp(1rem, 4.6vw, 1.25rem);
+        overflow-wrap: anywhere;
+    }
+
+    .karobar-responsive-chart {
+        height: 220px;
+    }
+
+    .karobar-transactions-table-shell {
+        display: none;
+    }
+
+    .karobar-transaction-mobile-list {
+        display: grid;
+        gap: .7rem;
+    }
+
+    .karobar-transaction-mobile-card {
+        min-width: 0;
+        padding: .85rem;
+        border: 1px solid var(--border-color);
+        border-radius: 12px;
+        background: var(--bg-primary);
+    }
+
+    .karobar-transaction-mobile-heading,
+    .karobar-transaction-mobile-meta,
+    .karobar-transaction-mobile-actions {
+        display: flex;
+        min-width: 0;
+    }
+
+    .karobar-transaction-mobile-heading {
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: .75rem;
+    }
+
+    .karobar-transaction-mobile-heading > div { min-width: 0; }
+    .karobar-transaction-mobile-heading strong,
+    .karobar-transaction-mobile-heading span { display: block; overflow-wrap: anywhere; }
+    .karobar-transaction-mobile-heading > div > span { margin-top: .15rem; color: var(--text-secondary); font-size: .75rem; }
+    .karobar-transaction-mobile-amount { flex: 0 1 auto; max-width: 52%; text-align: end; font-variant-numeric: tabular-nums; }
+    .karobar-transaction-mobile-meta { align-items: center; gap: .55rem; flex-wrap: wrap; margin-top: .65rem; color: var(--text-secondary); font-size: .75rem; }
+    .karobar-transaction-mobile-card > p { margin: .65rem 0 0; color: var(--text-secondary); font-size: .8rem; overflow-wrap: anywhere; }
+    .karobar-transaction-mobile-actions { gap: .5rem; margin-top: .75rem; }
+    .karobar-transaction-mobile-actions .btn { flex: 1; min-height: 40px; }
+
+    #karobar-credit-reports-content .table-responsive[style*="max-height"],
+    #karobar-reports-content .table-responsive[style*="max-height"] {
+        max-height: none !important;
+        overflow-y: visible !important;
+    }
+
+    #karobar-ai-analysis-content .d-flex.align-items-start { min-width: 0; }
+    #karobar-ai-analysis-content .d-flex.align-items-start > p { min-width: 0; }
+    #karobar-ai-analysis-content .col-sm-3,
+    #karobar-ai-analysis-content .col-sm-4 { width: 100%; }
+
+    .karobar-ai-summary-grid,
+    .karobar-ai-insight-grid {
+        --bs-gutter-y: .75rem;
+    }
+
+    .karobar-health-card {
+        padding-block: 1.5rem !important;
+    }
+
+    .karobar-ai-chart-empty {
+        min-height: 180px;
+    }
+
+    #karobar-reports-content .d-flex.gap-2.flex-wrap > .btn {
+        flex: 1 1 145px;
+        min-height: 44px;
+    }
+
+    .karobar-people-toolbar,
+    .karobar-people-search-wrap,
+    .karobar-people-search {
+        width: 100%;
+    }
+
+    .karobar-people-toolbar > .btn {
+        width: 100%;
+        justify-content: center;
+    }
+
+    .karobar-people-grid {
+        gap: .75rem;
+    }
+
+    .karobar-person-card {
+        padding: 1rem;
+        border-radius: 14px;
+    }
+
+    .karobar-person-card .person-name {
+        white-space: normal;
+        overflow: visible;
+        text-overflow: clip;
+    }
+
+    .person-card-footer {
+        align-items: flex-start !important;
+    }
+
+    .karobar-person-card .person-balance {
+        font-size: clamp(.95rem, 4vw, 1.1rem);
+    }
+
+    .person-card-head {
+        gap: .7rem !important;
+        padding-right: 4.8rem;
+    }
+
+    .karobar-person-card .person-avatar {
+        width: 42px;
+        height: 42px;
+        font-size: .95rem;
+    }
+
+    .karobar-person-card .person-status-badge {
+        top: .65rem;
+        right: .65rem;
+    }
+
+    .karobar-person-card .person-balance {
+        font-size: 1rem;
+    }
+
+    .karobar-report-summary {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: .55rem;
+        margin-bottom: 1rem;
+    }
+
+    .karobar-report-card {
+        padding: .8rem .55rem;
+    }
+
+    .karobar-report-card .report-value {
+        font-size: 1.05rem;
+    }
+
+    .karobar-report-card .report-label {
+        font-size: .65rem;
+    }
+
+    .karobar-pagination {
+        align-items: stretch !important;
+        flex-direction: column;
+        gap: .55rem;
+    }
+
+    .karobar-pagination .btn-group {
+        width: 100%;
+    }
+
+    .karobar-pagination .btn {
+        flex: 1;
+    }
+
+    .karobar-transaction-toolbar {
+        align-items: stretch !important;
+        flex-direction: column;
+    }
+
+    .karobar-transaction-filters {
+        display: grid !important;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        width: 100%;
+    }
+
+    .karobar-transaction-filters .form-select {
+        width: 100%;
+        grid-column: 1 / -1;
+    }
+
+    .karobar-transaction-filters .btn {
+        width: 100%;
+        padding-inline: .45rem;
+    }
+
+    .karobar-transaction-filters .btn:last-child {
+        grid-column: 1 / -1;
+    }
+
+    .profile-stat-card {
+        display: block;
+        min-height: 94px;
+        padding: .8rem;
+    }
+
+    .profile-stat-card .profile-stat-icon {
+        display: none;
+    }
+
+    .profile-stat-value {
+        font-size: 1rem;
+    }
+
+    .profile-header-card .col-auto,
+    .profile-header-card .col {
+        width: 100%;
+    }
+
+    .profile-header-card .col-auto .d-flex {
+        display: grid !important;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        width: 100%;
+    }
+
+    .profile-header-card .col-auto .btn {
+        width: 100%;
+    }
+}
+
+@media (max-width: 340px) {
+    .karobar-stats-grid,
+    .karobar-report-summary {
+        grid-template-columns: 1fr;
+    }
+
+    .person-card-footer {
+        align-items: flex-start !important;
+        flex-direction: column;
+        gap: .75rem;
+    }
+
+    .person-card-actions {
+        width: 100%;
+        text-align: left !important;
     }
 }

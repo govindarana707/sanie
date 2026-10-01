@@ -80,22 +80,26 @@ class AccountsManager {
                 lastTxText = diff === 0 ? 'Today' : diff === 1 ? 'Yesterday' : diff < 7 ? diff + ' days ago' : Formatters.date(lastTx);
             }
             const searchText = Formatters.escapeHTML([a.name, label, a.account_number || ''].join(' ').toLowerCase());
+            const accountName = Formatters.escapeHTML(a.name);
+            const isExcludedFromNetBalance = String(a.include_in_net_balance) === '0';
             return '<div class="account-card" data-account-search="' + searchText + '" onclick="window.appRouter?.navigate(\'account-details?id=' + a.id + '\')" style="cursor:pointer;--account-color:' + color + ';">'
                 + '<div class="account-card-header">'
                 + '<div class="account-card-icon" style="background:' + color + '15;color:' + color + ';"><i class="bi ' + icon + '"></i></div>'
-                + '<div class="account-card-info"><h4 class="account-card-name">' + Formatters.escapeHTML(a.name) + '</h4><span class="account-card-type">' + label + '</span></div>'
+                + '<div class="account-card-info"><h4 class="account-card-name">' + accountName + '</h4><span class="account-card-type">' + Formatters.escapeHTML(label) + '</span></div>'
                 + (a.is_default ? '<span class="account-card-badge">Default</span>' : '')
                 + '</div>'
                 + (a.account_number ? '<div class="account-card-number">' + a.account_number + '</div>' : '')
-                + '<div class="account-card-balance"><span class="account-card-balance-label">Current Balance</span><span class="account-card-balance-value">' + Formatters.currency(bal) + '</span></div>'
+                + '<div class="account-card-balance"><span class="account-card-balance-label">Current Balance</span><span class="account-card-balance-value">' + Formatters.currency(bal) + '</span>'
+                + (isExcludedFromNetBalance ? '<span class="account-card-net-excluded"><i class="bi bi-slash-circle" aria-hidden="true"></i> Excluded from Net Balance</span>' : '')
+                + '</div>'
                 + '<div class="account-card-stats"><div class="account-card-stat"><span class="stat-mini-label">Income</span><span class="stat-mini-value income">' + Formatters.currency(inc) + '</span></div><div class="account-card-stat"><span class="stat-mini-label">Expense</span><span class="stat-mini-value expense">' + Formatters.currency(exp) + '</span></div></div>'
-                + '<div class="account-card-footer d-flex justify-content-between align-items-center">'
-                + '<span class="account-card-last-tx"><i class="bi bi-clock"></i> ' + lastTxText + '</span>'
-                + '<span class="d-flex gap-2">'
-                + '<button type="button" class="btn btn-sm btn-outline-primary rounded-pill" onclick="event.stopPropagation();window.accountsManager?.openAccountLedger(' + a.id + ')" title="Show account transactions"><i class="bi bi-journal-text"></i> Ledger</button>'
-                + '<button class="btn btn-sm btn-outline-secondary rounded-pill" onclick="event.stopPropagation();window.accountsManager?.showEditAccountModal(' + a.id + ')"><i class="bi bi-pencil"></i></button>'
-                + '<button class="btn btn-sm btn-outline-danger rounded-pill" onclick="event.stopPropagation();window.accountsManager?.showDeleteAccountConfirm(' + a.id + ',\'' + Formatters.escapeHTML(a.name).replace(/'/g, "\\'") + '\')"><i class="bi bi-trash3"></i></button>'
-                + '</span>'
+                + '<div class="account-card-footer">'
+                + '<span class="account-card-last-tx"><i class="bi bi-clock" aria-hidden="true"></i> ' + lastTxText + '</span>'
+                + '<div class="account-card-actions">'
+                + '<button type="button" class="btn btn-sm btn-outline-primary account-card-ledger" onclick="event.stopPropagation();window.accountsManager?.openAccountLedger(' + a.id + ')" title="Show account transactions" aria-label="View ledger for ' + accountName + '"><i class="bi bi-journal-text" aria-hidden="true"></i><span>Ledger</span></button>'
+                + '<button type="button" class="btn btn-sm btn-outline-secondary account-card-icon-action" onclick="event.stopPropagation();window.accountsManager?.showEditAccountModal(' + a.id + ')" title="Edit account" aria-label="Edit ' + accountName + '"><i class="bi bi-pencil" aria-hidden="true"></i></button>'
+                + '<button type="button" class="btn btn-sm btn-outline-danger account-card-icon-action" onclick="event.stopPropagation();window.accountsManager?.showDeleteAccountConfirm(' + a.id + ',\'' + accountName.replace(/'/g, "\\'") + '\')" title="Delete account" aria-label="Delete ' + accountName + '"><i class="bi bi-trash3" aria-hidden="true"></i></button>'
+                + '</div>'
                 + '</div>'
                 + '</div>';
         }).join('') + '</div>';
@@ -134,9 +138,20 @@ class AccountsManager {
 
     _accountFormHTML(account) {
         const e = a => account ? (account[a] || '') : '';
+        const includeInNetBalance = !account || !(account.include_in_net_balance === false || String(account.include_in_net_balance) === '0');
         const sel = (v, val) => v === val ? 'selected' : '';
         const types = ['cash','bank','esewa','khalti','ime_pay','wallet','credit_card','savings','current'];
         const typeLabels = { cash:'Cash', bank:'Bank Account', esewa:'eSewa', khalti:'Khalti', ime_pay:'IME Pay', wallet:'Wallet', credit_card:'Credit Card', savings:'Savings Account', current:'Current Account' };
+        const settingRow = (id, title, description, checked) =>
+            '<div class="account-setting-row">'
+            + '<div class="account-setting-content">'
+            + '<label class="account-setting-title" for="' + id + '">' + title + '</label>'
+            + '<p class="account-setting-description" id="' + id + '-description">' + description + '</p>'
+            + '</div>'
+            + '<div class="account-setting-control">'
+            + '<input type="checkbox" id="' + id + '" class="form-check-input account-setting-toggle" role="switch" aria-describedby="' + id + '-description" ' + (checked ? 'checked' : '') + '>'
+            + '</div>'
+            + '</div>';
         return '<form id="acct-form" novalidate>'
             + '<div class="mb-3"><label class="form-label fw-semibold">Account Name</label><input type="text" id="acct-name" class="form-control" value="' + Formatters.escapeHTML(e('name')) + '" required placeholder="e.g. My Savings"></div>'
             + '<div class="mb-3"><label class="form-label fw-semibold">Account Type</label><select id="acct-type" class="form-select">'
@@ -144,9 +159,14 @@ class AccountsManager {
             + '</select></div>'
             + '<div class="mb-3"><label class="form-label fw-semibold">Account Number <small class="text-muted">(optional)</small></label><input type="text" id="acct-number" class="form-control" value="' + Formatters.escapeHTML(e('account_number')) + '" placeholder="e.g. 00123456789"></div>'
             + '<div class="mb-3"><label class="form-label fw-semibold">Opening Balance</label><div class="input-group"><span class="input-group-text">Rs</span><input type="number" id="acct-opening" class="form-control" step="0.01" value="' + (parseFloat(e('opening_balance')) || 0) + '"></div><small class="text-muted">' + (account ? 'Changing opening balance will recalculate current balance.' : 'Enter the amount currently available in this account.') + '</small></div>'
-            + '<div class="mb-3"><div class="form-check"><input type="checkbox" id="acct-default" class="form-check-input" ' + (e('is_default') ? 'checked' : '') + '><label class="form-check-label" for="acct-default">Set as default account</label></div></div>'
-            + '<div class="mb-3 p-3 rounded border"><div class="form-check"><input type="checkbox" id="acct-savings" class="form-check-input" ' + (e('include_in_savings') || e('type') === 'savings' ? 'checked' : '') + '><label class="form-check-label fw-semibold" for="acct-savings">Count this account as savings</label></div><small class="text-muted d-block mt-1 ms-4">Include this account balance on the Savings page without changing its account type.</small></div>'
-            + '<div class="mb-3"><div class="form-check"><input type="checkbox" id="acct-active" class="form-check-input" ' + (e('is_active') === '0' ? '' : 'checked') + '><label class="form-check-label" for="acct-active">Active</label></div></div>'
+            + '<section class="account-settings-section" aria-labelledby="account-settings-heading">'
+            + '<h3 class="account-settings-heading" id="account-settings-heading">Account Settings</h3>'
+            + '<div class="account-settings-list">'
+            + settingRow('acct-default', 'Set as default account', 'Use this account as the default for new transactions.', e('is_default'))
+            + settingRow('acct-net-balance', 'Include in Net Balance', 'Show this account balance in your available Net Balance.', includeInNetBalance)
+            + settingRow('acct-savings', 'Count this account as savings', 'Include this balance in Savings without changing its account type.', e('include_in_savings') || e('type') === 'savings')
+            + settingRow('acct-active', 'Active', 'Allow this account to be used for transactions.', e('is_active') !== '0')
+            + '</div></section>'
             + '</form>';
     }
 
@@ -195,12 +215,19 @@ class AccountsManager {
         if (!name) { NotificationService.error('Account name is required'); return; }
         const type = document.getElementById('acct-type')?.value || 'cash';
         const number = document.getElementById('acct-number')?.value.trim() || null;
-        const opening = parseFloat(document.getElementById('acct-opening')?.value) || 0;
+        const opening = String(document.getElementById('acct-opening')?.value ?? '').trim() || '0';
+        const openingNumber = Number(opening);
+        if (!/^-?(?:0|[1-9]\d{0,11})(?:\.\d{1,2})?$/.test(opening)
+            || !Number.isFinite(openingNumber) || Math.abs(openingNumber) > 999999999999.99) {
+            NotificationService.error('Opening balance must be a valid amount with at most two decimal places');
+            return;
+        }
         const isDefault = document.getElementById('acct-default')?.checked || false;
         const isActive = document.getElementById('acct-active')?.checked !== false;
         const includeInSavings = document.getElementById('acct-savings')?.checked || type === 'savings';
+        const includeInNetBalance = document.getElementById('acct-net-balance')?.checked !== false;
 
-        const data = { name, type, account_number: number, is_default: isDefault, is_active: isActive, include_in_savings: includeInSavings, opening_balance: opening };
+        const data = { name, type, account_number: number, is_default: isDefault, is_active: isActive, include_in_savings: includeInSavings, include_in_net_balance: includeInNetBalance, opening_balance: opening };
 
         let result;
         if (id) {

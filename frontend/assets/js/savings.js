@@ -110,7 +110,9 @@ class SavingsManager {
                     <div class="savings-goal-footer">
                         <div><span class="savings-goal-amount">${Formatters.currency(goal.current_amount)} <small class="text-muted">of ${Formatters.currency(goal.target_amount)}</small></span><small class="savings-goal-remaining">${Formatters.currency(remaining)} remaining</small></div>
                         <div class="savings-goal-actions">
-                            ${!g.is_completed ? `<button class="btn btn-sm btn-outline-success" onclick="savingsManager.contributeToGoal(${goal.id}, '${Formatters.escapeHTML(goal.name).replace(/'/g, "\\'")}')"><i class="fas fa-plus"></i> Add</button>` : '<span class="badge bg-success">Completed</span>'}
+                            ${goal.status === 'active'
+                                ? `<button class="btn btn-sm btn-outline-success" onclick="savingsManager.contributeToGoal(${goal.id}, '${Formatters.escapeHTML(goal.name).replace(/'/g, "\\'")}')"><i class="fas fa-plus"></i> Add</button>`
+                                : `<span class="badge ${goal.status === 'completed' ? 'bg-success' : 'bg-warning text-dark'}">${goal.status === 'completed' ? 'Completed' : 'Paused'}</span>`}
                         </div>
                     </div>
                 </div>`;
@@ -244,7 +246,7 @@ class SavingsManager {
             const result = await goalsAPI.contribute(goalId, {
                 amount: formValues.amount,
                 account_id: formValues.accountId,
-                date: new Date().toISOString().slice(0, 10),
+                date: DateUtils.getKathmanduDateString(),
                 description: '',
                 client_request_id: requestId
             });
@@ -310,7 +312,7 @@ class SavingsManager {
                 from_account_id: formValues.fromAccountId,
                 to_account_id: accountId,
                 category_id: this.data.savings_category_id,
-                date: new Date().toISOString().split('T')[0],
+                date: DateUtils.getKathmanduDateString(),
                 description: `Deposit to ${accountName}`
             });
 

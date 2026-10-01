@@ -127,7 +127,7 @@ class LedgerManager {
         let searchTimer;
         document.getElementById('ledger-search')?.addEventListener('input', () => {
             clearTimeout(searchTimer);
-            searchTimer = setTimeout(() => this.applyFilters(), 400);
+            searchTimer = setTimeout(() => this.applyFilters(), 220);
         });
 
         document.getElementById('ledger-apply-filters')?.addEventListener('click', () => this.applyFilters());
@@ -474,31 +474,46 @@ class LedgerManager {
     }
 
     async exportCSV() {
-        const headers = ['Date', 'Type', 'Description', 'Category', 'Account', 'Amount', 'Running Balance'];
-        const rows = [headers.join(',')];
-        const all=[];const totalPages=Math.ceil((this.pagination?.total_rows||0)/100);
-        for(let page=1;page<=totalPages;page++){const params=new URLSearchParams();Object.entries(this.filters).forEach(([k,v])=>{if(v)params.set(k,v);});params.set('page',page);params.set('limit','100');const response=await this.api.get('/ledger?'+params.toString());if(!response.success)throw new Error(response.message||'Could not load complete ledger export');all.push(...(response.data.transactions||[]));}
-        all.forEach(tx => {
-            const amount = parseFloat(tx.amount) || 0;
-            const sign = (tx.cash_delta ?? (tx.type === 'expense' ? -amount : amount)) < 0 ? '-' : '';
-            const row = [
-                tx.date || '',
-                tx.type || '',
-                `"${(tx.description || '').replace(/"/g, '""')}"`,
-                tx.category_name || '',
-                tx.account_name || '',
-                `${sign}${amount.toFixed(2)}`,
-                (parseFloat(tx.running_balance) || 0).toFixed(2)
-            ];
-            rows.push(row.join(','));
-        });
-
-        const blob = new Blob([rows.join('\n')], { type: 'text/csv;charset=utf-8;' });
-        const link = document.createElement('a');
-        link.href = URL.createObjectURL(blob);
-        link.download = `ledger_${new Date().toISOString().slice(0, 10)}.csv`;
-        link.click();
-        URL.revokeObjectURL(link.href);
+        try {
+            const headers = ['Date', 'Type', 'Description', 'Category', 'Account', 'Amount', 'Running Balance'];
+            const all = [];
+            const expected = Number(this.pagination?.total_rows || 0);
+            const totalPages = Math.ceil(expected / 100);
+            const activeFilters = { ...this.filters };
+            for (let page = 1; page <= totalPages; page++) {
+                const params = new URLSearchParams();
+                Object.entries(activeFilters).forEach(([key, value]) => { if (value) params.set(key, value); });
+                params.set('page', page);
+                params.set('limit', '100');
+                const response = await this.api.get('/ledger?' + params.toString());
+                if (!response.success) throw new Error(response.message || 'Could not load complete ledger export');
+                all.push(...(response.data.transactions || []));
+            }
+            if (all.length !== expected) throw new Error('Ledger export was incomplete');
+            const rows = all.map(tx => {
+                const amount = parseFloat(tx.amount) || 0;
+                const sign = (tx.cash_delta ?? (tx.type === 'expense' ? -amount : amount)) < 0 ? '-' : '';
+                return [
+                    tx.date || '',
+                    tx.type || '',
+                    tx.description || '',
+                    tx.category_name || '',
+                    tx.account_name || '',
+                    `${sign}${amount.toFixed(2)}`,
+                    (parseFloat(tx.running_balance) || 0).toFixed(2)
+                ];
+            });
+            const csv = CSVUtils.document(headers, rows, new Set([1, 2, 3, 4]));
+            const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+            const link = document.createElement('a');
+            link.href = URL.createObjectURL(blob);
+            link.download = `ledger_${DateUtils.getKathmanduDateString()}.csv`;
+            link.click();
+            URL.revokeObjectURL(link.href);
+            window.NotificationService?.success(`${expected} matching ledger rows exported`);
+        } catch (error) {
+            window.NotificationService?.error(error.message || 'Ledger export failed');
+        }
     }
 }
 

@@ -80,8 +80,13 @@ class Middleware
         }
         $userId=(int)$payload['user_id'];$conn=(new Database())->getConnection();
         if(!$conn)Response::serverError();
-        $stmt=$conn->prepare('SELECT token_version FROM users WHERE id=:id LIMIT 1');$stmt->execute([':id'=>$userId]);$current=$stmt->fetchColumn();
-        if($current===false||!hash_equals((string)(int)$current,(string)(int)$payload['token_version']))Response::unauthorized('Invalid or expired token');
+        $current=JWT::getUserSessionState($conn,$userId);
+        $tokenGeneration=(int)($payload['data_generation']??1);
+        if(!$current||!hash_equals((string)(int)$current['token_version'],(string)(int)$payload['token_version'])||!hash_equals((string)(int)$current['data_generation'],(string)$tokenGeneration))Response::unauthorized('Invalid or expired token');
+        if(!in_array(strtoupper((string)($_SERVER['REQUEST_METHOD']??'GET')),['GET','HEAD','OPTIONS'],true)){
+            $sent=$_SERVER['HTTP_X_SANIE_DATA_GENERATION']??null;
+            if((int)$current['data_generation']>1&&(!is_numeric($sent)||!hash_equals((string)(int)$current['data_generation'],(string)(int)$sent)))Response::error('This saved change predates the latest Fresh Start and cannot be applied.',409);
+        }
         return $userId;
     }
 

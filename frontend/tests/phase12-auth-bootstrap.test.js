@@ -41,7 +41,7 @@ async function scenario(initialBehavior) {
         document: { getElementById: id => elements.get(id) || element(), querySelectorAll: () => [], createElement: () => element() },
         CustomEvent: class CustomEvent { constructor(type, init) { this.type = type; this.detail = init?.detail; } },
         APIError: class APIError extends Error { constructor(message, data = {}) { super(message); Object.assign(this, data); } },
-        Swal: { fire: async () => ({ isConfirmed: false }) }, console, setTimeout, clearTimeout
+        Swal: { fire: async () => ({ isConfirmed: false }) }, URLSearchParams, console, setTimeout, clearTimeout
     };
     vm.runInNewContext(source, context);
     await windowMock.authManager.initPromise;

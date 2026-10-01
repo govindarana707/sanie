@@ -11,6 +11,8 @@ require_once __DIR__ . '/../models/Category.php';
 require_once __DIR__ . '/../config/database.php';
 require_once __DIR__ . '/../services/PasswordPolicy.php';
 require_once __DIR__ . '/../services/CredentialService.php';
+require_once __DIR__ . '/../services/PasswordResetDeliveryService.php';
+require_once __DIR__ . '/../services/InitialUserDataService.php';
 
 class AuthController {
     private $userModel;
@@ -63,12 +65,7 @@ class AuthController {
             $this->conn->beginTransaction();
             $userId = $this->userModel->register($userData);
             if (!$userId) throw new RuntimeException('Unable to create user.');
-            if (!$this->createDefaultAccounts($userId)) {
-                throw new RuntimeException('Unable to create default accounts.');
-            }
-            if (!$this->createDefaultCategories($userId)) {
-                throw new RuntimeException('Unable to create default categories.');
-            }
+            (new InitialUserDataService($this->conn))->createDefaults((int)$userId);
             $this->conn->commit();
 
             $token = JWT::encode(['user_id' => $userId, 'token_version' => 1]);
@@ -264,6 +261,8 @@ class AuthController {
 
         foreach ($defaultCategories as $categoryData) {
             $categoryData['user_id'] = $userId;
+            $categoryData['is_pinned'] = false;
+            $categoryData['sort_order'] = 999;
             if (!$this->categoryModel->create($categoryData)) return false;
         }
         return true;
@@ -376,5 +375,73 @@ class AuthController {
         try{$result=(new CredentialService($this->conn))->changePassword($userId,$data);RateLimiter::clear($rateKey);$token=JWT::encode(['user_id'=>$userId,'token_version'=>$result['token_version']]);Response::success(['token'=>$token,'session_policy'=>'other_sessions_revoked'],'Password changed successfully');}
         catch(CredentialValidationException$e){Response::error($e->getMessage(),$e->status,$e->errors);}
         catch(Throwable$e){error_log('Password change failed for authenticated user ID '.$userId);Response::serverError('Password change failed');}
+    }
+
+    public function forgotPassword() {
+        $data = json_decode(file_get_contents('php://input'), true);
+        if (!is_array($data) || !isset($data['email']) || !is_string($data['email'])) {
+            Response::error('Validation failed', 422, ['email' => 'A valid email address is required.']);
+        }
+        $email = strtolower(trim($data['email']));
+        if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+            Response::error('Validation failed', 422, ['email' => 'A valid email address is required.']);
+        }
+        $rateKey = 'password-reset-request:' . ($_SERVER['REMOTE_ADDR'] ?? 'unknown') . ':' . hash('sha256', $email);
+        if (!RateLimiter::hit($rateKey, 5, 900)) {
+            Response::error('Too many password reset requests. Try again later.', 429);
+        }
+
+        $message = 'If an eligible account exists, password reset instructions will be sent.';
+        try {
+            $credentials = new CredentialService($this->conn);
+            $reset = $credentials->createPasswordReset($email, PASSWORD_RESET_TTL);
+            if ($reset) {
+                $delivered = (new PasswordResetDeliveryService())->deliverPasswordReset(
+                    $reset['email'],
+                    $reset['token'],
+                    $reset['expires_at']
+                );
+                if (!$delivered) {
+                    $credentials->invalidatePasswordResetToken($reset['token']);
+                    error_log('[SanIE] Password reset delivery failed; the undelivered token was invalidated.');
+                }
+            }
+            Response::success(null, $message);
+        } catch (Throwable $e) {
+            error_log('[SanIE] Password reset request failed internally.');
+            Response::success(null, $message);
+        }
+    }
+
+    public function validatePasswordReset() {
+        $data = json_decode(file_get_contents('php://input'), true);
+        $token = is_array($data) ? ($data['token'] ?? null) : null;
+        try {
+            if (!(new CredentialService($this->conn))->validatePasswordResetToken($token)) {
+                Response::error('Reset link is invalid or expired.', 422);
+            }
+            Response::success(['valid' => true], 'Reset link is valid.');
+        } catch (Throwable $e) {
+            error_log('[SanIE] Password reset token validation failed internally.');
+            Response::serverError('Password reset validation failed');
+        }
+    }
+
+    public function resetPassword() {
+        $data = json_decode(file_get_contents('php://input'), true);
+        if (!is_array($data)) Response::error('Validation failed', 422, ['request' => 'A valid JSON object is required.']);
+        $rateKey = 'password-reset:' . ($_SERVER['REMOTE_ADDR'] ?? 'unknown');
+        if (!RateLimiter::hit($rateKey, 10, 900)) {
+            Response::error('Too many password reset attempts. Try again later.', 429);
+        }
+        try {
+            (new CredentialService($this->conn))->resetPassword($data);
+            Response::success(null, 'Password reset successful. Sign in with your new password.');
+        } catch (CredentialValidationException $e) {
+            Response::error($e->getMessage(), $e->status, $e->errors);
+        } catch (Throwable $e) {
+            error_log('[SanIE] Password reset failed internally.');
+            Response::serverError('Password reset failed');
+        }
     }
 }

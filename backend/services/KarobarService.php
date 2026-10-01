@@ -47,6 +47,15 @@ class KarobarService {
             return $this->processReceiving($data, $userId);
         }
 
+        $requestId = $this->validateClientRequestId($data['client_request_id'] ?? null);
+        if (!$requestId) throw new KarobarValidationException('A client request ID is required for Karobar transactions.');
+        $data['client_request_id'] = $requestId;
+        $existingRequest = $this->karobarModel->findByClientRequestId($requestId, $userId);
+        if ($existingRequest) {
+            $this->assertIdempotentOriginMatches($existingRequest, $data);
+            return (int)$existingRequest['id'];
+        }
+
         $this->conn->beginTransaction();
 
         try {
@@ -54,6 +63,12 @@ class KarobarService {
             $this->lockOwnedPerson($data['person_id'], $userId, true);
             if (!empty($data['account_id'])) {
                 $this->lockOwnedAccount($data['account_id'], $userId);
+            }
+            $existingRequest = $this->karobarModel->findByClientRequestId($requestId, $userId);
+            if ($existingRequest) {
+                $this->assertIdempotentOriginMatches($existingRequest, $data);
+                $this->conn->commit();
+                return (int)$existingRequest['id'];
             }
             $karobarData = [
                 'user_id' => $userId,
@@ -82,7 +97,17 @@ class KarobarService {
             $this->sendKarobarNotification($karobarData, $karobarId, $userId);
 
             $this->conn->commit();
-            return $karobarId;
+            return (int)$karobarId;
+        } catch (PDOException $e) {
+            if ($this->conn->inTransaction()) $this->conn->rollBack();
+            if ((string)$e->getCode() === '23000') {
+                $existingRequest = $this->karobarModel->findByClientRequestId($requestId, $userId);
+                if ($existingRequest) {
+                    $this->assertIdempotentOriginMatches($existingRequest, $data);
+                    return (int)$existingRequest['id'];
+                }
+            }
+            throw $e;
         } catch (\Throwable $e) {
             if ($this->conn->inTransaction()) $this->conn->rollBack();
             error_log("KarobarService::createTransaction error: " . $e->getMessage());
@@ -937,6 +962,28 @@ class KarobarService {
         }
     }
 
+    private function assertIdempotentOriginMatches(array $existing, array $expected): void {
+        $type = (string)($expected['type'] ?? '');
+        if (!in_array($type, ['lent', 'borrowed', 'adjustment'], true)) {
+            throw new KarobarConflictException('This request ID is already in use.');
+        }
+        $amount = $this->parseMoneyAmount($expected['amount'] ?? null);
+        $date = $this->validateDate($expected['transaction_date'] ?? null, 'transaction date');
+        $dueDate = ($expected['due_date'] ?? null) ?: null;
+        if ($dueDate !== null) $dueDate = $this->validateDate($dueDate, 'due date');
+        $matches = $existing['type'] === $type
+            && (int)$existing['person_id'] === (int)($expected['person_id'] ?? 0)
+            && (int)($existing['account_id'] ?? 0) === (int)($expected['account_id'] ?? 0)
+            && (int)round((float)$existing['amount'] * 100) === (int)round($amount * 100)
+            && (string)$existing['transaction_date'] === $date
+            && (string)($existing['due_date'] ?? '') === (string)($dueDate ?? '')
+            && (string)$existing['description'] === (string)($expected['description'] ?? '')
+            && (string)($existing['payment_method'] ?? '') === (string)($expected['payment_method'] ?? '');
+        if (!$matches) {
+            throw new KarobarConflictException('This request ID was already used for a different Karobar transaction.');
+        }
+    }
+
     public function getPaymentState($transactionId, $userId): array {
         $transaction = $this->karobarModel->findById($transactionId, $userId);
         if (!$transaction || !in_array($transaction['type'], ['repaid', 'returned'], true)) {
@@ -1170,78 +1217,124 @@ class KarobarService {
 
         $totalReceivable = (float)($data['total_receivable'] ?? 0);
         $totalPayable = (float)($data['total_payable'] ?? 0);
+        $netPosition = $totalReceivable - $totalPayable;
+        $activePeople = array_values(array_filter($peopleBalances, fn($person) => (int)($person['transaction_count'] ?? 0) > 0));
+        $peopleYouOwe = count(array_filter($activePeople, fn($person) => (float)$person['payable_outstanding'] > 0));
+        $peopleWhoOweYou = count(array_filter($activePeople, fn($person) => (float)$person['receivable_outstanding'] > 0));
 
-        $mostBorrowedShop = $this->getMostBorrowedShop($userId);
+        $mostBorrowedPerson = $this->getMostBorrowedPerson($userId);
         $mostOwed = $this->getMostOwedPerson($userId);
         $mostReceivable = $this->getMostReceivablePerson($userId);
         $creditDependency = $this->getCreditDependency($userId);
         $monthlyTrend = $this->getMonthlyDebtTrend($userId);
-        $avgRepaymentDays = $this->getAvgRepaymentDays($userId);
+        $repaymentStats = $this->getRepaymentStats($userId);
+        $avgRepaymentDays = $repaymentStats['average_days'];
         $highestCreditor = $this->getHighestCreditor($userId);
         $highestDebtor = $this->getHighestDebtor($userId);
-
-        $score = 70;
-        if ($totalPayable > 0 && $totalReceivable > 0) {
-            $ratio = $totalReceivable / $totalPayable;
-            $score = min(100, 50 + ($ratio * 20));
-        } elseif ($totalReceivable > 0) {
-            $score = 85;
-        } elseif ($totalPayable > 0) {
-            $score = 55;
-        } else {
-            $score = 80;
+        $payableOrigins = $this->outstandingService->getOrigins($userId, ['direction' => 'payable']);
+        $unresolvedDebts = count($payableOrigins);
+        $oldestOverdue = null;
+        foreach ($payableOrigins as $origin) {
+            if (!$origin['is_overdue']) continue;
+            if ($oldestOverdue === null || $origin['due_date'] < $oldestOverdue['due_date']) $oldestOverdue = $origin;
         }
+
+        $history = $this->getBorrowingHistoryTotals($userId);
+        $hasKarobarActivity = (int)$history['transaction_count'] > 0;
+        $trendComparison = $this->getDebtTrendComparison($monthlyTrend);
+        $health = $this->calculateKarobarHealth([
+            'has_activity' => $hasKarobarActivity,
+            'total_receivable' => $totalReceivable,
+            'total_payable' => $totalPayable,
+            'overdue_payable' => (float)($data['overdue_payable'] ?? 0),
+            'total_borrowed' => (float)$history['total_borrowed'],
+            'completed_debts' => $repaymentStats['completed_count'],
+            'borrowed_debts' => $repaymentStats['borrowed_count'],
+            'avg_repayment_days' => $avgRepaymentDays,
+            'credit_dependency' => $creditDependency,
+            'unresolved_debts' => $unresolvedDebts,
+            'trend' => $trendComparison
+        ]);
 
         $insights = [];
-        if ($totalPayable > 0) {
-            $insights[] = "You owe Rs " . number_format($totalPayable) . " across " . count($peopleBalances) . " people.";
+        if ($hasKarobarActivity && $totalPayable == 0.0 && $totalReceivable == 0.0) {
+            $insights[] = 'You currently have no outstanding Karobar obligations.';
+        } elseif ($netPosition < 0) {
+            $insights[] = 'Your current Karobar position is negative by ' . $this->formatRupees(abs($netPosition)) . ' because payables exceed receivables.';
+        } elseif ($netPosition > 0) {
+            $insights[] = 'Your current Karobar position is positive by ' . $this->formatRupees($netPosition) . ' because receivables exceed payables.';
         }
-        if ($totalReceivable > 0) {
-            $insights[] = "Others owe you Rs " . number_format($totalReceivable) . ".";
+        if ($trendComparison['direction'] === 'decreasing' && $trendComparison['percent'] !== null) {
+            $insights[] = 'Outstanding debt decreased by ' . $this->formatPercent($trendComparison['percent']) . ' compared with last month.';
+        } elseif ($trendComparison['direction'] === 'increasing' && $trendComparison['percent'] !== null) {
+            $insights[] = 'Outstanding debt increased by ' . $this->formatPercent($trendComparison['percent']) . ' compared with last month.';
         }
-        if ($avgRepaymentDays > 0) {
-            $insights[] = "Average repayment takes {$avgRepaymentDays} days.";
+        if ($highestCreditor && $totalPayable > 0 && $peopleYouOwe > 1 && ((float)$highestCreditor['amount'] / $totalPayable) >= 0.6) {
+            $insights[] = 'Most of your outstanding payable is concentrated with ' . $highestCreditor['name'] . '.';
         }
-        if ($creditDependency > 50) {
-            $insights[] = "High credit dependency detected. Consider reducing credit purchases.";
+        if ($repaymentStats['trend'] === 'improving') {
+            $insights[] = 'Repayment speed has improved compared with your previous completed debts.';
         }
 
         $recommendations = [];
-        if ($totalPayable > $totalReceivable * 2) {
-            $recommendations[] = "Your payables are significantly higher than receivables. Focus on settling debts.";
+        $overduePayable = (float)($data['overdue_payable'] ?? 0);
+        if ($overduePayable > 0) {
+            $oldestSuffix = $oldestOverdue ? ' Start with the obligation due ' . date('M j, Y', strtotime($oldestOverdue['due_date'])) . '.' : '';
+            $recommendations[] = $this->formatRupees($overduePayable) . ' is overdue. Prioritize the oldest overdue obligation first.' . $oldestSuffix;
         }
-        if ($avgRepaymentDays > 30) {
-            $recommendations[] = "Average repayment period exceeds 30 days. Consider shorter repayment terms.";
+        if ($totalPayable > $totalReceivable) {
+            $recommendations[] = 'Your payables exceed your receivables by ' . $this->formatRupees($totalPayable - $totalReceivable) . '. Prioritize reducing outstanding obligations.';
         }
-        if (empty($recommendations)) {
-            $recommendations[] = "Your karobar (credit) management looks healthy. Keep it up!";
+        if ($trendComparison['direction'] === 'increasing') {
+            $change = $trendComparison['percent'] !== null
+                ? $this->formatPercent($trendComparison['percent'])
+                : $this->formatRupees($trendComparison['amount']);
+            $recommendations[] = 'Outstanding debt increased by ' . $change . ' compared with last month. Consider limiting new borrowing until the balance starts declining.';
         }
+        if ($avgRepaymentDays !== null && $avgRepaymentDays > 30) {
+            $recommendations[] = 'Completed debts took an average of ' . $avgRepaymentDays . ' days to repay. Plan shorter, realistic repayment windows.';
+        }
+        if ($repaymentStats['trend'] === 'improving') {
+            $recommendations[] = 'Your repayment pattern is improving. Continue maintaining the current repayment pace.';
+        }
+        if ($totalPayable == 0.0 && $hasKarobarActivity) {
+            $recommendations[] = 'You currently have no outstanding payable balance. Avoid unnecessary borrowing and maintain this position.';
+        }
+        $recommendations = array_slice(array_values(array_unique($recommendations)), 0, 4);
 
         return [
-            'health_score' => round($score),
-            'health_status' => $score >= 80 ? 'Excellent' : ($score >= 60 ? 'Good' : ($score >= 40 ? 'Average' : 'Needs Improvement')),
+            'health_score' => $health['score'],
+            'health_status' => $health['status'],
+            'health_factors' => $health['factors'],
             'total_receivable' => $totalReceivable,
             'total_payable' => $totalPayable,
-            'net_karobar' => $totalReceivable - $totalPayable,
-            'most_borrowed_shop' => $mostBorrowedShop,
+            'net_position' => $netPosition,
+            'net_karobar' => $netPosition,
+            'most_borrowed_person' => $mostBorrowedPerson,
+            'most_borrowed_shop' => $mostBorrowedPerson,
             'most_owed_person' => $mostOwed,
             'most_receivable_person' => $mostReceivable,
             'credit_dependency' => $creditDependency,
             'monthly_trend' => $monthlyTrend,
+            'monthly_trend_has_activity' => count(array_filter($monthlyTrend, fn($month) => (float)$month['borrowed'] > 0 || (float)$month['repaid'] > 0)) > 0,
             'avg_repayment_days' => $avgRepaymentDays,
             'highest_creditor' => $highestCreditor,
             'highest_debtor' => $highestDebtor,
             'insights' => $insights,
             'recommendations' => $recommendations,
-            'people_count' => count($peopleBalances)
+            'active_people_count' => count($activePeople),
+            'people_count' => count($activePeople),
+            'people_you_owe' => $peopleYouOwe,
+            'people_who_owe_you' => $peopleWhoOweYou,
+            'has_activity' => $hasKarobarActivity
         ];
     }
 
-    private function getMostBorrowedShop($userId) {
+    private function getMostBorrowedPerson($userId) {
         $query = "SELECT p.name, SUM(kt.amount) as amount
                   FROM people p
                   JOIN karobar_transactions kt ON p.id = kt.person_id
-                  WHERE kt.user_id = :user_id AND kt.type = 'borrowed' AND p.type IN ('shop','vendor','business')
+                  WHERE kt.user_id = :user_id AND kt.type = 'borrowed'
                   GROUP BY p.id, p.name
                   ORDER BY amount DESC LIMIT 1";
         $stmt = $this->conn->prepare($query);
@@ -1258,9 +1351,8 @@ class KarobarService {
         return $this->largestOutstandingPerson($userId, 'receivable_outstanding');
     }
 
-    private function getCreditDependency($userId) {
+    private function getCreditDependency($userId): ?float {
         $query = "SELECT
-                  COALESCE(SUM(CASE WHEN type IN ('borrowed','lent') THEN amount ELSE 0 END), 0) as credit_volume,
                   (SELECT COALESCE(SUM(amount), 0) FROM transactions WHERE user_id = :credit_user_id AND type = 'expense' AND payment_method = 'credit') as credit_expenses,
                   (SELECT COALESCE(SUM(amount), 0) FROM transactions WHERE user_id = :expense_user_id AND type = 'expense') as total_expenses
                   FROM karobar_transactions WHERE user_id = :karobar_user_id";
@@ -1274,35 +1366,161 @@ class KarobarService {
         $totalExpenses = floatval($result['total_expenses'] ?? 0);
         $creditExpenses = floatval($result['credit_expenses'] ?? 0);
 
-        return $totalExpenses > 0 ? round(($creditExpenses / $totalExpenses) * 100, 1) : 0;
+        return $totalExpenses > 0 ? round(min(100, ($creditExpenses / $totalExpenses) * 100), 1) : null;
     }
 
     private function getMonthlyDebtTrend($userId) {
-        $query = "SELECT DATE_FORMAT(transaction_date, '%b') as month,
-                  MONTH(transaction_date) as month_num,
-                  SUM(CASE WHEN type = 'borrowed' THEN amount ELSE 0 END) as borrowed,
-                  SUM(CASE WHEN type = 'repaid' THEN amount ELSE 0 END) as repaid
+        $endMonth = new DateTimeImmutable('first day of this month');
+        $startMonth = $endMonth->modify('-11 months');
+        $endDate = $endMonth->modify('last day of this month')->format('Y-m-d');
+        $query = "SELECT person_id, type, amount, transaction_date
                   FROM karobar_transactions
-                  WHERE user_id = :user_id AND YEAR(transaction_date) = YEAR(CURDATE())
-                  GROUP BY MONTH(transaction_date), DATE_FORMAT(transaction_date, '%b')
-                  ORDER BY month_num ASC";
+                  WHERE user_id = :user_id AND type IN ('borrowed','repaid') AND transaction_date <= :end_date
+                  ORDER BY transaction_date ASC, created_at ASC, id ASC";
         $stmt = $this->conn->prepare($query);
-        $stmt->bindParam(':user_id', $userId);
+        $stmt->bindValue(':user_id', $userId, PDO::PARAM_INT);
+        $stmt->bindValue(':end_date', $endDate);
         $stmt->execute();
-        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+        $opening = [];
+        $events = [];
+        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+            $personId = (int)$row['person_id'];
+            $amount = (float)$row['amount'];
+            $delta = $row['type'] === 'borrowed' ? $amount : -$amount;
+            $monthKey = substr($row['transaction_date'], 0, 7);
+            if ($row['transaction_date'] < $startMonth->format('Y-m-d')) {
+                $opening[$personId] = max(0.0, ($opening[$personId] ?? 0.0) + $delta);
+                continue;
+            }
+            $events[$monthKey][$personId] ??= ['borrowed' => 0.0, 'repaid' => 0.0];
+            $events[$monthKey][$personId][$row['type']] += $amount;
+        }
+        $balances = $opening;
+        $result = [];
+        for ($cursor = $startMonth; $cursor <= $endMonth; $cursor = $cursor->modify('+1 month')) {
+            $key = $cursor->format('Y-m');
+            $borrowed = 0.0;
+            $repaid = 0.0;
+            foreach ($events[$key] ?? [] as $personId => $amounts) {
+                $borrowed += $amounts['borrowed'];
+                $repaid += $amounts['repaid'];
+                $balances[$personId] = max(0.0, ($balances[$personId] ?? 0.0) + $amounts['borrowed'] - $amounts['repaid']);
+            }
+            $result[] = [
+                'month' => $cursor->format('M Y'),
+                'month_key' => $key,
+                'borrowed' => round($borrowed, 2),
+                'repaid' => round($repaid, 2),
+                'outstanding_balance' => round(array_sum($balances), 2)
+            ];
+        }
+        return $result;
     }
 
-    private function getAvgRepaymentDays($userId) {
-        $query = "SELECT AVG(DATEDIFF(r.transaction_date, b.transaction_date)) as avg_days
-                  FROM karobar_transactions b
-                  JOIN karobar_transactions r ON b.person_id = r.person_id AND b.user_id = r.user_id
-                  WHERE b.user_id = :user_id AND b.type = 'borrowed' AND r.type = 'repaid'
-                  AND r.transaction_date >= b.transaction_date";
+    private function getRepaymentStats($userId): array {
+        $query = "SELECT id, person_id, type, amount, transaction_date
+                  FROM karobar_transactions
+                  WHERE user_id = :user_id AND type IN ('borrowed','repaid')
+                  ORDER BY transaction_date ASC, created_at ASC, id ASC";
         $stmt = $this->conn->prepare($query);
-        $stmt->bindParam(':user_id', $userId);
+        $stmt->bindValue(':user_id', $userId, PDO::PARAM_INT);
         $stmt->execute();
-        $result = $stmt->fetch(PDO::FETCH_ASSOC);
-        return $result ? round(floatval($result['avg_days'] ?? 0)) : 0;
+        $queues = [];
+        $borrowedCount = 0;
+        $completedDays = [];
+        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+            $personId = (int)$row['person_id'];
+            if ($row['type'] === 'borrowed') {
+                $queues[$personId][] = ['remaining' => (float)$row['amount'], 'date' => $row['transaction_date']];
+                $borrowedCount++;
+                continue;
+            }
+            $payment = (float)$row['amount'];
+            while ($payment > 0.00001 && !empty($queues[$personId])) {
+                $origin =& $queues[$personId][0];
+                $applied = min($payment, $origin['remaining']);
+                $origin['remaining'] -= $applied;
+                $payment -= $applied;
+                if ($origin['remaining'] <= 0.00001) {
+                    $start = new DateTimeImmutable($origin['date']);
+                    $completedDays[] = (int)$start->diff(new DateTimeImmutable($row['transaction_date']))->format('%a');
+                    array_shift($queues[$personId]);
+                }
+                unset($origin);
+            }
+        }
+        $average = $completedDays ? (int)round(array_sum($completedDays) / count($completedDays)) : null;
+        $trend = null;
+        if (count($completedDays) >= 4) {
+            $split = (int)floor(count($completedDays) / 2);
+            $previous = array_slice($completedDays, 0, $split);
+            $recent = array_slice($completedDays, $split);
+            $previousAverage = array_sum($previous) / count($previous);
+            $recentAverage = array_sum($recent) / count($recent);
+            if ($recentAverage < $previousAverage - 0.5) $trend = 'improving';
+            elseif ($recentAverage > $previousAverage + 0.5) $trend = 'worsening';
+            else $trend = 'stable';
+        }
+        return ['average_days' => $average, 'completed_count' => count($completedDays), 'borrowed_count' => $borrowedCount, 'trend' => $trend];
+    }
+
+    private function getBorrowingHistoryTotals($userId): array {
+        $stmt = $this->conn->prepare("SELECT COALESCE(SUM(CASE WHEN type IN('lent','borrowed','returned','repaid') THEN 1 ELSE 0 END),0) transaction_count,
+            COALESCE(SUM(CASE WHEN type='borrowed' THEN amount ELSE 0 END),0) total_borrowed,
+            COALESCE(SUM(CASE WHEN type='repaid' THEN amount ELSE 0 END),0) total_repaid
+            FROM karobar_transactions WHERE user_id=:user_id");
+        $stmt->bindValue(':user_id', $userId, PDO::PARAM_INT);
+        $stmt->execute();
+        return $stmt->fetch(PDO::FETCH_ASSOC) ?: ['transaction_count' => 0, 'total_borrowed' => 0, 'total_repaid' => 0];
+    }
+
+    private function getDebtTrendComparison(array $trend): array {
+        if (count($trend) < 2) return ['direction' => 'unavailable', 'percent' => null, 'amount' => 0.0];
+        $current = (float)$trend[count($trend) - 1]['outstanding_balance'];
+        $previous = (float)$trend[count($trend) - 2]['outstanding_balance'];
+        $amount = round(abs($current - $previous), 2);
+        if ($amount < 0.01) return ['direction' => 'stable', 'percent' => 0.0, 'amount' => 0.0];
+        return [
+            'direction' => $current > $previous ? 'increasing' : 'decreasing',
+            'percent' => $previous > 0 ? round(($amount / $previous) * 100, 1) : null,
+            'amount' => $amount
+        ];
+    }
+
+    private function calculateKarobarHealth(array $metrics): array {
+        if (!$metrics['has_activity']) return ['score' => null, 'status' => 'Not enough data', 'factors' => []];
+        $factors = [];
+        $add = function(string $key, string $label, float $weight, float $ratio) use (&$factors): void {
+            $factors[$key] = ['label' => $label, 'weight' => $weight, 'score' => round(max(0, min(1, $ratio)) * 100, 1)];
+        };
+        if ($metrics['total_borrowed'] > 0) {
+            $add('outstanding_burden', 'Outstanding payable burden', 20, 1 - ($metrics['total_payable'] / $metrics['total_borrowed']));
+            $add('repayment_consistency', 'Completed debt consistency', 15, $metrics['borrowed_debts'] > 0 ? $metrics['completed_debts'] / $metrics['borrowed_debts'] : 0);
+            $add('unresolved_debts', 'Unresolved debts', 5, 1 / (1 + ($metrics['unresolved_debts'] / 3)));
+        }
+        $exposure = $metrics['total_receivable'] + $metrics['total_payable'];
+        if ($exposure > 0) $add('net_balance', 'Receivable vs payable balance', 15, $metrics['total_receivable'] / $exposure);
+        else $add('net_balance', 'Receivable vs payable balance', 15, 1);
+        if ($metrics['total_payable'] > 0) $add('overdue_payable', 'On-time payable position', 20, 1 - ($metrics['overdue_payable'] / $metrics['total_payable']));
+        else $add('overdue_payable', 'On-time payable position', 20, 1);
+        if ($metrics['avg_repayment_days'] !== null) $add('repayment_speed', 'Average repayment speed', 10, 1 - (($metrics['avg_repayment_days'] - 7) / 53));
+        if ($metrics['total_borrowed'] > 0 && $metrics['trend']['direction'] !== 'unavailable') {
+            $trendRatio = $metrics['trend']['direction'] === 'decreasing' ? 1 : ($metrics['trend']['direction'] === 'stable' ? 0.75 : 0);
+            $add('debt_trend', 'Monthly debt direction', 10, $trendRatio);
+        }
+        if ($metrics['credit_dependency'] !== null) $add('credit_dependency', 'Credit dependency', 5, 1 - ($metrics['credit_dependency'] / 100));
+        $weight = array_sum(array_column($factors, 'weight'));
+        $score = $weight > 0 ? (int)round(array_sum(array_map(fn($factor) => $factor['score'] * $factor['weight'], $factors)) / $weight) : null;
+        $status = $score === null ? 'Not enough data' : ($score >= 80 ? 'Excellent' : ($score >= 65 ? 'Good' : ($score >= 45 ? 'Average' : ($score >= 25 ? 'Poor' : 'Critical'))));
+        return ['score' => $score, 'status' => $status, 'factors' => $factors];
+    }
+
+    private function formatRupees(float $amount): string {
+        return 'Rs ' . number_format($amount, abs($amount - round($amount)) < 0.005 ? 0 : 2);
+    }
+
+    private function formatPercent(float $percent): string {
+        return number_format($percent, abs($percent - round($percent)) < 0.05 ? 0 : 1) . '%';
     }
 
     private function getHighestCreditor($userId) {

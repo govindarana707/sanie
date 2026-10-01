@@ -24,6 +24,29 @@ class SchemaMigrator {
     public const PHASE10_CHECKSUM = '55f3a6ce4980ac7cac90831446685f8beb3da19ab878df0c31ba479141096f33';
     public const PHASE11_MIGRATION_ID = '20260817_phase11_credential_session_version_v1';
     public const PHASE11_CHECKSUM = 'acb822709a4c2f5092c146178284ee850d6403cb508541912af11a375a261f61';
+    public const PHASE12_MIGRATION_ID = '20260817_phase12_category_priority_v1';
+    public const PHASE12_CHECKSUM = '9f58d1ae7aa60146635702952ead36511dc58825659076ad11c735a60f8e6aec';
+    public const PHASE13_MIGRATION_ID = '20260822_phase13_tasks_foundation_v1';
+    public const PHASE13_CHECKSUM = '8e391b1374c7c93cba940f6b134e7765861d5758c24c51ae73bb69c49bf26585';
+    public const PHASE14_MIGRATION_ID = '20260822_phase14_task_delete_tombstone_v1';
+    public const PHASE14_CHECKSUM = '24a8e067a38fd630f45c69404f763c9ba8a9d63b9e26539ff14092c429862eb6';
+    public const PHASE15_MIGRATION_ID = '20260823_phase15_task_lifecycle_status_v1';
+    public const PHASE15_CHECKSUM = 'eb90d5945154c2c8f4aed6744493b5adc418a1e2dd6eb4c7d184b890917a48e2';
+    public const PHASE16_MIGRATION_ID = '20260824_phase16_recurring_transaction_execution_v1';
+    public const PHASE16_CHECKSUM = '80bbd32c279dfb17c91bde6a29c4a9763072611214709688780153569182bd76';
+    public const PHASE17_MIGRATION_ID = '20260825_phase17_notification_event_dedupe_v1';
+    public const PHASE17_CHECKSUM = '3f730dbe1d4e23fc607f8e71aeef69d8c381cff6250947e0558959000e7e9e9b';
+    public const PHASE18_MIGRATION_ID = '20260826_phase18_task_summary_url_v1';
+    public const PHASE18_CHECKSUM = '4c65b781d63c6d64e41a850767a7aa6ae37ffa2475e7c6ca2b38e2e7964422a2';
+    public const PHASE19_MIGRATION_ID = '20260917_phase19_account_net_balance_inclusion_v1';
+    public const PHASE19_CHECKSUM = 'b53897e30c9dd710fb7b913fd7d66fc3e9cdd2c018a206b7e9c96a7a21e1d14f';
+    public const PHASE20_MIGRATION_ID = '20260920_phase20_task_category_split_v1';
+    public const PHASE20_CHECKSUM = '2a457ee568e906a7bce2d01c093c173c2126b871ea7bca9d41955425c5439c3b';
+    public const PHASE21_MIGRATION_ID = '20260925_phase21_fresh_start_v1';
+    public const PHASE21_CHECKSUM = 'e4c0880b4d9a735d08ab37e57b6f40c7d344e9a8f3bd83f6c5982104fa558c64';
+    public const PHASE22_MIGRATION_ID = '20261001_phase22_budget_overlap_lookup_v1';
+    public const PHASE22_CHECKSUM = '4161fd12d8a7c04a1724ff769b3a01bb7e1d10d9dd1f8ed3997c20eeb1d1ec69';
+    public const CURRENT_MIGRATION_ID = self::PHASE22_MIGRATION_ID;
 
     private PDO $conn;
     private string $databaseName;
@@ -132,8 +155,136 @@ class SchemaMigrator {
             $applied = true;
         }
 
+        $phase12 = $this->migrationRecord(self::PHASE12_MIGRATION_ID);
+        if ($phase12) {
+            if (!hash_equals(self::PHASE12_CHECKSUM, (string)$phase12['checksum'])) {
+                throw new RuntimeException('Applied Phase 12 migration checksum does not match this release.');
+            }
+        } else {
+            $this->reconcileCategoryPriority();
+            $this->recordMigration(self::PHASE12_MIGRATION_ID, self::PHASE12_CHECKSUM);
+            $applied = true;
+        }
+
+        $phase13 = $this->migrationRecord(self::PHASE13_MIGRATION_ID);
+        if ($phase13) {
+            if (!hash_equals(self::PHASE13_CHECKSUM, (string)$phase13['checksum'])) {
+                throw new RuntimeException('Applied Phase 13 migration checksum does not match this release.');
+            }
+        } else {
+            $this->reconcileTasksFoundation();
+            $this->recordMigration(self::PHASE13_MIGRATION_ID, self::PHASE13_CHECKSUM);
+            $applied = true;
+        }
+
+        $phase14 = $this->migrationRecord(self::PHASE14_MIGRATION_ID);
+        if ($phase14) {
+            if (!hash_equals(self::PHASE14_CHECKSUM, (string)$phase14['checksum'])) {
+                throw new RuntimeException('Applied Phase 14 migration checksum does not match this release.');
+            }
+        } else {
+            $this->addColumn('tasks', 'deleted_at', 'TIMESTAMP NULL AFTER seed_key');
+            $this->recordMigration(self::PHASE14_MIGRATION_ID, self::PHASE14_CHECKSUM);
+            $applied = true;
+        }
+
+        $phase15 = $this->migrationRecord(self::PHASE15_MIGRATION_ID);
+        if ($phase15) {
+            if (!hash_equals(self::PHASE15_CHECKSUM, (string)$phase15['checksum'])) {
+                throw new RuntimeException('Applied Phase 15 migration checksum does not match this release.');
+            }
+        } else {
+            $this->reconcileTaskLifecycleStatus();
+            $this->recordMigration(self::PHASE15_MIGRATION_ID, self::PHASE15_CHECKSUM);
+            $applied = true;
+        }
+
+        $phase16 = $this->migrationRecord(self::PHASE16_MIGRATION_ID);
+        if ($phase16) {
+            if (!hash_equals(self::PHASE16_CHECKSUM, (string)$phase16['checksum'])) {
+                throw new RuntimeException('Applied Phase 16 migration checksum does not match this release.');
+            }
+        } else {
+            $this->reconcileRecurringTransactionExecution();
+            $this->recordMigration(self::PHASE16_MIGRATION_ID, self::PHASE16_CHECKSUM);
+            $applied = true;
+        }
+
+        $phase17 = $this->migrationRecord(self::PHASE17_MIGRATION_ID);
+        if ($phase17) {
+            if (!hash_equals(self::PHASE17_CHECKSUM, (string)$phase17['checksum'])) {
+                throw new RuntimeException('Applied Phase 17 migration checksum does not match this release.');
+            }
+        } else {
+            $this->reconcileNotificationEventDedupe();
+            $this->recordMigration(self::PHASE17_MIGRATION_ID, self::PHASE17_CHECKSUM);
+            $applied = true;
+        }
+
+        $phase18 = $this->migrationRecord(self::PHASE18_MIGRATION_ID);
+        if ($phase18) {
+            if (!hash_equals(self::PHASE18_CHECKSUM, (string)$phase18['checksum'])) {
+                throw new RuntimeException('Applied Phase 18 migration checksum does not match this release.');
+            }
+        } else {
+            $this->addColumn('tasks', 'summary_url', 'VARCHAR(2048) NULL AFTER reminder_at');
+            $this->recordMigration(self::PHASE18_MIGRATION_ID, self::PHASE18_CHECKSUM);
+            $applied = true;
+        }
+
+        $phase19 = $this->migrationRecord(self::PHASE19_MIGRATION_ID);
+        if ($phase19) {
+            if (!hash_equals(self::PHASE19_CHECKSUM, (string)$phase19['checksum'])) {
+                throw new RuntimeException('Applied Phase 19 migration checksum does not match this release.');
+            }
+        } else {
+            // Preserve historical behavior without inferring a preference from account data.
+            $this->addColumn('accounts', 'include_in_net_balance', 'TINYINT(1) NOT NULL DEFAULT 1 AFTER include_in_savings');
+            $this->recordMigration(self::PHASE19_MIGRATION_ID, self::PHASE19_CHECKSUM);
+            $applied = true;
+        }
+
+        $phase20 = $this->migrationRecord(self::PHASE20_MIGRATION_ID);
+        if ($phase20) {
+            if (!hash_equals(self::PHASE20_CHECKSUM, (string)$phase20['checksum'])) {
+                throw new RuntimeException('Applied Phase 20 migration checksum does not match this release.');
+            }
+        } else {
+            // Existing rows retain their IDs and task_type. Board Study rows are
+            // already classified as board_study and require no destructive backfill.
+            $this->addColumn('tasks', 'category', 'VARCHAR(80) NULL AFTER content');
+            $this->addIndex('tasks', 'idx_tasks_user_category', ['user_id','category']);
+            $this->recordMigration(self::PHASE20_MIGRATION_ID, self::PHASE20_CHECKSUM);
+            $applied = true;
+        }
+
+        $phase21 = $this->migrationRecord(self::PHASE21_MIGRATION_ID);
+        if ($phase21) {
+            if (!hash_equals(self::PHASE21_CHECKSUM, (string)$phase21['checksum'])) {
+                throw new RuntimeException('Applied Phase 21 migration checksum does not match this release.');
+            }
+        } else {
+            $this->reconcileFreshStart();
+            $this->recordMigration(self::PHASE21_MIGRATION_ID, self::PHASE21_CHECKSUM);
+            $applied = true;
+        }
+
+        $phase22 = $this->migrationRecord(self::PHASE22_MIGRATION_ID);
+        if ($phase22) {
+            if (!hash_equals(self::PHASE22_CHECKSUM, (string)$phase22['checksum'])) {
+                throw new RuntimeException('Applied Phase 22 migration checksum does not match this release.');
+            }
+        } else {
+            // A unique key cannot express date-range overlap, especially with
+            // nullable category scopes. This speeds the backend overlap check
+            // without changing or deleting existing budget records.
+            $this->addIndex('budgets', 'idx_budgets_user_scope_dates', ['user_id', 'category_id', 'subcategory_id', 'start_date', 'end_date']);
+            $this->recordMigration(self::PHASE22_MIGRATION_ID, self::PHASE22_CHECKSUM);
+            $applied = true;
+        }
+
         $this->assertCurrentApplicationSchema();
-        return ['applied' => $applied, 'migration_id' => self::PHASE11_MIGRATION_ID];
+        return ['applied' => $applied, 'migration_id' => self::CURRENT_MIGRATION_ID];
     }
 
     private function recordMigration(string $id, string $checksum): void {
@@ -190,6 +341,159 @@ class SchemaMigrator {
         $this->addColumn('users','password_changed_at','TIMESTAMP NULL AFTER token_version');
     }
 
+    private function reconcileCategoryPriority(): void {
+        $this->addColumn('categories', 'is_pinned', 'TINYINT(1) NOT NULL DEFAULT 0 AFTER status');
+        $this->conn->exec('UPDATE categories SET sort_order = 999 WHERE is_pinned = 0 OR sort_order IS NULL');
+        $sortOrder = $this->columnInfo('categories', 'sort_order');
+        if (!$sortOrder
+            || $sortOrder['IS_NULLABLE'] !== 'NO'
+            || (string)$sortOrder['COLUMN_DEFAULT'] !== '999'
+            || strtolower((string)$sortOrder['COLUMN_TYPE']) !== 'int') {
+            $this->conn->exec('ALTER TABLE categories MODIFY sort_order INT NOT NULL DEFAULT 999');
+        }
+        $this->addIndex('categories', 'idx_category_priority', ['user_id','type','status','is_pinned','sort_order']);
+        $this->addIndex('transactions', 'idx_transactions_category_usage', ['user_id','type','category_id']);
+    }
+
+    private function reconcileTaskLifecycleStatus(): void {
+        $status = $this->columnInfo('tasks', 'status');
+        if (!$status || stripos((string)$status['COLUMN_TYPE'], "'in_progress'") === false) {
+            $this->conn->exec("ALTER TABLE tasks MODIFY status ENUM('pending','in_progress','completed') NOT NULL DEFAULT 'pending'");
+        }
+    }
+
+    private function reconcileRecurringTransactionExecution(): void {
+        $this->addColumn('transactions', 'recurring_definition_id', 'INT NULL AFTER goal_id');
+        $this->addColumn('transactions', 'recurring_occurrence_date', 'DATE NULL AFTER recurring_definition_id');
+        $this->addUniqueIndex(
+            'transactions',
+            'uq_transactions_recurring_occurrence',
+            ['user_id', 'recurring_definition_id', 'recurring_occurrence_date']
+        );
+        $this->addForeignKey(
+            'transactions',
+            'recurring_definition_id',
+            'recurring_transactions',
+            'id',
+            'RESTRICT',
+            'fk_transactions_recurring_definition'
+        );
+    }
+
+    private function reconcileNotificationEventDedupe(): void {
+        $this->conn->exec(
+            "CREATE TABLE IF NOT EXISTS notification_events (
+                id BIGINT AUTO_INCREMENT PRIMARY KEY,
+                user_id INT NOT NULL,
+                event_key VARCHAR(191) NOT NULL,
+                event_type VARCHAR(50) NOT NULL,
+                source_type VARCHAR(50) NULL,
+                source_id INT NULL,
+                occurred_at DATETIME NULL,
+                created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                CONSTRAINT fk_notification_events_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+                UNIQUE INDEX uq_notification_events_user_key (user_id,event_key),
+                INDEX idx_notification_events_source (user_id,source_type,source_id,id)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
+        );
+        foreach (['user_id','event_key','event_type','source_type','source_id','occurred_at','created_at'] as $column) {
+            if (!$this->columnExists('notification_events', $column)) {
+                throw new RuntimeException("Existing notification_events table is incompatible: notification_events.{$column} is missing.");
+            }
+        }
+        $this->addUniqueIndex('notification_events','uq_notification_events_user_key',['user_id','event_key']);
+        $this->addIndex('notification_events','idx_notification_events_source',['user_id','source_type','source_id','id']);
+        $this->addForeignKey('notification_events','user_id','users','id','CASCADE','fk_notification_events_user');
+
+        // Budget source/type and goal completion identities are reconstructible
+        // without parsing messages. Other legacy events are seeded lazily when
+        // an exact current identity can be verified by the service.
+        $this->conn->exec("INSERT IGNORE INTO notification_events(user_id,event_key,event_type,source_type,source_id,occurred_at)
+            SELECT user_id,CONCAT('legacy:notification:',id),type,reference_type,reference_id,created_at
+            FROM notifications WHERE reference_type='budget' AND type IN('budget_warning','budget_exceeded','budget_normal')");
+        $this->conn->exec("INSERT IGNORE INTO notification_events(user_id,event_key,event_type,source_type,source_id,occurred_at)
+            SELECT user_id,CONCAT('goal:',reference_id,':completed'),type,reference_type,reference_id,created_at
+            FROM notifications WHERE reference_type='goal' AND type='goal_achieved' AND reference_id IS NOT NULL");
+    }
+
+    private function reconcileTasksFoundation(): void {
+        $this->conn->exec(
+            "CREATE TABLE IF NOT EXISTS tasks (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                user_id INT NOT NULL,
+                task_type ENUM('general','board_study') NOT NULL DEFAULT 'general',
+                title VARCHAR(255) NOT NULL,
+                content TEXT NULL,
+                category VARCHAR(80) NULL,
+                due_date DATE NULL,
+                display_date_bs CHAR(10) NULL,
+                subject VARCHAR(100) NULL,
+                unit_label VARCHAR(50) NULL,
+                status ENUM('pending','in_progress','completed') NOT NULL DEFAULT 'pending',
+                completed_at TIMESTAMP NULL,
+                priority ENUM('low','normal','high','urgent') NOT NULL DEFAULT 'normal',
+                reminder_at DATETIME NULL,
+                summary_url VARCHAR(2048) NULL,
+                seed_key VARCHAR(100) NULL,
+                deleted_at TIMESTAMP NULL,
+                created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                CONSTRAINT fk_tasks_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+                UNIQUE INDEX uq_tasks_user_seed (user_id, seed_key),
+                INDEX idx_tasks_user_type_status (user_id, task_type, status),
+                INDEX idx_tasks_user_due_date (user_id, due_date),
+                INDEX idx_tasks_user_category (user_id, category),
+                INDEX idx_tasks_user_subject (user_id, subject)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
+        );
+        foreach (['task_type','title','content','due_date','display_date_bs','subject','unit_label','status','completed_at','priority','reminder_at','seed_key','deleted_at'] as $column) {
+            if (!$this->columnExists('tasks', $column)) {
+                throw new RuntimeException("Existing tasks table is incompatible: tasks.{$column} is missing.");
+            }
+        }
+        $this->addUniqueIndex('tasks', 'uq_tasks_user_seed', ['user_id','seed_key']);
+        $this->addIndex('tasks', 'idx_tasks_user_type_status', ['user_id','task_type','status']);
+        $this->addIndex('tasks', 'idx_tasks_user_due_date', ['user_id','due_date']);
+        $this->addIndex('tasks', 'idx_tasks_user_subject', ['user_id','subject']);
+        $this->addForeignKey('tasks', 'user_id', 'users', 'id', 'CASCADE', 'fk_tasks_user');
+    }
+
+    private function reconcileFreshStart(): void {
+        $this->addColumn('users', 'data_generation', 'INT NOT NULL DEFAULT 1 AFTER token_version');
+        $this->conn->exec(
+            "CREATE TABLE IF NOT EXISTS fresh_start_operations (
+                operation_id CHAR(36) PRIMARY KEY,
+                user_id INT NOT NULL,
+                intent_hash CHAR(64) NOT NULL,
+                confirmation_hash CHAR(64) NULL,
+                status ENUM('prepared','verified','processing','cleanup_pending','completed','failed','cancelled') NOT NULL DEFAULT 'prepared',
+                summary_json LONGTEXT NULL,
+                expires_at DATETIME NOT NULL,
+                verified_at DATETIME NULL,
+                completed_at DATETIME NULL,
+                created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                CONSTRAINT fk_fresh_start_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+                INDEX idx_fresh_start_user_status (user_id,status,created_at)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
+        );
+        $this->conn->exec(
+            "CREATE TABLE IF NOT EXISTS fresh_start_file_cleanup (
+                id BIGINT AUTO_INCREMENT PRIMARY KEY,
+                operation_id CHAR(36) NOT NULL,
+                relative_path VARCHAR(500) NOT NULL,
+                status ENUM('pending','completed','failed') NOT NULL DEFAULT 'pending',
+                attempts INT NOT NULL DEFAULT 0,
+                last_error_code VARCHAR(80) NULL,
+                created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                CONSTRAINT fk_fresh_start_cleanup_operation FOREIGN KEY (operation_id) REFERENCES fresh_start_operations(operation_id) ON DELETE CASCADE,
+                UNIQUE INDEX uq_fresh_start_cleanup_path (operation_id,relative_path),
+                INDEX idx_fresh_start_cleanup_status (status,created_at)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
+        );
+    }
+
     private function createMigrationHistory(): void {
         $this->conn->exec(
             'CREATE TABLE IF NOT EXISTS schema_migrations (
@@ -224,6 +528,7 @@ class SchemaMigrator {
 
         $this->addColumn('accounts', 'opening_balance', 'DECIMAL(15,2) NULL DEFAULT 0.00 AFTER balance');
         $this->addColumn('accounts', 'include_in_savings', 'TINYINT(1) NOT NULL DEFAULT 0 AFTER is_default');
+        $this->addColumn('accounts', 'include_in_net_balance', 'TINYINT(1) NOT NULL DEFAULT 1 AFTER include_in_savings');
 
         $this->addColumn('categories', 'parent_id', 'INT NULL AFTER is_default');
         $this->addColumn('categories', 'status', "ENUM('active','archived','deleted') NULL DEFAULT 'active' AFTER updated_at");
@@ -295,13 +600,17 @@ class SchemaMigrator {
 
     private function assertCurrentApplicationSchema(): void {
         $requiredColumns = [
-            'accounts' => ['opening_balance', 'include_in_savings'],
-            'categories' => ['status', 'sort_order', 'deleted_at'],
+            'accounts' => ['opening_balance', 'include_in_savings', 'include_in_net_balance'],
+            'categories' => ['status', 'is_pinned', 'sort_order', 'deleted_at'],
             'goals' => ['initial_amount', 'current_amount', 'version'],
-            'transactions' => ['from_account_id', 'to_account_id', 'payment_method', 'karobar_transaction_id', 'client_request_id', 'transfer_parent_id', 'goal_id', 'version'],
+            'transactions' => ['from_account_id', 'to_account_id', 'payment_method', 'karobar_transaction_id', 'client_request_id', 'transfer_parent_id', 'goal_id', 'recurring_definition_id', 'recurring_occurrence_date', 'version'],
             'people' => ['type', 'status'],
             'karobar_transactions' => ['expense_transaction_id', 'income_transaction_id', 'payment_method', 'client_request_id', 'version'],
-            'users' => ['settings', 'token_version', 'password_changed_at', 'created_at', 'updated_at'],
+            'users' => ['settings', 'token_version', 'data_generation', 'password_changed_at', 'created_at', 'updated_at'],
+            'tasks' => ['user_id', 'task_type', 'title', 'content', 'due_date', 'display_date_bs', 'subject', 'unit_label', 'status', 'completed_at', 'priority', 'reminder_at', 'summary_url', 'seed_key', 'deleted_at'],
+            'notification_events' => ['user_id','event_key','event_type','source_type','source_id','occurred_at','created_at'],
+            'fresh_start_operations' => ['operation_id','user_id','intent_hash','confirmation_hash','status','summary_json','expires_at','verified_at','completed_at'],
+            'fresh_start_file_cleanup' => ['operation_id','relative_path','status','attempts','last_error_code'],
         ];
         foreach ($requiredColumns as $table => $columns) {
             foreach ($columns as $column) {
@@ -309,6 +618,24 @@ class SchemaMigrator {
                     throw new RuntimeException("Schema reconciliation failed: {$table}.{$column} is missing.");
                 }
             }
+        }
+        if (!$this->indexExists('tasks',['user_id','seed_key'],true)
+            || !$this->indexExists('tasks',['user_id','task_type','status'],false)
+            || !$this->foreignKeyExists('tasks','user_id','users','id')) {
+            throw new RuntimeException('Phase 13 task ownership or idempotency constraints are missing.');
+        }
+        if (!$this->indexExists('notification_events',['user_id','event_key'],true)
+            || !$this->foreignKeyExists('notification_events','user_id','users','id')) {
+            throw new RuntimeException('Durable notification event ownership or uniqueness constraints are missing.');
+        }
+        if (!$this->foreignKeyExists('fresh_start_operations','user_id','users','id')
+            || !$this->foreignKeyExists('fresh_start_file_cleanup','operation_id','fresh_start_operations','operation_id')
+            || !$this->indexExists('fresh_start_file_cleanup',['operation_id','relative_path'],true)) {
+            throw new RuntimeException('Fresh Start operation ownership or cleanup constraints are missing.');
+        }
+        $taskStatus = $this->columnInfo('tasks', 'status');
+        if (!$taskStatus || stripos((string)$taskStatus['COLUMN_TYPE'], "'in_progress'") === false) {
+            throw new RuntimeException('Phase 15 task lifecycle status is missing.');
         }
         if (!$this->indexExists('karobar_transactions', ['user_id', 'client_request_id'], true)) {
             throw new RuntimeException('Phase 1 Karobar idempotency constraint is missing.');
@@ -333,6 +660,10 @@ class SchemaMigrator {
         if (!$this->foreignKeyExists('transactions', 'goal_id', 'goals', 'id')) {
             throw new RuntimeException('Goal contribution foreign key is missing.');
         }
+        if (!$this->indexExists('transactions', ['user_id','recurring_definition_id','recurring_occurrence_date'], true)
+            || !$this->foreignKeyHasDeleteRule('transactions','recurring_definition_id','recurring_transactions','id','RESTRICT')) {
+            throw new RuntimeException('Recurring transaction provenance constraints are missing.');
+        }
         if (!$this->foreignKeyHasDeleteRule('karobar_transactions','person_id','people','id','RESTRICT')) {
             throw new RuntimeException('Karobar person history foreign key must use ON DELETE RESTRICT.');
         }
@@ -343,6 +674,16 @@ class SchemaMigrator {
         if (!$this->indexExists('transactions',['user_id','date','created_at'],false)
             || !$this->indexExists('karobar_transactions',['user_id','transaction_date','created_at'],false)) {
             throw new RuntimeException('Phase 10 report and ledger pagination indexes are missing.');
+        }
+        if (!$this->indexExists('categories',['user_id','type','status','is_pinned','sort_order'],false)
+            || !$this->indexExists('transactions',['user_id','type','category_id'],false)) {
+            throw new RuntimeException('Phase 12 category-priority indexes are missing.');
+        }
+        $pinInfo = $this->columnInfo('categories', 'is_pinned');
+        $orderInfo = $this->columnInfo('categories', 'sort_order');
+        if (!$pinInfo || $pinInfo['IS_NULLABLE'] !== 'NO' || (string)$pinInfo['COLUMN_DEFAULT'] !== '0'
+            || !$orderInfo || $orderInfo['IS_NULLABLE'] !== 'NO' || (string)$orderInfo['COLUMN_DEFAULT'] !== '999') {
+            throw new RuntimeException('Phase 12 category-priority defaults are invalid.');
         }
     }
 

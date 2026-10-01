@@ -28,6 +28,24 @@
      runner.
   9. `SchemaMigrator::PHASE11_MIGRATION_ID` through the same state-aware
      runner.
+  10. `SchemaMigrator::PHASE12_MIGRATION_ID` through the same state-aware
+      runner.
+  11. `SchemaMigrator::PHASE13_MIGRATION_ID` creates the user-owned Tasks
+      foundation and its idempotent Board Study import key.
+  12. `SchemaMigrator::PHASE14_MIGRATION_ID` adds the task deletion tombstone
+      used to preserve deliberate deletions across later import attempts.
+  13. `SchemaMigrator::PHASE15_MIGRATION_ID` adds the in-progress task state.
+  14. `SchemaMigrator::PHASE16_MIGRATION_ID` adds recurring execution identity.
+  15. `SchemaMigrator::PHASE17_MIGRATION_ID` adds durable notification event deduplication.
+  16. `SchemaMigrator::PHASE18_MIGRATION_ID` adds nullable `tasks.summary_url`
+      for HTTPS study-summary document links.
+  17. `SchemaMigrator::PHASE19_MIGRATION_ID` adds explicit account Net Balance inclusion.
+  18. `SchemaMigrator::PHASE20_MIGRATION_ID` adds the general-task category field.
+  19. `SchemaMigrator::PHASE21_MIGRATION_ID` adds Fresh Start reset intents,
+      recoverable attachment cleanup jobs, and the user data-generation boundary.
+  20. `SchemaMigrator::PHASE22_MIGRATION_ID` adds a non-unique budget scope/date
+      lookup index. Overlapping ranges remain enforced by backend validation,
+      because a unique index cannot represent range overlap safely.
 
 The runner adds missing application-required columns and relationships,
 checks for orphaned foreign-key values and duplicate idempotency keys before
@@ -59,6 +77,12 @@ blindly replayed on a current database.
 ## Data changes made by the supported runner
 
 - Existing rows are never deleted.
+- Phase 22 does not add a unique constraint or alter budget records. Existing
+  overlapping budgets are preserved for explicit user review.
+- Phase 13 creates `tasks` only when absent. If an undocumented incompatible
+  table already uses that name, migration stops instead of altering or deleting it.
+  Seeded task deletion keeps an internal tombstone so a later explicit import
+  cannot recreate a target the user intentionally removed.
 - New columns receive non-destructive defaults.
 - `include_in_savings` is set to `1` for existing accounts whose type is
   `savings`.
@@ -129,3 +153,24 @@ blindly replayed on a current database.
   without storing password material.
 - Existing JWTs without a version are intentionally invalid after deployment;
   no user password hash or financial row is rewritten.
+
+## Phase 21 Fresh Start safety
+
+- Adds `users.data_generation` with a non-null default of `1`; no existing
+  financial row or credential is changed.
+- Adds `fresh_start_operations` for expiring, single-user reset intents and
+  duplicate-request protection.
+- Adds `fresh_start_file_cleanup` so attachment cleanup failures remain
+  visible and retryable after the relational transaction commits.
+- Resets never disable foreign-key checks and never delete another user's rows.
+
+## Phase 12 category priority and usage sorting
+
+- Adds `categories.is_pinned` with a non-null default of `0` and normalizes the
+  existing `sort_order` column to a non-null default of `999` without changing
+  category IDs or transaction relationships.
+- Adds `(user_id, type, status, is_pinned, sort_order)` for user-scoped pinned
+  reads and `(user_id, type, category_id)` for one-pass transaction usage
+  aggregation.
+- Existing categories become unpinned with order `999`. Unpinned categories
+  are ranked by matching transaction usage and then name.

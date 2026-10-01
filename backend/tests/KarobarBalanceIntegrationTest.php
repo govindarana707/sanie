@@ -33,16 +33,16 @@ try {
     $service = new KarobarService();
     $base = ['person_id' => $personId, 'account_id' => $accountId, 'transaction_date' => date('Y-m-d')];
 
-    $borrowedId = $service->createTransaction($base + ['type' => 'borrowed', 'amount' => 500], $userId);
+    $borrowedId = $service->createTransaction($base + ['type' => 'borrowed', 'amount' => 500, 'client_request_id' => 'balance-borrowed'], $userId);
     assertBalance($db, $accountId, 1500, 'borrowed');
 
-    $lentId = $service->createTransaction($base + ['type' => 'lent', 'amount' => 200], $userId);
+    $lentId = $service->createTransaction($base + ['type' => 'lent', 'amount' => 200, 'client_request_id' => 'balance-lent'], $userId);
     assertBalance($db, $accountId, 1300, 'lent');
 
-    $service->createTransaction($base + ['type' => 'returned', 'amount' => 50], $userId);
+    $service->createTransaction($base + ['type' => 'returned', 'amount' => 50, 'client_request_id' => 'balance-returned'], $userId);
     assertBalance($db, $accountId, 1350, 'returned');
 
-    $service->createTransaction($base + ['type' => 'repaid', 'amount' => 100], $userId);
+    $service->createTransaction($base + ['type' => 'repaid', 'amount' => 100, 'client_request_id' => 'balance-repaid'], $userId);
     assertBalance($db, $accountId, 1250, 'repaid');
 
     $service->updateTransaction($borrowedId, $base + ['type' => 'borrowed', 'amount' => 300], $userId);

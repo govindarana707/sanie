@@ -1,6 +1,7 @@
 <?php
 
 require_once __DIR__ . '/../config/database.php';
+require_once __DIR__ . '/../services/MoneyValidator.php';
 
 class Account {
     private $conn;
@@ -12,9 +13,11 @@ class Account {
     }
 
     public function create($data) {
+        $openingBalance = MoneyValidator::parseSigned($data['opening_balance'] ?? $data['balance'] ?? 0, 'Opening balance');
+        $currentBalance = MoneyValidator::parseSigned($data['balance'] ?? $openingBalance, 'Account balance');
         $query = "INSERT INTO " . $this->table . "
-                  (user_id, name, type, account_number, balance, opening_balance, currency, color, icon, is_active, is_default, include_in_savings)
-                  VALUES (:user_id, :name, :type, :account_number, :balance, :opening_balance, :currency, :color, :icon, :is_active, :is_default, :include_in_savings)";
+                  (user_id, name, type, account_number, balance, opening_balance, currency, color, icon, is_active, is_default, include_in_savings, include_in_net_balance)
+                  VALUES (:user_id, :name, :type, :account_number, :balance, :opening_balance, :currency, :color, :icon, :is_active, :is_default, :include_in_savings, :include_in_net_balance)";
         
         $stmt = $this->conn->prepare($query);
         
@@ -22,14 +25,15 @@ class Account {
         $stmt->bindValue(':name', $data['name']);
         $stmt->bindValue(':type', $data['type']);
         $stmt->bindValue(':account_number', $data['account_number'] ?? null);
-        $stmt->bindValue(':balance', $data['balance'] ?? 0);
-        $stmt->bindValue(':opening_balance', $data['opening_balance'] ?? 0);
+        $stmt->bindValue(':balance', $currentBalance);
+        $stmt->bindValue(':opening_balance', $openingBalance);
         $stmt->bindValue(':currency', $data['currency'] ?? 'NPR');
         $stmt->bindValue(':color', $data['color'] ?? '#6B7280');
         $stmt->bindValue(':icon', $data['icon'] ?? null);
         $stmt->bindValue(':is_active', !empty($data['is_active']) ? 1 : 0, PDO::PARAM_INT);
         $stmt->bindValue(':is_default', !empty($data['is_default']) ? 1 : 0, PDO::PARAM_INT);
         $stmt->bindValue(':include_in_savings', !empty($data['include_in_savings']) ? 1 : 0, PDO::PARAM_INT);
+        $stmt->bindValue(':include_in_net_balance', array_key_exists('include_in_net_balance', $data) && empty($data['include_in_net_balance']) ? 0 : 1, PDO::PARAM_INT);
         
         if ($stmt->execute()) {
             return $this->conn->lastInsertId();
@@ -60,6 +64,7 @@ class Account {
     }
 
     public function update($id, $userId, $data) {
+        $openingBalance = MoneyValidator::parseSigned($data['opening_balance'] ?? 0, 'Opening balance');
         $query = "UPDATE " . $this->table . " SET
                   name = :name,
                   type = :type,
@@ -71,6 +76,7 @@ class Account {
                   is_active = :is_active,
                   is_default = :is_default,
                   include_in_savings = :include_in_savings,
+                  include_in_net_balance = :include_in_net_balance,
                   updated_at = CURRENT_TIMESTAMP
                   WHERE id = :id AND user_id = :user_id";
 
@@ -84,10 +90,11 @@ class Account {
         $stmt->bindValue(':currency', $data['currency'] ?? 'NPR');
         $stmt->bindValue(':color', $data['color'] ?? '#6B7280');
         $stmt->bindValue(':icon', $data['icon'] ?? null);
-        $stmt->bindValue(':opening_balance', $data['opening_balance'] ?? 0);
+        $stmt->bindValue(':opening_balance', $openingBalance);
         $stmt->bindValue(':is_active', !empty($data['is_active']) ? 1 : 0, PDO::PARAM_INT);
         $stmt->bindValue(':is_default', !empty($data['is_default']) ? 1 : 0, PDO::PARAM_INT);
         $stmt->bindValue(':include_in_savings', !empty($data['include_in_savings']) ? 1 : 0, PDO::PARAM_INT);
+        $stmt->bindValue(':include_in_net_balance', array_key_exists('include_in_net_balance', $data) && empty($data['include_in_net_balance']) ? 0 : 1, PDO::PARAM_INT);
 
         return $stmt->execute();
     }
@@ -124,8 +131,28 @@ class Account {
         return (int) ($stmt->fetch(PDO::FETCH_ASSOC)['cnt'] ?? 0);
     }
 
+    public function getRecurringTransactionCount($id, $userId) {
+        $query = "SELECT COUNT(*) as cnt FROM recurring_transactions
+                  WHERE user_id = :uid AND account_id = :aid";
+        $stmt = $this->conn->prepare($query);
+        $stmt->bindValue(':uid', $userId);
+        $stmt->bindValue(':aid', $id);
+        $stmt->execute();
+        return (int) ($stmt->fetch(PDO::FETCH_ASSOC)['cnt'] ?? 0);
+    }
+
+    public function getKarobarTransactionCount($id, $userId) {
+        $query = "SELECT COUNT(*) as cnt FROM karobar_transactions
+                  WHERE user_id = :uid AND account_id = :aid";
+        $stmt = $this->conn->prepare($query);
+        $stmt->bindValue(':uid', $userId);
+        $stmt->bindValue(':aid', $id);
+        $stmt->execute();
+        return (int) ($stmt->fetch(PDO::FETCH_ASSOC)['cnt'] ?? 0);
+    }
+
     public function getTotalBalance($userId) {
-        $query = "SELECT SUM(balance) as total_balance FROM " . $this->table . " WHERE user_id = :user_id AND is_active = TRUE";
+        $query = "SELECT SUM(balance) as total_balance FROM " . $this->table . " WHERE user_id = :user_id AND is_active = TRUE AND include_in_net_balance = TRUE";
         
         $stmt = $this->conn->prepare($query);
         $stmt->bindParam(':user_id', $userId);
@@ -147,7 +174,7 @@ class Account {
     }
 
     public function getOverviewData($userId) {
-        $query = "SELECT a.id, a.name, a.type, a.balance, a.opening_balance, a.color, a.icon, a.is_active, a.is_default, a.account_number, a.created_at,
+        $query = "SELECT a.id, a.name, a.type, a.balance, a.opening_balance, a.color, a.icon, a.is_active, a.is_default, a.include_in_savings, a.include_in_net_balance, a.account_number, a.created_at,
                   (SELECT MAX(t.date) FROM transactions t
                     WHERE (t.account_id = a.id OR t.from_account_id = a.id OR t.to_account_id = a.id)
                       AND t.user_id = a.user_id

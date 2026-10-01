@@ -6,9 +6,16 @@ class TransactionsManager {
         this._mounted = false;
         this._editingTransactionId = null;
         this._editingTransactionData = null;
+        this._ordinaryRequestId = null;
         this._transferRequestId = null;
         this.dataTable = null;
         this.selectedIds = new Set();
+        this.currentPage = 1;
+        this.pageSize = 50;
+        this.pagination = null;
+        this.authoritativeSummary = null;
+        this._formEpoch = 0;
+        this._creditorsLoad = null;
     }
 
     onMount() {
@@ -18,6 +25,7 @@ class TransactionsManager {
         this._bindDocumentEvents();
         this._bindBulkActions();
         this._bindAccountFilter();
+        this._bindScopeFilter();
         this._bindImportExport();
         this._listeners._pendingChanged = event => {
             const userId = window.authManager?.getCurrentUser()?.id;
@@ -38,6 +46,7 @@ class TransactionsManager {
         this._unbindDocumentEvents();
         this._unbindBulkActions();
         document.getElementById('tx-clear-account-filter')?.removeEventListener('click', this._listeners._clearAccountFilter);
+        document.getElementById('tx-scope-filter')?.removeEventListener('change', this._listeners._scopeChange);
         document.getElementById('export-btn')?.removeEventListener('click', this._listeners._exportClick);
         document.getElementById('import-btn')?.removeEventListener('click', this._listeners._importClick);
         this._unbindMobilePagination();
@@ -77,7 +86,7 @@ class TransactionsManager {
     /* ==================== TRANSACTION REPORT ==================== */
 
     showReportModal() {
-        const today = new Date().toISOString().slice(0, 10);
+        const today = DateUtils.getKathmanduDateString();
         const bodyHTML = `
             <div class="mb-3">
                 <label class="form-label fw-semibold" for="tx-report-period">Report Period</label>
@@ -109,23 +118,10 @@ class TransactionsManager {
     }
 
     _reportRange(period) {
-        const now = new Date();
-        const iso = d => {
-            const local = new Date(d.getTime() - d.getTimezoneOffset() * 60000);
-            return local.toISOString().slice(0, 10);
-        };
-        if (period === 'week') {
-            const start = new Date(now);
-            const day = start.getDay();
-            start.setDate(start.getDate() - (day === 0 ? 6 : day - 1));
-            const end = new Date(start); end.setDate(start.getDate() + 6);
-            return { start: iso(start), end: iso(end), label: 'Weekly' };
-        }
-        if (period === 'month') {
-            return { start: iso(new Date(now.getFullYear(), now.getMonth(), 1)), end: iso(new Date(now.getFullYear(), now.getMonth() + 1, 0)), label: 'Monthly' };
-        }
-        if (period === 'year') {
-            return { start: `${now.getFullYear()}-01-01`, end: `${now.getFullYear()}-12-31`, label: 'Yearly' };
+        if (['week', 'month', 'year'].includes(period)) {
+            const range = DateUtils.getKathmanduRange(period);
+            const labels = { week: 'Weekly', month: 'Monthly', year: 'Yearly' };
+            return { ...range, label: labels[period] };
         }
         if (period === 'custom') {
             return { start: document.getElementById('tx-report-start')?.value, end: document.getElementById('tx-report-end')?.value, label: 'Custom' };
@@ -153,27 +149,23 @@ class TransactionsManager {
             const params = new URLSearchParams();
             if (range.start) params.set('start_date', range.start);
             if (range.end) params.set('end_date', range.end);
+            params.set('scope', this.filters.scope || 'all');
             let previousEnd = '';
             if (range.start) {
-                const previous = new Date(range.start + 'T00:00:00');
-                previous.setDate(previous.getDate() - 1);
-                previousEnd = previous.toISOString().slice(0, 10);
+                previousEnd = DateUtils.addCalendarDays(range.start, -1);
             }
-            const [res, accountsRes, previousRes] = await Promise.all([
-                window.Api.get('/transactions' + (params.toString() ? '?' + params : '')),
+            const [reportData, accountsRes, previousData] = await Promise.all([
+                this._allAuthoritativeTransactions(Object.fromEntries(params)),
                 window.Api.get('/accounts'),
-                previousEnd ? window.Api.get('/transactions?end_date=' + previousEnd) : Promise.resolve({ success: true, data: [] })
+                previousEnd ? this._transactionPage({ end_date: previousEnd, scope: this.filters.scope || 'all' }, 1, 1) : Promise.resolve({ transactions: [], summary: { total_income: 0, total_expense: 0 } })
             ]);
-            if (!res?.success || !accountsRes?.success || !previousRes?.success) throw new Error(res?.message || 'Could not load report data');
+            if (!accountsRes?.success) throw new Error(accountsRes?.message || 'Could not load report data');
 
             const baseOpening = (accountsRes.data || [])
                 .filter(a => String(a.is_active) !== '0')
                 .reduce((sum, a) => sum + (parseFloat(a.opening_balance) || 0), 0);
-            const activityBeforePeriod = (previousRes.data || []).reduce((sum, t) => {
-                const amount = parseFloat(t.amount) || 0;
-                return t.type === 'income' ? sum + amount : (t.type === 'expense' ? sum - amount : sum);
-            }, 0);
-            this._renderReportPreview(preview, res.data || [], range, baseOpening + activityBeforePeriod);
+            const activityBeforePeriod = (parseFloat(previousData.summary?.total_income) || 0) - (parseFloat(previousData.summary?.total_expense) || 0);
+            this._renderReportPreview(preview, reportData.transactions, range, baseOpening + activityBeforePeriod, reportData.summary);
             window.modalService?.close();
         } catch (error) {
             preview.document.open();
@@ -183,23 +175,19 @@ class TransactionsManager {
         }
     }
 
-    _renderReportPreview(preview, transactions, range, openingBalance = 0) {
-        let income = 0, expense = 0;
-        transactions.forEach(t => {
-            const amount = parseFloat(t.amount) || 0;
-            if (t.type === 'income') income += amount;
-            if (t.type === 'expense') expense += amount;
-        });
+    _renderReportPreview(preview, transactions, range, openingBalance = 0, summary = {}) {
+        const income = parseFloat(summary.total_income) || 0;
+        const expense = parseFloat(summary.total_expense) || 0;
         const netFlow = income - expense;
         const closingBalance = openingBalance + netFlow;
         const money = n => 'Rs ' + Number(n || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
         const periodText = range.start ? `${range.start} to ${range.end}` : 'All transactions';
-        const rows = transactions.map(t => `<tr><td class="date">${this._h(t.date || '')}</td><td><span class="type ${this._h(t.type)}">${this._h((t.type || '').toUpperCase())}</span></td><td>${this._h(t.category_name || (t.type === 'transfer' ? 'Transfer' : 'Uncategorized'))}</td><td>${this._h(t.account_name || t.from_account_name || '--')}</td><td class="description">${this._h(t.description || '--')}</td><td class="amount ${this._h(t.type)}">${t.type === 'expense' ? '-' : (t.type === 'income' ? '+' : '')}${money(t.amount)}</td></tr>`).join('');
+        const rows = transactions.map(t => `<tr><td class="date">${this._h(t.date || '')}</td><td>${this._h(t.scope === 'karobar' ? 'Karobar' : 'Personal')}</td><td><span class="type ${this._h(t.type)}">${this._h((t.type || '').toUpperCase())}</span></td><td>${this._h(t.person_name || t.category_name || (t.type === 'transfer' ? 'Transfer' : 'Uncategorized'))}</td><td>${this._h(t.account_name || t.from_account_name || '--')}</td><td class="description">${this._h(t.description || '--')}</td><td class="amount ${this._h(t.type)}">${t.type === 'expense' ? '-' : (t.type === 'income' ? '+' : '')}${money(t.amount)}</td></tr>`).join('');
 
         preview.document.open();
         preview.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>SanIE ${range.label} Transaction Report</title><style>
             *{box-sizing:border-box}body{font-family:Inter,Arial,sans-serif;color:#172033;margin:0;background:linear-gradient(135deg,#e8f8f1,#eef2f7)}.sheet{max-width:1080px;margin:24px auto;background:#fff;border-radius:18px;overflow:hidden;box-shadow:0 18px 55px #0f172a24}.content{padding:30px 34px}.toolbar{display:flex;justify-content:flex-end;margin-bottom:18px}.print-btn{border:0;border-radius:10px;background:linear-gradient(135deg,#10b981,#059669);color:#fff;padding:12px 20px;font-weight:700;cursor:pointer;box-shadow:0 6px 18px #10b98140}.hero{display:flex;justify-content:space-between;align-items:center;padding:28px 34px;color:#fff;background:linear-gradient(125deg,#052e2b,#047857 60%,#10b981)}.brand{font-size:30px;font-weight:900;letter-spacing:-1px}.brand-sub{opacity:.8;font-size:12px;letter-spacing:1.5px;text-transform:uppercase}.report-meta{text-align:right}.report-meta strong{font-size:20px}.report-meta div{margin-top:5px;opacity:.82}.summary{display:grid;grid-template-columns:repeat(3,1fr);gap:13px;margin:0 0 26px}.box{position:relative;padding:16px;border:1px solid #e2e8f0;border-radius:13px;background:#f8fafc;overflow:hidden}.box:before{content:'';position:absolute;inset:0 auto 0 0;width:4px;background:#94a3b8}.box.green:before{background:#10b981}.box.red:before{background:#ef4444}.box.blue:before{background:#3b82f6}.box.purple:before{background:#8b5cf6}.box.orange:before{background:#f59e0b}.box span{display:block;color:#64748b;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;margin-bottom:7px}.box strong{font-size:18px}.income{color:#059669}.expense{color:#dc2626}.section-title{font-size:15px;margin:0 0 10px;color:#334155}table{width:100%;border-collapse:separate;border-spacing:0;font-size:12px;border:1px solid #e2e8f0;border-radius:12px;overflow:hidden}th,td{padding:11px 10px;border-bottom:1px solid #e2e8f0;text-align:left}th{background:#ecfdf5;color:#065f46;font-size:10px;text-transform:uppercase;letter-spacing:.45px}tbody tr:nth-child(even){background:#f8fafc}tbody tr:last-child td{border-bottom:0}.date{white-space:nowrap}.description{color:#64748b}.type{display:inline-block;padding:4px 7px;border-radius:999px;font-size:9px;font-weight:800;background:#e2e8f0}.type.income{background:#d1fae5;color:#047857}.type.expense{background:#fee2e2;color:#b91c1c}.type.transfer{background:#dbeafe;color:#1d4ed8}.amount{text-align:right;font-weight:800;white-space:nowrap}.amount.transfer{color:#2563eb}.empty{text-align:center;color:#64748b;padding:36px}.footer{padding:16px 34px;background:#f8fafc;border-top:1px solid #e2e8f0;font-size:10px;color:#94a3b8;display:flex;justify-content:space-between}@media(max-width:700px){.sheet{margin:0;border-radius:0}.hero,.content{padding:20px}.hero{display:block}.report-meta{text-align:left;margin-top:15px}.summary{grid-template-columns:1fr 1fr}table{font-size:10px}}@media print{body{background:#fff}.sheet{box-shadow:none;margin:0;max-width:none;border-radius:0}.toolbar{display:none}.hero{-webkit-print-color-adjust:exact;print-color-adjust:exact}.box,th,.type{print-color-adjust:exact;-webkit-print-color-adjust:exact}@page{size:A4 landscape;margin:10mm}}
-        </style></head><body><main class="sheet"><header class="hero"><div><div class="brand">SanIE</div><div class="brand-sub">Personal Finance Intelligence</div></div><div class="report-meta"><strong>${this._h(range.label)} Transaction Report</strong><div>${this._h(periodText)}</div></div></header><div class="content"><div class="toolbar"><button class="print-btn" id="print-report">Print / Save PDF</button></div><section class="summary"><div class="box purple"><span>Opening Balance</span><strong>${money(openingBalance)}</strong></div><div class="box green"><span>Total Income</span><strong class="income">${money(income)}</strong></div><div class="box red"><span>Total Expense</span><strong class="expense">${money(expense)}</strong></div><div class="box blue"><span>Net Cash Flow</span><strong>${money(netFlow)}</strong></div><div class="box orange"><span>Closing Balance</span><strong>${money(closingBalance)}</strong></div><div class="box"><span>Transactions</span><strong>${transactions.length}</strong></div></section><h2 class="section-title">Transaction Details</h2><table><thead><tr><th>Date</th><th>Type</th><th>Category</th><th>Account</th><th>Description</th><th style="text-align:right">Amount</th></tr></thead><tbody>${rows || '<tr><td colspan="6" class="empty">No transactions found for this period.</td></tr>'}</tbody></table></div><footer class="footer"><span>Generated by SanIE</span><span>${new Date().toLocaleString()}</span></footer></main></body></html>`);
+        </style></head><body><main class="sheet"><header class="hero"><div><div class="brand">SanIE</div><div class="brand-sub">Personal Finance Intelligence</div></div><div class="report-meta"><strong>${this._h(range.label)} Transaction Report</strong><div>${this._h(periodText)}</div></div></header><div class="content"><div class="toolbar"><button class="print-btn" id="print-report">Print / Save PDF</button></div><section class="summary"><div class="box purple"><span>Opening Balance</span><strong>${money(openingBalance)}</strong></div><div class="box green"><span>Total Income</span><strong class="income">${money(income)}</strong></div><div class="box red"><span>Total Expense</span><strong class="expense">${money(expense)}</strong></div><div class="box blue"><span>Net Cash Flow</span><strong>${money(netFlow)}</strong></div><div class="box orange"><span>Closing Balance</span><strong>${money(closingBalance)}</strong></div><div class="box"><span>Transactions</span><strong>${Number(summary.transaction_count || transactions.length)}</strong></div></section><h2 class="section-title">Transaction Details</h2><table><thead><tr><th>Date</th><th>Scope</th><th>Type</th><th>Category / Person</th><th>Account</th><th>Description</th><th style="text-align:right">Amount</th></tr></thead><tbody>${rows || '<tr><td colspan="7" class="empty">No transactions found for this period.</td></tr>'}</tbody></table></div><footer class="footer"><span>Generated by SanIE</span><span>${new Date().toLocaleString()}</span></footer></main></body></html>`);
         preview.document.close();
         preview.document.getElementById('print-report')?.addEventListener('click', () => preview.print());
     }
@@ -211,21 +199,12 @@ class TransactionsManager {
                 this._togglePaymentSection(e.target.value);
             }
         };
-        this._listeners._pmChange = (e) => {
-            if (e.target.id === 'transaction-payment-method') {
-                this._toggleCreditorSection(e.target.value);
-            }
-        };
         document.addEventListener('change', this._listeners._typeChange);
-        document.addEventListener('change', this._listeners._pmChange);
     }
 
     _unbindDocumentEvents() {
         if (this._listeners._typeChange) {
             document.removeEventListener('change', this._listeners._typeChange);
-        }
-        if (this._listeners._pmChange) {
-            document.removeEventListener('change', this._listeners._pmChange);
         }
     }
 
@@ -261,11 +240,27 @@ class TransactionsManager {
         const button = document.getElementById('tx-clear-account-filter');
         this._listeners._clearAccountFilter = () => {
             delete this.filters.account_id;
+            this.currentPage = 1;
             this._renderAccountFilter();
             this.loadTransactions();
         };
         button?.addEventListener('click', this._listeners._clearAccountFilter);
         this._renderAccountFilter();
+    }
+
+    _bindScopeFilter() {
+        const select = document.getElementById('tx-scope-filter');
+        if (!select) return;
+        select.value = this.filters.scope || 'all';
+        this._listeners._scopeChange = () => {
+            const scope = select.value;
+            this.filters = { ...this.filters };
+            if (scope === 'all') delete this.filters.scope;
+            else this.filters.scope = scope;
+            this.currentPage = 1;
+            this.loadTransactions(1);
+        };
+        select.addEventListener('change', this._listeners._scopeChange);
     }
 
     _renderAccountFilter() {
@@ -283,37 +278,73 @@ class TransactionsManager {
         document.getElementById('import-btn')?.addEventListener('click', this._listeners._importClick);
     }
 
-    exportCSV() {
-        if (!this.transactions.length) {
-            this._notify('error', 'No transactions available to export');
-            return;
+    async exportCSV() {
+        try {
+            const result = await this._allAuthoritativeTransactions(this.filters);
+            const headers = ['Date', 'Scope', 'Type', 'Karobar Person', 'Karobar Type', 'Amount', 'Account', 'From Account', 'To Account', 'Category', 'Subcategory', 'Payment Method', 'Description', 'Recurring Origin', 'Scheduled Occurrence Date'];
+            const rows = result.transactions.map(t => [
+                t.date, t.scope === 'karobar' ? 'Karobar' : 'Personal', t.type, t.person_name, t.karobar_type,
+                t.amount, t.account_name, t.from_account_name, t.to_account_name,
+                t.category_name, t.subcategory_name, t.payment_method, t.description,
+                t.recurring_definition_id ? 'Yes' : 'No', t.recurring_occurrence_date
+            ]);
+            const csv = '\uFEFF' + [headers, ...rows].map(row => row.map(value => this._csvCell(value)).join(',')).join('\r\n');
+            const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = `SanIE_Transactions_${DateUtils.getKathmanduDateString()}.csv`;
+            link.click();
+            URL.revokeObjectURL(url);
+            window.NotificationService?.success(`${result.summary.transaction_count || 0} matching transactions exported`);
+        } catch (error) {
+            this._notify('error', error.message || 'Transaction export failed');
         }
-        const csvCell = value => `"${String(value ?? '').replace(/"/g, '""')}"`;
-        const headers = ['Date', 'Type', 'Amount', 'Account', 'From Account', 'To Account', 'Category', 'Subcategory', 'Payment Method', 'Description'];
-        const rows = this.transactions.map(t => [
-            t.date, t.type, t.amount, t.account_name, t.from_account_name, t.to_account_name,
-            t.category_name, t.subcategory_name, t.payment_method, t.description
-        ]);
-        const csv = '\uFEFF' + [headers, ...rows].map(row => row.map(csvCell).join(',')).join('\r\n');
-        const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
-        const link = document.createElement('a');
-        link.href = url;
-        link.download = `SanIE_Transactions_${new Date().toISOString().slice(0, 10)}.csv`;
-        link.click();
-        URL.revokeObjectURL(url);
-        window.NotificationService?.success('Transactions exported successfully');
+    }
+
+    _csvCell(value) {
+        return CSVUtils.cell(value);
+    }
+
+    async _transactionPage(filters = {}, page = 1, limit = 200) {
+        const params = new URLSearchParams();
+        Object.entries(filters || {}).forEach(([key, value]) => {
+            if (value !== '' && value !== null && value !== undefined) params.set(key, String(value));
+        });
+        params.set('page', String(page));
+        params.set('limit', String(limit));
+        const response = await window.Api.get('/transactions/query?' + params.toString());
+        if (!response?.success) throw new Error(response?.message || 'Could not load authoritative transaction data');
+        return response.data;
+    }
+
+    async _allAuthoritativeTransactions(filters = {}) {
+        const first = await this._transactionPage(filters, 1, 200);
+        const transactions = [...(first.transactions || [])];
+        const totalPages = Number(first.pagination?.total_pages || 0);
+        for (let page = 2; page <= totalPages; page++) {
+            const next = await this._transactionPage(filters, page, 200);
+            transactions.push(...(next.transactions || []));
+        }
+        return { transactions, summary: first.summary || {}, pagination: first.pagination || {} };
     }
 
     showImportModal() {
         this._importRows = [];
+        this._importText = '';
+        this._importBatchIdentity = '';
+        this._importLastResult = null;
         const bodyHTML = `
             <div class="alert alert-info small"><strong>CSV columns:</strong> Date, Type, Amount, Account, From Account, To Account, Category, Subcategory, Payment Method, Description</div>
             <input type="file" class="form-control" id="tx-import-file" accept=".csv,text/csv">
             <div class="d-flex justify-content-between align-items-center mt-3">
                 <small class="text-muted" id="tx-import-status">Choose a CSV file to preview.</small>
-                <button type="button" class="btn btn-sm btn-outline-secondary" id="tx-import-template"><i class="bi bi-download me-1"></i>Template</button>
+                <div class="d-flex gap-2">
+                    <button type="button" class="btn btn-sm btn-outline-danger d-none" id="tx-import-failures"><i class="bi bi-file-earmark-arrow-down me-1"></i>Failed rows</button>
+                    <button type="button" class="btn btn-sm btn-outline-secondary" id="tx-import-template"><i class="bi bi-download me-1"></i>Template</button>
+                </div>
             </div>
-            <div class="table-responsive mt-3 d-none" id="tx-import-preview"><table class="table table-sm"><thead><tr><th>Date</th><th>Type</th><th>Amount</th><th>Account</th></tr></thead><tbody></tbody></table></div>`;
+            <div class="mt-3 d-none" id="tx-import-summary"></div>
+            <div class="table-responsive mt-3 d-none" id="tx-import-preview" style="max-height:380px"><table class="table table-sm align-middle"><thead class="sticky-top bg-white"><tr><th>Row</th><th>Status</th><th>Type</th><th>Date</th><th>Amount</th><th>Mapping</th><th>Reason</th></tr></thead><tbody></tbody></table></div>`;
         window.modalService?.open({
             title: 'Import Transactions',
             subtitle: 'Review your CSV before importing.',
@@ -324,89 +355,127 @@ class TransactionsManager {
         });
         document.getElementById('tx-import-file')?.addEventListener('change', e => this._readImportFile(e.target.files?.[0]));
         document.getElementById('tx-import-template')?.addEventListener('click', () => this.downloadImportTemplate());
+        document.getElementById('tx-import-failures')?.addEventListener('click', () => this.downloadImportFailures());
     }
 
-    _parseCSV(text) {
-        const rows = [];
-        let row = [], cell = '', quoted = false;
-        for (let i = 0; i < text.length; i++) {
-            const char = text[i];
-            if (char === '"' && quoted && text[i + 1] === '"') { cell += '"'; i++; }
-            else if (char === '"') quoted = !quoted;
-            else if (char === ',' && !quoted) { row.push(cell.trim()); cell = ''; }
-            else if ((char === '\n' || char === '\r') && !quoted) {
-                if (char === '\r' && text[i + 1] === '\n') i++;
-                row.push(cell.trim()); cell = '';
-                if (row.some(v => v !== '')) rows.push(row);
-                row = [];
-            } else cell += char;
+    async _csvFingerprint(text) {
+        if (!window.crypto?.subtle || typeof TextEncoder === 'undefined') {
+            throw new Error('Secure file fingerprinting is unavailable in this browser. Use HTTPS or localhost to import safely.');
         }
-        if (cell || row.length) { row.push(cell.trim()); if (row.some(v => v !== '')) rows.push(row); }
-        return rows;
+        const digest = await window.crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
+        return [...new Uint8Array(digest)].map(byte => byte.toString(16).padStart(2, '0')).join('');
     }
 
     async _readImportFile(file) {
         if (!file) return;
         const status = document.getElementById('tx-import-status');
+        const saveButton = document.getElementById('modal-save-btn');
+        if (saveButton) saveButton.disabled = true;
         try {
-            const parsed = this._parseCSV(await file.text());
-            if (parsed.length < 2) throw new Error('CSV has no data rows');
-            const headers = parsed[0].map(h => h.replace(/^\uFEFF/, '').trim().toLowerCase());
-            const required = ['date', 'type', 'amount'];
-            if (required.some(h => !headers.includes(h))) throw new Error('CSV must contain Date, Type and Amount columns');
-            this._importRows = parsed.slice(1).map(values => Object.fromEntries(headers.map((h, i) => [h, values[i] || ''])));
-            if (status) status.textContent = `${this._importRows.length} row(s) ready to import.`;
-            const preview = document.getElementById('tx-import-preview');
-            preview?.classList.remove('d-none');
-            const tbody = preview?.querySelector('tbody');
-            if (tbody) tbody.innerHTML = this._importRows.slice(0, 5).map(r => `<tr><td>${this._h(r.date)}</td><td>${this._h(r.type)}</td><td>${this._h(r.amount)}</td><td>${this._h(r.account || r['from account'])}</td></tr>`).join('');
+            if (file.size > 2097152) throw new Error('CSV file exceeds the 2 MB import limit');
+            if (status) status.textContent = 'Fingerprinting and validating CSV…';
+            const text = await file.text();
+            const batchIdentity = await this._csvFingerprint(text);
+            const response = await window.Api.request('/transactions/import/preview', {
+                method: 'POST', body: JSON.stringify({ csv_content: text, batch_identity: batchIdentity }), timeoutMs: 30000
+            });
+            if (!response?.success) throw new Error(response?.message || 'CSV preview failed');
+            this._importText = text;
+            this._importBatchIdentity = batchIdentity;
+            this._importRows = response.data.rows || [];
+            this._importLastResult = null;
+            this._renderImportRows(this._importRows);
+            this._renderImportSummary(response.data.counts, true);
+            const ready = Number(response.data.counts?.ready || 0);
+            if (status) status.textContent = `${response.data.counts?.total_rows || 0} row(s) validated · batch ${batchIdentity.slice(0, 12)}…`;
+            if (saveButton) saveButton.disabled = ready === 0;
         } catch (error) {
             this._importRows = [];
+            this._importText = '';
+            this._importBatchIdentity = '';
             if (status) status.textContent = error.message;
             this._notify('error', error.message);
+            document.getElementById('tx-import-preview')?.classList.add('d-none');
+            document.getElementById('tx-import-summary')?.classList.add('d-none');
+        } finally {
+            if (saveButton && this._importRows.some(row => row.status === 'ready')) saveButton.disabled = false;
         }
     }
 
     async importCSV() {
-        if (!this._importRows?.length) { this._notify('error', 'Please choose a valid CSV file'); return; }
-        const [accountsRes, categoriesRes, subcategoriesRes] = await Promise.all([
-            window.Api.get('/accounts'), window.Api.get('/categories?status=active'), window.Api.get('/subcategories?status=active')
-        ]);
-        if (!accountsRes?.success || !categoriesRes?.success || !subcategoriesRes?.success) {
-            this._notify('error', 'Could not load account or category mappings'); return;
-        }
-        const key = value => String(value || '').trim().toLowerCase();
-        const accounts = new Map((accountsRes.data || []).map(a => [key(a.name), a]));
-        const categories = new Map((categoriesRes.data || []).map(c => [key(c.name), c]));
-        const subcategories = new Map((subcategoriesRes.data || []).map(s => [`${s.category_id}:${key(s.name)}`, s]));
-        let imported = 0, skipped = 0;
-        for (const row of this._importRows) {
-            const type = key(row.type);
-            const amount = parseFloat(String(row.amount).replace(/,/g, ''));
-            if (!['income', 'expense', 'transfer'].includes(type) || !amount || !row.date) { skipped++; continue; }
-            const data = { type, amount, date: row.date, description: row.description || '', payment_method: row['payment method'] || 'cash' };
-            if (type === 'transfer') {
-                const from = accounts.get(key(row['from account']));
-                const to = accounts.get(key(row['to account']));
-                if (!from || !to || from.id === to.id) { skipped++; continue; }
-                data.from_account_id = from.id; data.to_account_id = to.id;
-            } else {
-                const account = accounts.get(key(row.account));
-                const category = categories.get(key(row.category));
-                if (!account || !category) { skipped++; continue; }
-                data.account_id = account.id; data.category_id = category.id;
-                const sub = subcategories.get(`${category.id}:${key(row.subcategory)}`);
-                data.subcategory_id = sub?.id || null;
+        if (!this._importText || !this._importBatchIdentity) { this._notify('error', 'Please choose and validate a CSV file'); return; }
+        const saveButton = document.getElementById('modal-save-btn');
+        if (saveButton) saveButton.disabled = true;
+        const status = document.getElementById('tx-import-status');
+        if (status) status.textContent = 'Importing ready rows through secure accounting…';
+        try {
+            const response = await window.Api.request('/transactions/import', {
+                method: 'POST',
+                body: JSON.stringify({ csv_content: this._importText, batch_identity: this._importBatchIdentity }),
+                timeoutMs: 120000
+            });
+            if (!response?.success) throw new Error(response?.message || 'CSV import failed');
+            this._importLastResult = response.data;
+            this._importRows = response.data.rows || [];
+            this._renderImportRows(this._importRows);
+            this._renderImportSummary(response.data.counts, false);
+            const counts = response.data.counts || {};
+            const unresolved = Number(counts.failed || 0) + Number(counts.unsupported || 0);
+            if (status) status.textContent = `Batch ${this._importBatchIdentity.slice(0, 12)}… processed. Re-selecting the unchanged file is always safe.`;
+            if (Number(counts.imported || 0) > 0) {
+                await this.loadTransactions();
+                document.dispatchEvent(new CustomEvent('app:data-changed'));
             }
-            try { const result = await window.Api.post('/transactions', data); result?.success ? imported++ : skipped++; }
-            catch (_) { skipped++; }
+            if (unresolved) window.NotificationService?.warning(`CSV import partially completed: ${counts.imported || 0} new, ${counts.already_imported || 0} already imported, ${unresolved} unresolved.`);
+            else window.NotificationService?.success(`CSV import complete: ${counts.imported || 0} new, ${counts.already_imported || 0} already imported.`);
+            const failureButton = document.getElementById('tx-import-failures');
+            failureButton?.classList.toggle('d-none', unresolved === 0);
+        } catch (error) {
+            if (status) status.textContent = error.message || 'CSV import request failed. Retry the unchanged file safely.';
+            this._notify('error', error.message || 'CSV import failed');
+        } finally {
+            if (saveButton) saveButton.disabled = false;
         }
-        if (imported) {
-            window.modalService?.close();
-            await this.loadTransactions();
-            document.dispatchEvent(new CustomEvent('app:data-changed'));
-            window.NotificationService?.success(`Imported ${imported} transaction(s)${skipped ? `; skipped ${skipped}` : ''}`);
-        } else this._notify('error', `No transactions imported${skipped ? `; skipped ${skipped}` : ''}`);
+    }
+
+    _renderImportSummary(counts = {}, preview = false) {
+        const summary = document.getElementById('tx-import-summary');
+        if (!summary) return;
+        summary.classList.remove('d-none');
+        const items = preview
+            ? [['Total', counts.total_rows], ['Ready', counts.ready], ['Invalid', counts.invalid], ['Unsupported', counts.unsupported]]
+            : [['Total', counts.total_rows], ['New', counts.imported], ['Already imported', counts.already_imported], ['Failed', counts.failed], ['Unsupported', counts.unsupported]];
+        summary.innerHTML = `<div class="row g-2">${items.map(([label, value]) => `<div class="col"><div class="border rounded p-2 text-center"><strong class="d-block">${Number(value || 0)}</strong><small class="text-muted">${label}</small></div></div>`).join('')}</div>`;
+    }
+
+    _renderImportRows(rows) {
+        const preview = document.getElementById('tx-import-preview');
+        const tbody = preview?.querySelector('tbody');
+        if (!preview || !tbody) return;
+        preview.classList.remove('d-none');
+        const badge = status => ({ ready: 'success', imported: 'success', already_imported: 'info', invalid: 'danger', failed: 'danger', unsupported: 'warning' }[status] || 'secondary');
+        tbody.innerHTML = rows.map(row => {
+            const normalized = row.normalized || {};
+            const mapping = normalized.type === 'transfer'
+                ? `${normalized.from_account || ''} → ${normalized.to_account || ''}`
+                : [normalized.account, normalized.category, normalized.subcategory].filter(Boolean).join(' / ');
+            return `<tr><td>${Number(row.source_row_number || 0)}</td><td><span class="badge bg-${badge(row.status)}">${this._h(row.status)}</span></td><td>${this._h(normalized.type || row.original?.type || '')}</td><td>${this._h(normalized.date || row.original?.date || '')}</td><td>${this._h(normalized.amount || row.original?.amount || '')}</td><td>${this._h(mapping)}</td><td class="small text-danger">${this._h(row.reason || '')}</td></tr>`;
+        }).join('');
+    }
+
+    downloadImportFailures() {
+        const rows = (this._importLastResult?.rows || this._importRows || []).filter(row => ['failed', 'invalid', 'unsupported'].includes(row.status));
+        if (!rows.length) { this._notify('error', 'There are no failed rows to export'); return; }
+        const originalHeaders = [...new Set(rows.flatMap(row => Object.keys(row.original || {})))];
+        const headers = ['Source Row', 'Status', 'Error Category', 'Field', 'Failure Reason', ...originalHeaders];
+        const csvRows = rows.map(row => [row.source_row_number, row.status, row.error_category, row.field, row.reason, ...originalHeaders.map(header => row.original?.[header] || '')]);
+        const csv = '\uFEFF' + [headers, ...csvRows].map(row => row.map(value => this._csvCell(value)).join(',')).join('\r\n');
+        const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `SanIE_Import_Failures_${this._importBatchIdentity.slice(0, 12)}.csv`;
+        link.click();
+        URL.revokeObjectURL(url);
     }
 
     downloadImportTemplate() {
@@ -438,22 +507,28 @@ class TransactionsManager {
 
     /* ==================== DATA LOADING ==================== */
 
-    async loadTransactions() {
+    async loadTransactions(page = this.currentPage) {
         this._renderAccountFilter();
+        const scopeSelect = document.getElementById('tx-scope-filter');
+        if (scopeSelect) scopeSelect.value = this.filters.scope || 'all';
+        this.currentPage = Math.max(1, Number(page) || 1);
         const skeleton = document.getElementById('tx-loading-skeleton');
         const tableWrapper = document.getElementById('tx-table-wrapper');
         if (skeleton) skeleton.style.display = '';
         if (tableWrapper) tableWrapper.style.display = 'none';
 
         try {
-            const res = await window.Api.get('/transactions?' + new URLSearchParams(this.filters));
-            if (res.success && Array.isArray(res.data)) {
-                const serverTransactions = res.data;
+            const data = await this._transactionPage(this.filters, this.currentPage, this.pageSize);
+            if (Array.isArray(data.transactions)) {
+                const serverTransactions = data.transactions;
+                this.pagination = data.pagination || null;
+                this.authoritativeSummary = data.summary || null;
                 this.transactions = await this._mergePendingTransactions(serverTransactions);
                 this.selectedIds.clear();
                 this._updateBulkActions();
-                this._renderSummary();
+                this._renderSummary(this.authoritativeSummary);
                 this._renderTable();
+                this._renderServerPagination();
                 this._setOfflineReadMode(false);
                 this._setPendingPageStatus(this.transactions.filter(transaction => transaction._pending).length);
 
@@ -463,20 +538,25 @@ class TransactionsManager {
                     window.OfflineStorage?.saveTransactionSnapshot(userId, serverTransactions);
                 }
             } else {
-                throw new Error(res.message || 'Invalid transaction response');
+                throw new Error('Invalid transaction response');
             }
         } catch (err) {
             console.error('loadTransactions error:', err);
+            this.pagination = null;
+            this.authoritativeSummary = null;
             const authFailure = [401, 403, 419].includes(Number(err?.status));
             const usedSnapshot = authFailure ? false : await this._loadOfflineSnapshot();
             if (!usedSnapshot && !authFailure) {
                 this.transactions = [];
+                this.pagination = null;
+                this.authoritativeSummary = null;
                 this.selectedIds.clear();
                 this._updateBulkActions();
                 this._renderSummary();
                 this._renderTable();
                 this._setOfflineReadMode(true, null);
             }
+            this._renderServerPagination();
         } finally {
             if (skeleton) skeleton.style.display = 'none';
             if (tableWrapper) tableWrapper.style.display = '';
@@ -487,9 +567,14 @@ class TransactionsManager {
         const userId = window.authManager?.getCurrentUser()?.id;
         if (userId === undefined || userId === null || !window.OfflineStorage) return false;
         const snapshot = await window.OfflineStorage.getTransactionSnapshot(userId);
-        const pending = (await window.OfflineStorage.getPendingActions(userId))
+        let pending = (await window.OfflineStorage.getPendingActions(userId))
             .filter(action => action.status !== 'synced');
-        const confirmed = Array.isArray(snapshot?.data) ? snapshot.data : [];
+        if (this.filters.scope === 'karobar') pending = [];
+        const confirmed = (Array.isArray(snapshot?.data) ? snapshot.data : []).filter(transaction => {
+            if (this.filters.scope === 'karobar') return transaction.scope === 'karobar';
+            if (this.filters.scope === 'personal') return transaction.scope !== 'karobar';
+            return true;
+        });
         if (confirmed.length === 0 && pending.length === 0 && !snapshot) return false;
 
         this.transactions = await this._mergePendingTransactions(confirmed);
@@ -504,8 +589,9 @@ class TransactionsManager {
     async _mergePendingTransactions(transactions) {
         const userId = window.authManager?.getCurrentUser()?.id;
         if (userId === undefined || userId === null || !window.OfflineStorage) return transactions;
-        const pending = (await window.OfflineStorage.getPendingActions(userId))
+        let pending = (await window.OfflineStorage.getPendingActions(userId))
             .filter(action => action.status !== 'synced');
+        if (this.filters.scope === 'karobar') pending = [];
         const touchedServerIds = new Set(
             pending.filter(action => action.serverId).map(action => String(action.serverId))
         );
@@ -543,6 +629,9 @@ class TransactionsManager {
             category_color: action.display?.category_color || '#F59E0B',
             subcategory_name: action.display?.subcategory_name || '',
             account_name: action.display?.account_name || 'Account',
+            scope: 'personal',
+            source_table: 'transactions',
+            source_id: action.serverId || null,
             _pending: true,
             pending_action: action.action,
             pending_status: action.status || 'pending',
@@ -617,7 +706,23 @@ class TransactionsManager {
 
     /* ==================== SUMMARY ==================== */
 
-    _renderSummary() {
+    _renderSummary(summary = this.authoritativeSummary) {
+        if (summary) {
+            const income = parseFloat(summary.total_income) || 0;
+            const expense = parseFloat(summary.total_expense) || 0;
+            const net = parseFloat(summary.net_cash_flow ?? (income - expense)) || 0;
+            const set = (id, val, color) => {
+                const el = document.getElementById(id);
+                if (el) { el.textContent = val; if (color) el.style.color = color; }
+            };
+            set('tx-total-income', 'Rs ' + income.toLocaleString('en-IN'));
+            set('tx-total-expense', 'Rs ' + expense.toLocaleString('en-IN'));
+            set('tx-net-flow', `${net < 0 ? '− ' : net > 0 ? '+ ' : ''}Rs ${Math.abs(net).toLocaleString('en-IN')}`);
+            const flowEl = document.getElementById('tx-net-flow');
+            if (flowEl) flowEl.style.color = net >= 0 ? '#10B981' : '#EF4444';
+            set('tx-total-count', Number(summary.transaction_count || 0).toLocaleString());
+            return;
+        }
         let income = 0, expense = 0;
         const effectiveTransactions = this.transactions.filter(transaction => transaction.pending_action !== 'delete');
         effectiveTransactions.forEach(t => {
@@ -635,10 +740,32 @@ class TransactionsManager {
         };
         set('tx-total-income', 'Rs ' + income.toLocaleString('en-IN'));
         set('tx-total-expense', 'Rs ' + expense.toLocaleString('en-IN'));
-        set('tx-net-flow', 'Rs ' + Math.abs(net).toLocaleString('en-IN'));
+        set('tx-net-flow', `${net < 0 ? '− ' : net > 0 ? '+ ' : ''}Rs ${Math.abs(net).toLocaleString('en-IN')}`);
         const flowEl = document.getElementById('tx-net-flow');
         if (flowEl) flowEl.style.color = net >= 0 ? '#10B981' : '#EF4444';
         set('tx-total-count', effectiveTransactions.length.toLocaleString());
+    }
+
+    _renderServerPagination() {
+        const pagination = this.pagination || {};
+        const total = Number(pagination.total_rows || 0);
+        const page = Number(pagination.page || this.currentPage || 1);
+        const totalPages = Number(pagination.total_pages || 0);
+        const info = document.getElementById('tx-server-page-info');
+        const previous = document.getElementById('tx-server-page-prev');
+        const next = document.getElementById('tx-server-page-next');
+        const size = document.getElementById('tx-server-page-size');
+        if (info) info.textContent = `Page ${page} of ${totalPages || 0} · ${total.toLocaleString('en-IN')} matching transactions`;
+        if (previous) previous.disabled = !pagination.has_previous;
+        if (next) next.disabled = !pagination.has_next;
+        if (size) size.value = String(this.pageSize);
+
+        if (previous) previous.onclick = () => this.loadTransactions(page - 1);
+        if (next) next.onclick = () => this.loadTransactions(page + 1);
+        if (size) size.onchange = () => {
+            this.pageSize = Math.max(1, Math.min(200, Number(size.value) || 50));
+            this.loadTransactions(1);
+        };
     }
 
     /* ==================== TABLE RENDERING ==================== */
@@ -679,61 +806,47 @@ class TransactionsManager {
     _buildRow(t) {
         const date = t.date ? new Date(t.date + 'T00:00:00') : null;
         const day = date ? date.getDate() : '--';
-        const month = date ? date.toLocaleString('en', { month: 'short' }).toUpperCase() : '';
+        const month = date ? date.toLocaleString('en', { month: 'short' }) : '';
         const year = date ? date.getFullYear() : '';
-        const isTransfer = t.type === 'transfer';
-        const isGoalContribution = t.type === 'goal_contribution';
+        const presentation = this._transactionPresentation(t);
         const amt = parseFloat(t.amount) || 0;
         const amtFmt = amt.toLocaleString('en-IN');
         const transactionId = this._h(String(t.id ?? ''));
 
-        // Type badge
-        const pendingLabel = t.pending_status === 'failed' ? 'Sync failed' : (t.pending_status === 'syncing' ? 'Syncing…' : 'Pending sync');
         const pendingClass = this._pendingBadgeClass(t);
         const effectivePendingLabel = this._pendingLabel(t);
         const pendingBadge = t._pending ? `<span class="badge ${pendingClass} ms-1" title="${this._h(t.pending_error || effectivePendingLabel)}">${effectivePendingLabel}</span>` : '';
-        const typeBadge = `<span class="tx-type-badge ${t.type}">${t.type}</span>${pendingBadge}`;
+        const typeBadge = `<span class="tx-type-badge ${presentation.badgeClass}">${this._h(presentation.label)}</span>${pendingBadge}`;
 
-        // Category
+        // Category contains only a real stored category.
         const catIcon = t.category_icon ? this._faToBi(t.category_icon) : 'bi-tag-fill';
         const catColor = Formatters.safeColor(t.category_color, '#6366f1');
-        let catHtml;
-        if (isTransfer) {
-            catHtml = `<div class="tx-cat-icon" style="background:#3B82F6"><i class="bi bi-arrow-left-right"></i></div>
-                       <span class="tx-cat-name">Transfer</span>`;
-        } else if (isGoalContribution) {
-            catHtml = `<div class="tx-cat-icon" style="background:#10B981"><i class="bi bi-bullseye"></i></div>
-                       <span class="tx-cat-name">Savings Goal</span>`;
-        } else {
-            catHtml = `<div class="tx-cat-icon" style="background:${catColor}"><i class="bi ${catIcon}"></i></div>
-                       <span class="tx-cat-name">${this._h(t.category_name || 'Uncategorized')}</span>`;
-        }
+        const categoryName = t.category_name && t.category_name !== 'Karobar' ? t.category_name : '';
+        const catHtml = categoryName
+            ? `<div class="tx-cat-icon" style="background:${catColor}"><i class="bi ${catIcon}" aria-hidden="true"></i></div><span class="tx-cat-name">${this._h(categoryName)}</span>`
+            : '<span class="tx-empty-value" aria-label="No category">—</span>';
 
-        // Subcategory
-        const subHtml = t.subcategory_name
-            ? `<span class="tx-sub-badge">${this._h(t.subcategory_name)}</span>`
-            : '<span class="tx-sub-badge no-sub">None</span>';
+        // Stored subcategory wins; standalone Karobar events may use their existing semantic detail.
+        const derivedSubcategory = this._isStandaloneKarobar(t) ? this._karobarTypeLabel(t.karobar_type) : '';
+        const subcategoryName = t.subcategory_name || derivedSubcategory;
+        const subHtml = subcategoryName
+            ? `<span class="tx-subcategory" title="${this._h(subcategoryName)}">${this._h(subcategoryName)}</span>`
+            : '<span class="tx-empty-value" aria-label="No subcategory">—</span>';
 
-        // Account
-        let accountHtml;
-        if (isTransfer) {
-            accountHtml = `<span class="tx-account-name">${this._h(t.from_account_name || '?')} &rarr; ${this._h(t.to_account_name || '?')}</span>`;
-        } else if (t.payment_method === 'credit') {
-            accountHtml = '<span class="tx-account-name"><i class="bi bi-clock-history me-1"></i>Credit / Udharo</span>';
-        } else {
-            accountHtml = `<span class="tx-account-name">${this._h(t.account_name || '--')}</span>`;
-        }
+        const accountParty = this._accountPartyPresentation(t);
+        const accountHtml = accountParty.primary
+            ? `<div class="tx-party-cell"><span class="tx-party-primary">${this._h(accountParty.primary)}</span>${accountParty.secondary ? `<small class="tx-party-secondary">${this._h(accountParty.secondary)}</small>` : ''}</div>`
+            : '<span class="tx-empty-value" aria-label="No account or party">—</span>';
 
-        // Description
+        const recurringBadge = t.recurring_definition_id
+            ? `<span class="badge rounded-pill text-bg-light border ms-1" title="Scheduled occurrence ${this._h(t.recurring_occurrence_date || '')}"><i class="bi bi-arrow-repeat me-1"></i>Recurring</span>` : '';
         const descHtml = t.description
-            ? `<span class="tx-desc-text" title="${this._h(t.description)}">${this._h(t.description)}</span>`
-            : '<span class="tx-desc-text tx-desc-no">No Description</span>';
+            ? `<div class="tx-desc-cell"><span class="tx-desc-text" title="${this._h(t.description)}" data-bs-toggle="tooltip">${this._h(t.description)}</span>${recurringBadge}</div>`
+            : `<div class="tx-desc-cell"><span class="tx-empty-value" aria-label="No description">—</span>${recurringBadge}</div>`;
 
-        // Single Amount column
-        const isMoneyOut = t.type === 'expense' || isGoalContribution;
-        const amtPrefix = isMoneyOut ? '- ' : '+ ';
-        const amtDataOrder = isMoneyOut ? -amt : amt;
-        const amountHtml = `<span class="tx-money ${t.type}">${amtPrefix}Rs ${amtFmt}</span>`;
+        const amountPrefix = presentation.direction === 'out' ? '− ' : presentation.direction === 'in' ? '+ ' : '';
+        const amtDataOrder = presentation.direction === 'out' ? -amt : amt;
+        const amountHtml = `<span class="tx-money ${presentation.moneyClass}">${amountPrefix}Rs ${amtFmt}</span>`;
         const pendingBusy = t._pending && t.pending_status === 'syncing';
         const pendingConflict = t._pending && t.pending_status === 'conflict';
         const pendingDelete = t._pending && t.pending_action === 'delete';
@@ -748,12 +861,12 @@ class TransactionsManager {
         const dateOrder = this._h(t.date || '');
         return `
             <td class="text-center">
-                <input type="checkbox" class="form-check-input tx-select-row" data-tx-select="${transactionId}" aria-label="Select transaction ${transactionId}" ${(t.karobar_transaction_id || t._pending) ? `disabled title="${t._pending ? 'Pending transactions cannot be changed until synced' : 'Delete linked credit transactions from Karobar'}"` : ''}>
+                <input type="checkbox" class="form-check-input tx-select-row" data-tx-select="${transactionId}" aria-label="Select transaction ${transactionId}" ${(t.scope === 'karobar' || t._pending) ? `disabled title="${t._pending ? 'Pending transactions cannot be changed until synced' : 'Karobar transactions are managed individually'}"` : ''}>
             </td>
             <td data-order="${dateOrder}">
                 <div class="tx-date-cell">
-                    <div class="tx-date-day">${day}</div>
-                    <div class="tx-date-month">${month} ${year}</div>
+                    <div class="tx-date-primary">${month} ${day}</div>
+                    <div class="tx-date-year">${year}</div>
                 </div>
             </td>
             <td>${typeBadge}</td>
@@ -765,15 +878,76 @@ class TransactionsManager {
             <td>
                 <div class="tx-actions-cell">
                     <div class="tx-action-btns">
-                        <button class="tx-action-btn tx-btn-view" title="View" data-tx-id="${transactionId}" ${t._pending ? 'disabled' : ''}><i class="bi bi-eye"></i></button>
-                        <button class="tx-action-btn tx-btn-edit" title="Edit" data-tx-id="${transactionId}" ${(t._pending && !canEditPending) ? 'disabled' : ''}><i class="bi bi-pencil"></i></button>
+                        <button type="button" class="tx-action-btn tx-btn-view" title="View transaction" aria-label="View transaction" data-tx-id="${transactionId}" ${t._pending ? 'disabled' : ''}><i class="bi bi-eye" aria-hidden="true"></i></button>
+                        <button type="button" class="tx-action-btn tx-btn-edit" title="Edit transaction" aria-label="Edit transaction" data-tx-id="${transactionId}" ${(t._pending && !canEditPending) ? 'disabled' : ''}><i class="bi bi-pencil" aria-hidden="true"></i></button>
                         ${pendingDelete
-                            ? `<button class="tx-action-btn" title="Undo pending deletion" data-sync-undo="${this._h(t.localId)}" ${pendingBusy || pendingConflict ? 'disabled' : ''}><i class="bi bi-arrow-counterclockwise"></i></button>`
-                            : `<button class="tx-action-btn tx-btn-delete" title="Delete" data-tx-id="${transactionId}" ${(t._pending && !canDeletePending) ? 'disabled' : ''}><i class="bi bi-trash3"></i></button>`}
+                            ? `<button type="button" class="tx-action-btn" title="Undo pending deletion" aria-label="Undo pending deletion" data-sync-undo="${this._h(t.localId)}" ${pendingBusy || pendingConflict ? 'disabled' : ''}><i class="bi bi-arrow-counterclockwise" aria-hidden="true"></i></button>`
+                            : `<button type="button" class="tx-action-btn tx-btn-delete" title="Delete transaction" aria-label="Delete transaction" data-tx-id="${transactionId}" ${(t._pending && !canDeletePending) ? 'disabled' : ''}><i class="bi bi-trash3" aria-hidden="true"></i></button>`}
                         ${attentionAction}
                     </div>
                 </div>
             </td>`;
+    }
+
+    _karobarTypeLabel(type) {
+        return ({ lent: 'Money Lent', borrowed: 'Money Borrowed', returned: 'Money Returned', repaid: 'Money Repaid', adjustment: 'Adjustment' })[type] || 'Karobar Transaction';
+    }
+
+    _transactionPresentation(transaction) {
+        const linkedCreditExpense = transaction?.scope === 'karobar'
+            && transaction?.source_table === 'transactions'
+            && transaction?.payment_method === 'credit';
+        if (linkedCreditExpense) return { label: 'Credit Expense', badgeClass: 'credit-expense', direction: 'out', moneyClass: 'money-out' };
+
+        if (this._isStandaloneKarobar(transaction)) {
+            const map = {
+                repaid: { label: 'Debt Payment', badgeClass: 'debt-payment', direction: 'out', moneyClass: 'money-out' },
+                returned: { label: 'Money Received', badgeClass: 'money-received', direction: 'in', moneyClass: 'money-in' },
+                lent: { label: 'Money Lent', badgeClass: 'money-lent', direction: 'out', moneyClass: 'money-out' },
+                borrowed: { label: 'Money Borrowed', badgeClass: 'money-received', direction: 'in', moneyClass: 'money-in' },
+                adjustment: { label: 'Adjustment', badgeClass: 'adjustment', direction: 'neutral', moneyClass: 'money-neutral' },
+            };
+            return map[transaction.karobar_type] || { label: 'Karobar', badgeClass: 'adjustment', direction: 'neutral', moneyClass: 'money-neutral' };
+        }
+
+        const map = {
+            income: { label: 'Income', badgeClass: 'income', direction: 'in', moneyClass: 'money-in' },
+            expense: { label: 'Expense', badgeClass: 'expense', direction: 'out', moneyClass: 'money-out' },
+            transfer: { label: 'Transfer', badgeClass: 'transfer', direction: 'neutral', moneyClass: 'money-transfer' },
+            goal_contribution: { label: 'Savings', badgeClass: 'savings', direction: 'out', moneyClass: 'money-out' },
+        };
+        return map[transaction?.type] || { label: String(transaction?.type || 'Transaction').replaceAll('_', ' '), badgeClass: 'adjustment', direction: 'neutral', moneyClass: 'money-neutral' };
+    }
+
+    _accountPartyPresentation(transaction) {
+        if (transaction?.scope === 'karobar' && transaction?.person_name) {
+            let secondary = '';
+            if (transaction.payment_method === 'credit' && transaction.source_table === 'transactions') {
+                secondary = transaction.karobar_direction === 'receivable' ? 'Credit · Receivable' : 'Credit · Payable';
+            } else if (transaction.karobar_type === 'repaid') {
+                secondary = transaction.account_name ? `Paid from ${transaction.account_name}` : 'Debt payment';
+            } else if (transaction.karobar_type === 'returned') {
+                secondary = transaction.account_name ? `Received in ${transaction.account_name}` : 'Money received';
+            } else if (transaction.karobar_type === 'lent') {
+                secondary = transaction.account_name ? `Lent from ${transaction.account_name}` : 'Money lent';
+            } else if (transaction.karobar_type === 'borrowed') {
+                secondary = transaction.account_name ? `Received in ${transaction.account_name}` : 'Credit · Payable';
+            }
+            return { primary: transaction.person_name, secondary };
+        }
+        if (transaction?.type === 'transfer') {
+            return { primary: `${transaction.from_account_name || 'Unknown'} → ${transaction.to_account_name || 'Unknown'}`, secondary: 'Transfer' };
+        }
+        const type = transaction?.account_type ? `${String(transaction.account_type).replaceAll('_', ' ')} account` : '';
+        return { primary: transaction?.account_name || '', secondary: type ? type.charAt(0).toUpperCase() + type.slice(1) : '' };
+    }
+
+    _visibleTransaction(id) {
+        return this.transactions.find(transaction => String(transaction.id) === String(id));
+    }
+
+    _isStandaloneKarobar(transaction) {
+        return transaction?.scope === 'karobar' && transaction?.source_table === 'karobar_transactions';
     }
 
     _faToBi(icon) {
@@ -834,8 +1008,7 @@ class TransactionsManager {
 
         try {
             this.dataTable = $(table).DataTable({
-                pageLength: 10,
-                lengthMenu: [10, 25, 50, 100],
+                paging: false,
                 order: [[1, 'desc']],
                 responsive: false,
                 columnDefs: [
@@ -856,7 +1029,8 @@ class TransactionsManager {
                     }
                 },
                 searching: false,
-                dom: 'r<"dt-table-wrap"t><"dt-bottom"l i p>',
+                info: false,
+                dom: 'r<"dt-table-wrap"t>',
                 drawCallback: () => {
                     this._renderMobileCards();
                 }
@@ -879,8 +1053,11 @@ class TransactionsManager {
     /* ==================== TRANSACTION FORM ==================== */
 
     _openForm(txData) {
+        this._formEpoch++;
+        this._creditorsLoad = null;
         this._editingTransactionId = txData ? txData.id : null;
         this._editingTransactionData = txData || null;
+        this._ordinaryRequestId = null;
         this._transferRequestId = null;
 
         const title = this._editingTransactionId ? 'Edit Transaction' : 'New Transaction';
@@ -941,7 +1118,7 @@ class TransactionsManager {
     }
 
     _formHTML() {
-        const today = new Date().toISOString().slice(0, 10);
+        const today = DateUtils.getKathmanduDateString();
         return `
             <form id="tx-form" novalidate>
                 <select id="transaction-type" style="display:none;"><option value="expense">Expense</option><option value="income">Income</option><option value="transfer">Transfer</option></select>
@@ -985,7 +1162,7 @@ class TransactionsManager {
                     <!-- Creditor (credit expense) -->
                     <div class="tx-field hidden" id="creditor-wrapper">
                         <label class="tx-label" for="transaction-creditor">Creditor</label>
-                        <select id="transaction-creditor" class="tx-select"><option value="">Select creditor</option></select>
+                        <select id="transaction-creditor" class="tx-select"><option value="" disabled selected>Select creditor</option></select>
                     </div>
 
                     <!-- Due Date (credit expense) -->
@@ -1195,16 +1372,21 @@ class TransactionsManager {
         const cred = document.getElementById('creditor-wrapper');
         const due = document.getElementById('due-date-wrapper');
         const acc = document.getElementById('account-wrapper');
+        const creditor = document.getElementById('transaction-creditor');
+        const dueDate = document.getElementById('transaction-due-date');
         const type = document.getElementById('transaction-type')?.value;
 
         if (method === 'credit' && type === 'expense') {
             if (cred) { cred.classList.remove('hidden'); this._loadCreditors(); }
             if (due) due.classList.remove('hidden');
             if (acc) acc.classList.add('hidden');
+            if (creditor) creditor.required = true;
         } else {
             if (cred) cred.classList.add('hidden');
             if (due) due.classList.add('hidden');
             if (acc && type !== 'transfer') acc.classList.remove('hidden');
+            if (creditor) { creditor.required = false; creditor.value = ''; }
+            if (dueDate) dueDate.value = '';
         }
     }
 
@@ -1229,24 +1411,20 @@ class TransactionsManager {
     }
 
     async _loadCategoriesByType(type) {
+        const requestSequence = (this._categoryLoadSequence || 0) + 1;
+        this._categoryLoadSequence = requestSequence;
         // A category from the previous transaction type must never leave stale
         // subcategory options behind.
         await this._loadSubcategories('');
 
         try {
             const res = await window.Api.get('/categories?type=' + type + '&status=active');
+            if (requestSequence !== this._categoryLoadSequence
+                || document.getElementById('transaction-type')?.value !== type) return;
             const sel = document.getElementById('transaction-category');
             if (!sel) return;
-            sel.innerHTML = '<option value="">Select category</option>';
             if (res.success && Array.isArray(res.data)) {
-                res.data.forEach(c => {
-                    const o = document.createElement('option');
-                    o.value = c.id;
-                    o.textContent = c.name;
-                    o.dataset.icon = c.icon || '';
-                    o.dataset.color = c.color || '#6366f1';
-                    sel.appendChild(o);
-                });
+                this._renderCategoryOptions(sel, res.data, 'Select category');
                 const userId = window.authManager?.getCurrentUser()?.id;
                 if (userId !== undefined && userId !== null) {
                     window.OfflineStorage?.saveReferenceData(userId, `categories:${type}`, res.data);
@@ -1257,16 +1435,10 @@ class TransactionsManager {
             const userId = window.authManager?.getCurrentUser()?.id;
             const cached = await window.OfflineStorage?.getReferenceData(userId, `categories:${type}`);
             const sel = document.getElementById('transaction-category');
-            if (sel && Array.isArray(cached?.data)) {
-                sel.innerHTML = '<option value="">Select category</option>';
-                cached.data.forEach(c => {
-                    const option = document.createElement('option');
-                    option.value = c.id;
-                    option.textContent = c.name;
-                    option.dataset.icon = c.icon || '';
-                    option.dataset.color = c.color || '#6366f1';
-                    sel.appendChild(option);
-                });
+            if (requestSequence === this._categoryLoadSequence
+                && document.getElementById('transaction-type')?.value === type
+                && sel && Array.isArray(cached?.data)) {
+                this._renderCategoryOptions(sel, cached.data, 'Select category');
             }
         }
 
@@ -1274,19 +1446,46 @@ class TransactionsManager {
         if (type === 'transfer') {
             try {
                 const feeRes = await window.Api.get('/categories?type=expense&status=active');
+                if (requestSequence !== this._categoryLoadSequence
+                    || document.getElementById('transaction-type')?.value !== 'transfer') return;
                 const feeSel = document.getElementById('transfer-fee-category');
                 if (!feeSel) return;
-                feeSel.innerHTML = '<option value="">Select fee category</option>';
                 if (feeRes.success) {
-                    feeRes.data.forEach(c => {
-                        const o = document.createElement('option');
-                        o.value = c.id;
-                        o.textContent = c.name;
-                        feeSel.appendChild(o);
-                    });
+                    this._renderCategoryOptions(feeSel, feeRes.data, 'Select fee category');
                 }
             } catch (e) { console.error('Load fee categories error:', e); }
         }
+    }
+
+    _renderCategoryOptions(select, categories, placeholder) {
+        select.innerHTML = '';
+        const placeholderOption = document.createElement('option');
+        placeholderOption.value = '';
+        placeholderOption.textContent = placeholder;
+        select.appendChild(placeholderOption);
+
+        const appendOption = (parent, category, pinned) => {
+            const option = document.createElement('option');
+            option.value = category.id;
+            option.textContent = `${pinned ? '\u2605 ' : ''}${category.name}`;
+            option.dataset.name = category.name;
+            option.dataset.icon = category.icon || '';
+            option.dataset.color = category.color || '#6366f1';
+            option.dataset.pinned = pinned ? '1' : '0';
+            parent.appendChild(option);
+        };
+        const pinned = categories.filter(category => Number(category.is_pinned) === 1 || category.is_pinned === true);
+        const others = categories.filter(category => !(Number(category.is_pinned) === 1 || category.is_pinned === true));
+        if (pinned.length) {
+            const pinnedGroup = document.createElement('optgroup');
+            pinnedGroup.label = 'Pinned';
+            pinned.forEach(category => appendOption(pinnedGroup, category, true));
+            select.appendChild(pinnedGroup);
+        }
+        const otherParent = pinned.length && others.length ? document.createElement('optgroup') : select;
+        if (otherParent !== select) otherParent.label = 'Other categories';
+        others.forEach(category => appendOption(otherParent, category, false));
+        if (otherParent !== select) select.appendChild(otherParent);
     }
 
     async _loadSubcategories(catId) {
@@ -1373,20 +1572,83 @@ class TransactionsManager {
     }
 
     async _loadCreditors() {
-        try {
-            const res = await window.Api.get('/people?status=active');
-            const sel = document.getElementById('transaction-creditor');
-            if (!sel) return;
-            sel.innerHTML = '<option value="">Select creditor</option>';
-            if (res.success) {
-                res.data.forEach(p => {
-                    const o = document.createElement('option');
-                    o.value = p.id;
-                    o.textContent = p.name;
-                    sel.appendChild(o);
+        const sel = document.getElementById('transaction-creditor');
+        if (!sel) return [];
+
+        const epoch = this._formEpoch;
+        if (this._creditorsLoad?.epoch === epoch) return this._creditorsLoad.promise;
+
+        const selectedId = sel.value;
+        sel.disabled = true;
+        sel.innerHTML = '<option value="" selected>Loading creditors…</option>';
+
+        const request = (async () => {
+            try {
+                const first = await window.Api.get('/people?status=active&page=1&limit=200');
+                if (!first?.success || !Array.isArray(first.data?.people)) {
+                    throw new Error('Invalid people response');
+                }
+
+                const people = [...first.data.people];
+                const totalPages = Math.max(1, Number(first.data.pagination?.total_pages) || 1);
+                if (totalPages > 1) {
+                    const remaining = await Promise.all(Array.from({ length: totalPages - 1 }, (_, index) =>
+                        window.Api.get(`/people?status=active&page=${index + 2}&limit=200`)
+                    ));
+                    remaining.forEach(response => {
+                        if (!response?.success || !Array.isArray(response.data?.people)) {
+                            throw new Error('Invalid people response');
+                        }
+                        people.push(...response.data.people);
+                    });
+                }
+
+                if (this._formEpoch !== epoch || document.getElementById('transaction-creditor') !== sel) return people;
+
+                sel.innerHTML = '';
+                if (people.length === 0) {
+                    const empty = document.createElement('option');
+                    empty.value = '';
+                    empty.textContent = 'No people available — add a person in Karobar first';
+                    empty.selected = true;
+                    sel.appendChild(empty);
+                    sel.disabled = true;
+                    return people;
+                }
+
+                const placeholder = document.createElement('option');
+                placeholder.value = '';
+                placeholder.textContent = 'Select creditor';
+                placeholder.disabled = true;
+                placeholder.selected = true;
+                sel.appendChild(placeholder);
+                people.forEach(person => {
+                    const option = document.createElement('option');
+                    option.value = String(person.id);
+                    const type = String(person.type || '').replace(/_/g, ' ');
+                    const typeLabel = type ? type.charAt(0).toUpperCase() + type.slice(1) : '';
+                    option.textContent = typeLabel ? `${person.name} — ${typeLabel}` : person.name;
+                    sel.appendChild(option);
                 });
+                sel.disabled = false;
+                if (selectedId && Array.from(sel.options).some(option => option.value === String(selectedId))) {
+                    sel.value = String(selectedId);
+                }
+                return people;
+            } catch (error) {
+                if (this._formEpoch === epoch && document.getElementById('transaction-creditor') === sel) {
+                    sel.innerHTML = '<option value="" selected>Unable to load creditors. Please try again.</option>';
+                    sel.disabled = true;
+                }
+                console.error('Load creditors error:', error);
+                return [];
+            } finally {
+                if (this._creditorsLoad?.epoch === epoch) this._creditorsLoad = null;
             }
-        } catch (e) { console.error('Load creditors error:', e); }
+        })();
+
+        this._creditorsLoad = { epoch, promise: request };
+        return request;
     }
 
     /* ==================== POPULATE FORM (EDIT) ==================== */
@@ -1404,7 +1666,7 @@ class TransactionsManager {
         }
 
         const dateEl = document.getElementById('transaction-date');
-        if (dateEl) dateEl.value = t.date || new Date().toISOString().slice(0, 10);
+        if (dateEl) dateEl.value = t.date || DateUtils.getKathmanduDateString();
 
         const descEl = document.getElementById('transaction-description');
         if (descEl) descEl.value = t.description || '';
@@ -1454,7 +1716,9 @@ class TransactionsManager {
                 setTimeout(() => { accEl.value = t.account_id; }, 200);
             }
             if (t.payment_method === 'credit') {
-                setTimeout(() => {
+                const dueDateEl = document.getElementById('transaction-due-date');
+                if (dueDateEl) dueDateEl.value = t.due_date || '';
+                this._loadCreditors().then(() => {
                     const creditorEl = document.getElementById('transaction-creditor');
                     if (creditorEl && t.creditor_id) {
                         if(!Array.from(creditorEl.options).some(option=>option.value==t.creditor_id)){
@@ -1465,9 +1729,7 @@ class TransactionsManager {
                         }
                         creditorEl.value = t.creditor_id;
                     }
-                    const dueDateEl = document.getElementById('transaction-due-date');
-                    if (dueDateEl) dueDateEl.value = t.due_date || '';
-                }, 250);
+                });
             }
         }
 
@@ -1481,8 +1743,11 @@ class TransactionsManager {
         const type = document.getElementById('transaction-type')?.value;
         if (!type) { this._notify('error', 'Please select a transaction type'); return; }
 
-        const amount = parseFloat(document.getElementById('transaction-amount')?.value);
-        if (!amount || amount <= 0) { this._notify('error', 'Please enter a valid amount'); return; }
+        const amountText = String(document.getElementById('transaction-amount')?.value || '').trim();
+        const amount = Number(amountText);
+        if (!/^(?:0|[1-9]\d{0,11})(?:\.\d{1,2})?$/.test(amountText) || !Number.isFinite(amount) || amount <= 0 || amount > 999999999999.99) {
+            this._notify('error', 'Amount must be positive and use at most two decimal places'); return;
+        }
 
         const date = document.getElementById('transaction-date')?.value;
         if (!date) { this._notify('error', 'Please select a date'); return; }
@@ -1543,6 +1808,9 @@ class TransactionsManager {
                 }
             } else {
                 data.payment_method = paymentMethod;
+                if (!this._editingTransactionId) {
+                    data.client_request_id = this._ordinaryRequestId || (this._ordinaryRequestId = this._createOrdinaryRequestId());
+                }
             }
         }
 
@@ -1583,6 +1851,7 @@ class TransactionsManager {
                 );
                 this._editingTransactionId = null;
                 this._editingTransactionData = null;
+                this._ordinaryRequestId = null;
                 this._transferRequestId = null;
                 this._creditPurchaseRequestId = null;
                 window.modalService?.close();
@@ -1616,6 +1885,12 @@ class TransactionsManager {
         if (window.crypto?.randomUUID) return window.crypto.randomUUID();
         const random = Math.random().toString(36).slice(2) + Date.now().toString(36);
         return `req_transfer_${random}`.slice(0, 64);
+    }
+
+    _createOrdinaryRequestId() {
+        if (window.crypto?.randomUUID) return window.crypto.randomUUID();
+        const random = Math.random().toString(36).slice(2) + Date.now().toString(36);
+        return `req_online_${random}`.slice(0, 64);
     }
 
     _createCreditPurchaseRequestId() {
@@ -1726,7 +2001,7 @@ class TransactionsManager {
         const subcategoryOption = document.getElementById('transaction-subcategory')?.selectedOptions?.[0];
         const accountOption = document.getElementById('transaction-account')?.selectedOptions?.[0];
         return {
-            category_name: categoryOption?.textContent || '',
+            category_name: categoryOption?.dataset?.name || categoryOption?.textContent || '',
             category_icon: categoryOption?.dataset?.icon || '',
             category_color: categoryOption?.dataset?.color || '',
             subcategory_name: subcategoryOption?.value ? subcategoryOption.textContent : '',
@@ -1746,9 +2021,20 @@ class TransactionsManager {
 
     async viewTransaction(id) {
         try {
+            const local = this._visibleTransaction(id);
+            if (this._isStandaloneKarobar(local)) {
+                const response = await window.Api.get('/karobar/' + local.source_id);
+                if (!response?.success || !response.data) throw new Error('Karobar transaction not found');
+                this._showKarobarTransactionDetails({ ...response.data, ...local });
+                return;
+            }
             const res = await window.Api.get('/transactions/' + id);
             if (!res.success || !res.data) { this._notify('error', 'Transaction not found'); return; }
-            const t = res.data;
+            const t = { ...res.data, ...(local?.scope === 'karobar' ? {
+                scope: 'karobar', karobar_type: local.karobar_type, person_name: local.person_name,
+                person_type: local.person_type, remaining_amount: local.remaining_amount,
+                paid_amount: local.paid_amount, due_date: local.due_date
+            } : {}) };
             const amt = parseFloat(t.amount) || 0;
             const amtStr = 'Rs ' + amt.toLocaleString('en-IN');
             const typeColor = t.type === 'income' ? '#10B981' : (t.type === 'expense' ? '#EF4444' : '#3B82F6');
@@ -1766,6 +2052,7 @@ class TransactionsManager {
                     <div class="col-6"><p class="text-muted small mb-1">Subcategory</p><p class="fw-semibold">${this._h(t.subcategory_name || '--')}</p></div>
                     <div class="col-6"><p class="text-muted small mb-1">Account</p><p class="fw-semibold">${this._h(t.account_name || '--')}</p></div>`;
             }
+            const karobarDetails = t.scope === 'karobar' ? this._karobarMetadataHTML(t) : '';
 
             const html = `
                 <div class="tx-view-modal">
@@ -1778,8 +2065,10 @@ class TransactionsManager {
                     </div>
                     <div class="row g-3">
                         ${details}
+                        ${karobarDetails}
                         <div class="col-6"><p class="text-muted small mb-1">Date</p><p class="fw-semibold">${date}</p></div>
                         <div class="col-12"><p class="text-muted small mb-1">Description</p><p class="fw-semibold">${this._h(t.description || 'No Description')}</p></div>
+                        ${t.recurring_definition_id ? `<div class="col-12"><div class="alert alert-light border mb-0 py-2"><i class="bi bi-arrow-repeat text-success me-2"></i><strong>Recurring origin</strong><br><small class="text-muted">Definition #${this._h(t.recurring_definition_id)} · scheduled for ${this._h(t.recurring_occurrence_date || '—')}</small></div></div>` : ''}
                     </div>
                 </div>`;
 
@@ -1792,8 +2081,46 @@ class TransactionsManager {
         }
     }
 
+    _karobarMetadataHTML(transaction) {
+        const linked = transaction.linked_credit_purchase || null;
+        const payable = linked?.payable || {};
+        const personName = transaction.person_name || payable.person_name || 'Karobar person';
+        const karobarType = transaction.karobar_type || payable.type;
+        const remaining = linked?.outstanding ?? transaction.remaining_amount;
+        const paid = transaction.paid_amount ?? (remaining !== null && remaining !== undefined ? Math.max(0, Number(transaction.amount || 0) - Number(remaining)) : null);
+        const direction = transaction.karobar_direction || (karobarType === 'lent' ? 'Receivable' : (karobarType === 'borrowed' ? 'Payable' : null));
+        const fields = [
+            ['Person / Shop', personName],
+            ['Karobar Type', this._karobarTypeLabel(karobarType)],
+            ['Position', direction],
+            ['Paid Amount', paid !== null && paid !== undefined ? `Rs ${Number(paid).toLocaleString('en-IN')}` : null],
+            ['Remaining', remaining !== null && remaining !== undefined ? `Rs ${Number(remaining).toLocaleString('en-IN')}` : null],
+            ['Due Date', transaction.due_date || payable.due_date || null],
+        ].filter(([, value]) => value !== null && value !== undefined && value !== '');
+        return fields.map(([label, value]) => `<div class="col-6"><p class="text-muted small mb-1">${this._h(label)}</p><p class="fw-semibold">${this._h(String(value))}</p></div>`).join('');
+    }
+
+    _showKarobarTransactionDetails(transaction) {
+        const amount = Number(transaction.amount || 0).toLocaleString('en-IN');
+        const date = transaction.date ? new Date(transaction.date + 'T00:00:00').toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }) : '--';
+        const html = `<div class="tx-view-modal">
+            <div class="d-flex align-items-center justify-content-between mb-3"><span class="tx-scope-badge">Karobar</span><span class="text-muted">${this._h(date)}</span></div>
+            <div class="text-center mb-4"><h2 class="fw-bold mb-1">Rs ${this._h(amount)}</h2></div>
+            <div class="row g-3">${this._karobarMetadataHTML(transaction)}
+                ${transaction.account_name ? `<div class="col-6"><p class="text-muted small mb-1">Account</p><p class="fw-semibold">${this._h(transaction.account_name)}</p></div>` : ''}
+                ${transaction.description ? `<div class="col-12"><p class="text-muted small mb-1">Description</p><p class="fw-semibold">${this._h(transaction.description)}</p></div>` : ''}
+            </div></div>`;
+        window.modalService?.open({ title: 'Karobar Transaction Details', subtitle: this._karobarTypeLabel(transaction.karobar_type), icon: 'fa-handshake', bodyHTML: html, showFooter: false });
+    }
+
     async editTransaction(id) {
-        const local = this.transactions.find(transaction => String(transaction.id) === String(id));
+        const local = this._visibleTransaction(id);
+        if (this._isStandaloneKarobar(local)) {
+            if (navigator.onLine === false) { this._notify('warning', 'Karobar transactions must be edited while online.'); return; }
+            if (!window.karobarManager) { this._notify('error', 'Karobar editor is unavailable'); return; }
+            await window.karobarManager.editTransaction(local.source_id);
+            return;
+        }
         if (local?.type === 'goal_contribution') {
             this._notify('info', 'Edit savings-goal contributions from the Goals page history.');
             return;
@@ -1826,7 +2153,11 @@ class TransactionsManager {
     }
 
     async deleteTransaction(id) {
-        const transaction = this.transactions.find(item => String(item.id) === String(id));
+        const transaction = this._visibleTransaction(id);
+        if (this._isStandaloneKarobar(transaction)) {
+            await this._deleteStandaloneKarobar(transaction);
+            return;
+        }
         if (transaction?.pending_action === 'delete') return this.undoPendingDelete(transaction.localId);
         const confirmed = window.Swal
             ? await window.Swal.fire({
@@ -1867,6 +2198,24 @@ class TransactionsManager {
             console.error('Delete transaction error:', err);
             if (this._isNetworkFailure(err)) await this._queueOfflineDelete(transaction);
             else this._notify('error', err.message || 'Failed to delete transaction');
+        }
+    }
+
+    async _deleteStandaloneKarobar(transaction) {
+        if (navigator.onLine === false) { this._notify('warning', 'Karobar transactions must be deleted while online.'); return; }
+        const confirmed = window.Swal
+            ? await window.Swal.fire({ title: 'Delete Karobar Transaction', text: 'This removes the same record shown in the Karobar ledger and cannot be undone.', icon: 'warning', showCancelButton: true, confirmButtonColor: '#EF4444', cancelButtonColor: '#6B7280', confirmButtonText: 'Yes, Delete' })
+            : { isConfirmed: confirm('Delete this Karobar transaction?') };
+        if (!confirmed.isConfirmed) return;
+        try {
+            const result = await window.Api.delete('/karobar/' + transaction.source_id);
+            if (!result?.success) throw new Error(result?.message || 'Failed to delete transaction');
+            this._invalidateCreditPurchaseCaches();
+            this._notify('success', 'Karobar transaction deleted successfully');
+            await this.loadTransactions();
+            document.dispatchEvent(new CustomEvent('app:data-changed'));
+        } catch (error) {
+            this._notify('error', error?.message || 'Failed to delete Karobar transaction');
         }
     }
 
@@ -2019,56 +2368,31 @@ class TransactionsManager {
             container.insertBefore(list, container.firstChild);
         }
 
-        // Determine which transactions to show based on current DataTable page
-        let pageData = this.transactions;
-        let dtInfo = null;
-        if (this.dataTable) {
-            try {
-                dtInfo = this.dataTable.page.info();
-                const start = dtInfo.start;
-                const end = dtInfo.end;
-                pageData = this.transactions.slice(start, end);
-            } catch (e) {}
-        }
-
-        list.innerHTML = pageData.map(t => this._buildMobileCard(t)).join('');
+        list.innerHTML = this.transactions.map(t => this._buildMobileCard(t)).join('');
 
         // Update pagination info
-        this._updateMobilePagination(dtInfo);
+        this._updateMobilePagination();
     }
 
     _buildMobileCard(t) {
         const date = t.date ? new Date(t.date + 'T00:00:00') : null;
         const day = date ? date.getDate() : '--';
-        const month = date ? date.toLocaleString('en', { month: 'short' }).toUpperCase() : '';
+        const month = date ? date.toLocaleString('en', { month: 'short' }) : '';
         const year = date ? date.getFullYear() : '';
-        const isTransfer = t.type === 'transfer';
-        const isGoalContribution = t.type === 'goal_contribution';
+        const presentation = this._transactionPresentation(t);
+        const accountParty = this._accountPartyPresentation(t);
         const amt = parseFloat(t.amount) || 0;
         const amtFmt = amt.toLocaleString('en-IN');
-        const amtPrefix = (t.type === 'expense' || isGoalContribution) ? '- ' : '+ ';
+        const amtPrefix = presentation.direction === 'out' ? '− ' : presentation.direction === 'in' ? '+ ' : '';
         const transactionId = this._h(String(t.id ?? ''));
 
         const catIcon = t.category_icon ? this._faToBi(t.category_icon) : 'bi-tag-fill';
         const catColor = Formatters.safeColor(t.category_color, '#6366f1');
-
-        let catHtml;
-        if (isTransfer) {
-            catHtml = `<div class="tx-mob-cat-icon" style="background:#3B82F6"><i class="bi bi-arrow-left-right"></i></div>
-                       <div class="tx-mob-cat-details">
-                           <div class="tx-mob-cat-name">Transfer</div>
-                           <div class="tx-mob-account">${this._h(t.from_account_name || '?')} &rarr; ${this._h(t.to_account_name || '?')}</div>
-                       </div>`;
-        } else if (isGoalContribution) {
-            catHtml = `<div class="tx-mob-cat-icon" style="background:#10B981"><i class="bi bi-bullseye"></i></div>
-                       <div class="tx-mob-cat-details"><div class="tx-mob-cat-name">Savings Goal</div><div class="tx-mob-account">${this._h(t.account_name || '--')}</div></div>`;
-        } else {
-            catHtml = `<div class="tx-mob-cat-icon" style="background:${catColor}"><i class="bi ${catIcon}"></i></div>
-                       <div class="tx-mob-cat-details">
-                           <div class="tx-mob-cat-name">${this._h(t.category_name || 'Uncategorized')}</div>
-                           <div class="tx-mob-account">${this._h(t.account_name || '--')}</div>
-                       </div>`;
-        }
+        const categoryName = t.category_name && t.category_name !== 'Karobar' ? t.category_name : '';
+        const subcategoryName = t.subcategory_name || (this._isStandaloneKarobar(t) ? this._karobarTypeLabel(t.karobar_type) : '');
+        const catHtml = categoryName
+            ? `<div class="tx-mob-cat-icon" style="background:${catColor}"><i class="bi ${catIcon}" aria-hidden="true"></i></div>`
+            : '';
 
         const pendingBusy = t._pending && t.pending_status === 'syncing';
         const pendingConflict = t._pending && t.pending_status === 'conflict';
@@ -2082,22 +2406,23 @@ class TransactionsManager {
         return `
             <div class="tx-mob-card" data-tx-id="${transactionId}">
                 <div class="tx-mob-card-top">
-                    <input type="checkbox" class="form-check-input tx-select-row" data-tx-select="${transactionId}" aria-label="Select transaction ${transactionId}" ${this.selectedIds.has(Number(t.id)) ? 'checked' : ''} ${(t.karobar_transaction_id || t._pending) ? 'disabled' : ''}>
-                    <span class="tx-mob-date">${month} ${day}, ${year}</span>
-                    <span class="tx-mob-type ${t.type}">${t.type}</span>
+                    <div class="tx-mob-type-wrap"><input type="checkbox" class="form-check-input tx-select-row" data-tx-select="${transactionId}" aria-label="Select transaction ${transactionId}" ${this.selectedIds.has(Number(t.id)) ? 'checked' : ''} ${(t.scope === 'karobar' || t._pending) ? 'disabled' : ''}><span class="tx-mob-type ${presentation.badgeClass}">${this._h(presentation.label)}</span></div>
+                    <span class="tx-mob-amount ${presentation.moneyClass}">${amtPrefix}Rs ${amtFmt}</span>
+                    ${t.recurring_definition_id ? `<span class="badge rounded-pill text-bg-light border" title="Scheduled ${this._h(t.recurring_occurrence_date || '')}"><i class="bi bi-arrow-repeat"></i> Recurring</span>` : ''}
                     ${t._pending ? `<span class="badge ${this._pendingBadgeClass(t)}">${this._pendingLabel(t)}</span>` : ''}
                 </div>
                 <div class="tx-mob-card-mid">
-                    ${catHtml}
+                    ${catHtml}<div class="tx-mob-cat-details"><div class="tx-mob-cat-name">${this._h(categoryName || '—')}${subcategoryName ? `<span class="tx-mob-subcategory"> · ${this._h(subcategoryName)}</span>` : ''}</div><div class="tx-mob-account"><strong>${this._h(accountParty.primary || '—')}</strong>${accountParty.secondary ? ` · ${this._h(accountParty.secondary)}` : ''}</div></div>
                 </div>
+                <div class="tx-mob-description" title="${this._h(t.description || '')}">${this._h(t.description || '—')}</div>
                 <div class="tx-mob-card-bottom">
-                    <span class="tx-mob-amount ${t.type}">${amtPrefix}Rs ${amtFmt}</span>
+                    <span class="tx-mob-date">${month} ${day}, ${year}</span>
                     <div class="tx-mob-actions">
-                        <button class="tx-mob-action view" data-tx-view="${transactionId}" title="View" ${t._pending ? 'disabled' : ''}><i class="bi bi-eye"></i></button>
-                        <button class="tx-mob-action edit" data-tx-edit="${transactionId}" title="Edit" ${(t._pending && (pendingDelete || pendingBusy || pendingConflict)) ? 'disabled' : ''}><i class="bi bi-pencil"></i></button>
+                        <button type="button" class="tx-mob-action view" data-tx-view="${transactionId}" title="View transaction" aria-label="View transaction" ${t._pending ? 'disabled' : ''}><i class="bi bi-eye" aria-hidden="true"></i></button>
+                        <button type="button" class="tx-mob-action edit" data-tx-edit="${transactionId}" title="Edit transaction" aria-label="Edit transaction" ${(t._pending && (pendingDelete || pendingBusy || pendingConflict)) ? 'disabled' : ''}><i class="bi bi-pencil" aria-hidden="true"></i></button>
                         ${pendingDelete
-                            ? `<button class="tx-mob-action" data-sync-undo="${this._h(t.localId)}" title="Undo deletion" ${pendingBusy || pendingConflict ? 'disabled' : ''}><i class="bi bi-arrow-counterclockwise"></i></button>`
-                            : `<button class="tx-mob-action delete" data-tx-delete="${transactionId}" title="Delete" ${(t._pending && (pendingBusy || pendingConflict)) ? 'disabled' : ''}><i class="bi bi-trash3"></i></button>`}
+                            ? `<button type="button" class="tx-mob-action" data-sync-undo="${this._h(t.localId)}" title="Undo deletion" aria-label="Undo deletion" ${pendingBusy || pendingConflict ? 'disabled' : ''}><i class="bi bi-arrow-counterclockwise" aria-hidden="true"></i></button>`
+                            : `<button type="button" class="tx-mob-action delete" data-tx-delete="${transactionId}" title="Delete transaction" aria-label="Delete transaction" ${(t._pending && (pendingBusy || pendingConflict)) ? 'disabled' : ''}><i class="bi bi-trash3" aria-hidden="true"></i></button>`}
                         ${mobileAttentionAction}
                     </div>
                 </div>
@@ -2116,39 +2441,28 @@ class TransactionsManager {
         }
 
         this._mobPrevHandler = () => {
-            if (this.dataTable) {
-                this.dataTable.page('previous').draw('page');
-                this._renderMobileCards();
-            }
+            if (this.pagination?.has_previous) this.loadTransactions(this.currentPage - 1);
         };
         this._mobNextHandler = () => {
-            if (this.dataTable) {
-                this.dataTable.page('next').draw('page');
-                this._renderMobileCards();
-            }
+            if (this.pagination?.has_next) this.loadTransactions(this.currentPage + 1);
         };
 
         if (prevBtn) prevBtn.addEventListener('click', this._mobPrevHandler);
         if (nextBtn) nextBtn.addEventListener('click', this._mobNextHandler);
     }
 
-    _updateMobilePagination(dtInfo) {
+    _updateMobilePagination() {
         const infoEl = document.getElementById('tx-mob-page-info');
         const totalEl = document.getElementById('tx-mob-total');
         const prevBtn = document.getElementById('tx-mob-page-prev');
         const nextBtn = document.getElementById('tx-mob-page-next');
 
-        if (dtInfo) {
-            if (infoEl) infoEl.textContent = dtInfo.page + 1;
-            if (totalEl) totalEl.textContent = dtInfo.recordsTotal + ' transaction' + (dtInfo.recordsTotal !== 1 ? 's' : '');
-            if (prevBtn) prevBtn.disabled = dtInfo.page <= 0;
-            if (nextBtn) nextBtn.disabled = dtInfo.page >= dtInfo.pages - 1;
-        } else {
-            if (infoEl) infoEl.textContent = '1';
-            if (totalEl) totalEl.textContent = this.transactions.length + ' transaction' + (this.transactions.length !== 1 ? 's' : '');
-            if (prevBtn) prevBtn.disabled = true;
-            if (nextBtn) nextBtn.disabled = true;
-        }
+        const page = Number(this.pagination?.page || this.currentPage || 1);
+        const total = Number(this.pagination?.total_rows || this.transactions.length);
+        if (infoEl) infoEl.textContent = String(page);
+        if (totalEl) totalEl.textContent = total + ' transaction' + (total !== 1 ? 's' : '');
+        if (prevBtn) prevBtn.disabled = !this.pagination?.has_previous;
+        if (nextBtn) nextBtn.disabled = !this.pagination?.has_next;
     }
 
     _unbindMobilePagination() {

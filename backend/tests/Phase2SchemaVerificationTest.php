@@ -238,7 +238,7 @@ try {
     $fresh = phase2DatabaseConnection($freshDatabase);
 
     $run('empty database imports the canonical schema', function () use ($fresh): void {
-        phase2Assert((int)$fresh->query('SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE()')->fetchColumn() === 18, 'Fresh schema did not create 18 required tables.');
+        phase2Assert((int)$fresh->query('SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE()')->fetchColumn() === 22, 'Fresh schema did not create 22 required tables.');
         phase2Assert((int)$fresh->query('SELECT COUNT(*) FROM categories')->fetchColumn() === 0, 'Canonical schema inserted duplicate-prone global categories.');
     });
 

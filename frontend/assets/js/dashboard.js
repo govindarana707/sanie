@@ -9,6 +9,11 @@ class DashboardManager {
         this._isLoading = false;
         this._reloadPending = false;
         this._customApplyHandler = null;
+        this._healthBreakdownHandler = null;
+        this._viewportHandler = null;
+        this._viewportFrame = null;
+        this._hasRendered = false;
+        this._renderedUserId = null;
     }
 
     adjustMobileNavPadding() {
@@ -22,11 +27,21 @@ class DashboardManager {
             }
         };
         update();
-        window.addEventListener('resize', update);
-        window.addEventListener('orientationchange', update);
+        this._viewportHandler = () => {
+            if (this._viewportFrame !== null) return;
+            const scheduleFrame = window.requestAnimationFrame || (callback => setTimeout(callback, 0));
+            this._viewportFrame = scheduleFrame(() => {
+                this._viewportFrame = null;
+                update();
+            });
+        };
+        window.addEventListener('resize', this._viewportHandler, { passive: true });
+        window.addEventListener('orientationchange', this._viewportHandler, { passive: true });
     }
 
     onMount() {
+        const userId = window.authManager?.getCurrentUser?.()?.id;
+        if (String(this._renderedUserId ?? '') !== String(userId ?? '')) this._hasRendered = false;
         this.adjustMobileNavPadding();
         this.setupEventListeners();
         this.setDashboardGreeting();
@@ -40,6 +55,16 @@ class DashboardManager {
     }
 
     onUnmount() {
+        if (this._viewportHandler) {
+            window.removeEventListener('resize', this._viewportHandler);
+            window.removeEventListener('orientationchange', this._viewportHandler);
+            this._viewportHandler = null;
+        }
+        if (this._viewportFrame !== null) {
+            const cancelFrame = window.cancelAnimationFrame || clearTimeout;
+            cancelFrame(this._viewportFrame);
+            this._viewportFrame = null;
+        }
         if (this._periodHandler) {
             const menu = document.getElementById('dashboard-period-menu');
             if (menu) {
@@ -56,6 +81,11 @@ class DashboardManager {
             applyBtn.removeEventListener('click', this._customApplyHandler);
             this._customApplyHandler = null;
         }
+        const breakdownToggle = document.getElementById('health-breakdown-toggle');
+        if (breakdownToggle && this._healthBreakdownHandler) {
+            breakdownToggle.removeEventListener('click', this._healthBreakdownHandler);
+            this._healthBreakdownHandler = null;
+        }
         if (window.ChartService) {
             ChartService.destroy('#incomeExpenseChart');
             ChartService.destroy('#categoryChart');
@@ -63,6 +93,20 @@ class DashboardManager {
     }
 
     setupEventListeners() {
+        const breakdownToggle = document.getElementById('health-breakdown-toggle');
+        if (breakdownToggle) {
+            if (this._healthBreakdownHandler) breakdownToggle.removeEventListener('click', this._healthBreakdownHandler);
+            this._healthBreakdownHandler = () => {
+                const breakdown = document.getElementById('health-breakdown');
+                if (!breakdown) return;
+                const isOpening = breakdown.hidden;
+                breakdown.hidden = !isOpening;
+                breakdownToggle.setAttribute('aria-expanded', String(isOpening));
+                breakdownToggle.innerHTML = `${isOpening ? 'Hide' : 'View'} breakdown <i class="bi bi-chevron-${isOpening ? 'up' : 'down'}" aria-hidden="true"></i>`;
+            };
+            breakdownToggle.addEventListener('click', this._healthBreakdownHandler);
+        }
+
         const menu = document.getElementById('dashboard-period-menu');
         if (menu) {
             menu.removeEventListener('click', this._periodHandler);
@@ -258,43 +302,9 @@ class DashboardManager {
             return { startDate: this.customStartDate, endDate: this.customEndDate };
         }
 
-        const now = new Date();
-        let startDate, endDate;
-        const localDate = (date) => {
-            const year = date.getFullYear();
-            const month = String(date.getMonth() + 1).padStart(2, '0');
-            const day = String(date.getDate()).padStart(2, '0');
-            return `${year}-${month}-${day}`;
-        };
-
-        switch (this.currentPeriod) {
-            case 'today':
-                startDate = endDate = localDate(now);
-                break;
-            case 'week': {
-                const weekStart = new Date(now);
-                const dow = now.getDay();
-                weekStart.setDate(now.getDate() - (dow === 0 ? 6 : dow - 1));
-                startDate = localDate(weekStart);
-                const weekEnd = new Date(weekStart);
-                weekEnd.setDate(weekStart.getDate() + 6);
-                endDate = localDate(weekEnd);
-                break;
-            }
-            case 'month':
-                startDate = localDate(new Date(now.getFullYear(), now.getMonth(), 1));
-                endDate = localDate(new Date(now.getFullYear(), now.getMonth() + 1, 0));
-                break;
-            case 'year':
-                startDate = localDate(new Date(now.getFullYear(), 0, 1));
-                endDate = localDate(new Date(now.getFullYear(), 11, 31));
-                break;
-            default:
-                startDate = localDate(new Date(now.getFullYear(), now.getMonth(), 1));
-                endDate = localDate(new Date(now.getFullYear(), now.getMonth() + 1, 0));
-        }
-
-        return { startDate, endDate };
+        const period = ['today', 'week', 'month', 'year'].includes(this.currentPeriod) ? this.currentPeriod : 'month';
+        const range = DateUtils.getKathmanduRange(period);
+        return { startDate: range.start, endDate: range.end };
     }
 
     updatePeriodLabel() {
@@ -383,7 +393,7 @@ class DashboardManager {
     }
 
     renderDashboardData(data) {
-        this.updateStatistics(data.statistics, data.total_balance, data.savings_balance);
+        this.updateStatistics(data.statistics, data.today_statistics, data.total_balance, data.savings_balance);
         this.updateCreditCards(data.total_receivable, data.total_payable, data.net_worth);
         this.updateHealthScore(data.financial_health_score);
         this.updateRecentTransactions(data.recent_transactions);
@@ -393,6 +403,8 @@ class DashboardManager {
         this.updateAccountsOverview(data.accounts_overview);
         this.updateCharts(data);
         this.handleEmptyStates(data);
+        this._hasRendered = true;
+        this._renderedUserId = window.authManager?.getCurrentUser?.()?.id ?? null;
     }
 
     async loadOfflineSnapshot() {
@@ -448,10 +460,13 @@ class DashboardManager {
 
     showLoading(show) {
         const overlay = document.getElementById('dashboard-loading-overlay');
+        const page = document.getElementById('dashboard-page');
         if (overlay) {
-            overlay.style.display = show ? 'flex' : 'none';
+            overlay.style.display = show && !this._hasRendered ? 'flex' : 'none';
             overlay.setAttribute('aria-busy', show ? 'true' : 'false');
         }
+        page?.classList.toggle('is-updating', Boolean(show && this._hasRendered));
+        page?.setAttribute('aria-busy', show ? 'true' : 'false');
     }
 
     updateCreditCards(receivable, payable, netWorth) {
@@ -481,7 +496,7 @@ class DashboardManager {
             payableChange.textContent = p > 0 ? `${Formatters.currency(p)} outstanding` : 'Nothing pending';
         }
         if (netWorthChange) {
-            netWorthChange.textContent = 'Cash + Receivable - Payable';
+            netWorthChange.textContent = 'Net Balance + Goals + Receivable - Payable';
         }
     }
 
@@ -564,54 +579,29 @@ class DashboardManager {
 
         container.innerHTML = accounts.map(account => {
             const balance = parseFloat(account.calculated_balance ?? account.balance) || 0;
-            const totalIncome = parseFloat(account.total_income) || 0;
-            const totalExpense = parseFloat(account.total_expense) || 0;
-            const lastTxDate = account.last_transaction_date;
             const icon = accountTypeIcons[account.type] || 'bi-wallet2';
             const typeLabel = accountTypeLabels[account.type] || 'Account';
             const color = Formatters.safeColor(account.color, '#10B981');
             const accountId = Number.isInteger(Number(account.id)) && Number(account.id) > 0 ? Number(account.id) : 0;
 
-            let lastTransactionText = 'No transactions';
-            if (lastTxDate) {
-                const d = new Date(lastTxDate);
-                const now = new Date();
-                const diffMs = now - d;
-                const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
-                if (diffDays === 0) lastTransactionText = 'Today';
-                else if (diffDays === 1) lastTransactionText = 'Yesterday';
-                else if (diffDays < 7) lastTransactionText = `${diffDays} days ago`;
-                else lastTransactionText = Formatters.date(lastTxDate);
-            }
-
             return `
-                <div class="account-card" onclick="window.appRouter?.navigate('account-details?id=${accountId}')" style="cursor:pointer;">
+                <div class="account-card dashboard-account-card" onclick="window.appRouter?.navigate('account-details?id=${accountId}')" style="cursor:pointer;">
                     <div class="account-card-header">
                         <div class="account-card-icon" style="background:${color}15;color:${color}">
                             <i class="bi ${icon}"></i>
                         </div>
                         <div class="account-card-info">
                             <h4 class="account-card-name">${Formatters.escapeHTML(account.name)}</h4>
-                            <span class="account-card-type">${typeLabel}</span>
-                        </div>
+                        <span class="account-card-type">${typeLabel}</span>
+                        ${String(account.include_in_net_balance) === '0' ? '<span class="account-card-net-excluded">Excluded from Net Balance</span>' : ''}
+                    </div>
                         ${account.is_default ? '<span class="account-card-badge">Default</span>' : ''}
                     </div>
                     <div class="account-card-balance">
                         <span class="account-card-balance-label">Current Balance</span>
                         <span class="account-card-balance-value">${Formatters.currency(balance)}</span>
                     </div>
-                    <div class="account-card-stats">
-                        <div class="account-card-stat">
-                            <span class="stat-mini-label">Income</span>
-                            <span class="stat-mini-value income">${Formatters.currency(totalIncome)}</span>
-                        </div>
-                        <div class="account-card-stat">
-                            <span class="stat-mini-label">Expense</span>
-                            <span class="stat-mini-value expense">${Formatters.currency(totalExpense)}</span>
-                        </div>
-                    </div>
                     <div class="account-card-footer">
-                        <span class="account-card-last-tx"><i class="bi bi-clock"></i> ${lastTransactionText}</span>
                         <span class="account-card-view">View Statement <i class="bi bi-arrow-right"></i></span>
                     </div>
                 </div>
@@ -631,7 +621,7 @@ class DashboardManager {
         const healthScoreEl = document.getElementById('health-score');
         const healthStatusEl = document.getElementById('health-status');
         const hs = data.financial_health_score;
-        if (!hs || hs.score === undefined || hs.score === null) {
+        if (!hs || hs.has_sufficient_data === undefined) {
             if (healthScoreEl) healthScoreEl.textContent = '--';
             if (healthStatusEl) healthStatusEl.textContent = 'Add transactions to calculate your score';
         }
@@ -691,7 +681,7 @@ class DashboardManager {
         }
     }
 
-    updateStatistics(stats, totalBalance, savingsBalance) {
+    updateStatistics(stats, todayStats, totalBalance, savingsBalance) {
         if (!stats) return;
         const animateCounter = (elementId, endValue, prefix = 'Rs ') => {
             const element = document.getElementById(elementId);
@@ -703,6 +693,7 @@ class DashboardManager {
 
         animateCounter('stat-income', stats.total_income || 0);
         animateCounter('stat-expense', stats.total_expense || 0);
+        animateCounter('stat-today-expense', todayStats?.total_expense || 0);
         animateCounter('stat-savings', savingsBalance || 0);
         animateCounter('stat-balance', totalBalance || 0);
 
@@ -719,15 +710,23 @@ class DashboardManager {
 
         const incomeCount = stats.income_count || 0;
         const expenseCount = stats.expense_count || 0;
+        const todayExpenseCount = todayStats?.expense_count || 0;
         const periodLabel = this.getPeriodLabel();
 
+        setChange('stat-today-expense-change',
+            todayExpenseCount > 0
+                ? `${todayExpenseCount} transaction${todayExpenseCount !== 1 ? 's' : ''} today`
+                : 'Today',
+            ''
+        );
+
         setChange('stat-income-change',
-            incomeCount > 0 ? `${incomeCount} transaction${incomeCount !== 1 ? 's' : ''} ${periodLabel.toLowerCase() === 'today' ? 'today' : 'this period'}` : 'No data yet',
+            incomeCount > 0 ? `${incomeCount} transaction${incomeCount !== 1 ? 's' : ''} ${periodLabel.toLowerCase() === 'today' ? 'today' : 'this period'}` : 'This period',
             incomeCount > 0 ? 'positive' : ''
         );
 
         setChange('stat-expense-change',
-            expenseCount > 0 ? `${expenseCount} transaction${expenseCount !== 1 ? 's' : ''} ${periodLabel.toLowerCase() === 'today' ? 'today' : 'this period'}` : 'No data yet',
+            expenseCount > 0 ? `${expenseCount} transaction${expenseCount !== 1 ? 's' : ''} ${periodLabel.toLowerCase() === 'today' ? 'today' : 'this period'}` : 'This period',
             expenseCount > 0 ? 'negative' : ''
         );
 
@@ -740,7 +739,7 @@ class DashboardManager {
                 isPositive ? 'positive' : 'negative'
             );
         } else {
-            setChange('stat-savings-change', 'No data yet', '');
+            setChange('stat-savings-change', 'Current savings', '');
         }
 
         // Balance supporting text
@@ -751,21 +750,68 @@ class DashboardManager {
     }
 
     updateHealthScore(healthScore) {
-        if (!healthScore) return;
         const scoreEl = document.getElementById('health-score');
         const statusEl = document.getElementById('health-status');
         const progress = document.getElementById('health-progress');
+        const card = document.querySelector('#dashboard-page .health-score-card');
+        const toggle = document.getElementById('health-breakdown-toggle');
+        const breakdown = document.getElementById('health-breakdown');
+        const gaugeLabel = document.getElementById('health-gauge-label');
+        const rawScore = Number(healthScore?.score);
+        const hasScore = Boolean(healthScore?.has_sufficient_data) && Number.isFinite(rawScore);
+        const score = hasScore ? Math.max(0, Math.min(100, Math.round(rawScore))) : 0;
+        const state = hasScore ? this.healthState(healthScore?.state, healthScore?.status) : 'neutral';
 
-        if (scoreEl) scoreEl.textContent = healthScore.score || '--';
-        if (statusEl) statusEl.textContent = healthScore.status || 'No score data';
+        if (scoreEl) scoreEl.textContent = hasScore ? score : '—';
+        if (statusEl) statusEl.textContent = hasScore ? healthScore.status : 'Not enough data';
+        if (card) card.dataset.healthState = state;
+        if (gaugeLabel) gaugeLabel.textContent = hasScore
+            ? `Financial health score: ${score} out of 100, ${healthScore.status}`
+            : 'Financial health score: not enough data';
 
-        if (progress && healthScore.score) {
-            progress.setAttribute('stroke-dasharray', `${healthScore.score}, 100`);
-            if (healthScore.score >= 80) progress.style.stroke = '#10B981';
-            else if (healthScore.score >= 60) progress.style.stroke = '#34D399';
-            else if (healthScore.score >= 40) progress.style.stroke = '#F59E0B';
-            else progress.style.stroke = '#EF4444';
+        if (progress) {
+            progress.setAttribute('stroke-dasharray', `${score}, 100`);
+            progress.style.stroke = 'var(--health-accent)';
         }
+
+        this.updateHealthBreakdown(healthScore?.breakdown, hasScore);
+        if (toggle) toggle.hidden = !hasScore;
+        if (!hasScore && breakdown) {
+            breakdown.hidden = true;
+            toggle?.setAttribute('aria-expanded', 'false');
+            if (toggle) toggle.innerHTML = 'View breakdown <i class="bi bi-chevron-down" aria-hidden="true"></i>';
+        }
+    }
+
+    healthState(state, status) {
+        const validStates = ['critical', 'needs-attention', 'fair', 'good', 'very-good', 'excellent'];
+        if (validStates.includes(state)) return state;
+        return {
+            'Critical': 'critical',
+            'Needs Attention': 'needs-attention',
+            'Fair': 'fair',
+            'Good': 'good',
+            'Very Good': 'very-good',
+            'Excellent': 'excellent'
+        }[status] || 'critical';
+    }
+
+    updateHealthBreakdown(breakdown, hasScore) {
+        const components = [
+            ['health-breakdown-savings-rate', 'savings_rate', 30],
+            ['health-breakdown-income-expense', 'income_vs_expense', 25],
+            ['health-breakdown-net-balance', 'net_balance', 20],
+            ['health-breakdown-payable', 'debt_payable', 15],
+            ['health-breakdown-stability', 'stability_activity', 10]
+        ];
+        components.forEach(([id, key, maximum]) => {
+            const element = document.getElementById(id);
+            if (!element) return;
+            const points = Number(breakdown?.[key]);
+            element.textContent = hasScore && Number.isFinite(points)
+                ? `${Math.max(0, Math.min(maximum, Math.round(points)))}/${maximum}`
+                : `—/${maximum}`;
+        });
     }
 
     updateRecentTransactions(transactions) {

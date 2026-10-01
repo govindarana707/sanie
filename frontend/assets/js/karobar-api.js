@@ -9,7 +9,10 @@ const karobarAPI = {
             .forEach(pattern => api.constructor.invalidateCache(pattern));
     },
     async getPeople(filters = {}) {
-        const params = new URLSearchParams(filters);
+        const params = new URLSearchParams();
+        Object.entries(filters).forEach(([key, value]) => {
+            if (value !== undefined && value !== null && value !== '') params.set(key, String(value));
+        });
         return api.get(`/people?${params}`);
     },
 
@@ -35,8 +38,8 @@ const karobarAPI = {
         return result;
     },
 
-    async getPersonLedger(personId, options = {}) {
-        return api.get(`/people/${personId}/ledger`, options);
+    async getPersonLedger(personId, params = {}, options = {}) {
+        return api.get(`/people/${personId}/ledger?${new URLSearchParams(params)}`, options);
     },
 
     async getTransactions(filters = {}) {

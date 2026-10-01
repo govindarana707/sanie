@@ -8,29 +8,35 @@ class NotificationsManager {
         this.unreadCount = 0;
         this._pollInterval = null;
         this._dropdownBound = false;
+        this._pageController = null;
+        this._visibilityHandler = null;
+        this._recentNotifications = [];
     }
 
     async onMount() {
+        this._pageController?.abort();
+        this._pageController = new AbortController();
         this.filters = {};
         this.currentPage = 1;
-        this.bindPageEvents();
+        this.bindPageEvents(this._pageController.signal);
         await this.loadNotifications();
     }
 
     onUnmount() {
-        this.stopPolling();
+        this._pageController?.abort();
+        this._pageController = null;
         const dropdown = document.getElementById('notif-dropdown');
         if (dropdown) dropdown.classList.remove('show');
     }
 
-    bindPageEvents() {
+    bindPageEvents(signal) {
         const searchInput = document.getElementById('notif-search-input');
         if (searchInput) {
             searchInput.addEventListener('input', this._debounce(() => {
                 this.filters.search = searchInput.value || undefined;
                 this.currentPage = 1;
                 this.loadNotifications();
-            }, 400));
+            }, 220, signal), { signal });
         }
 
         document.querySelectorAll('.notif-filter-btn[data-filter]').forEach(btn => {
@@ -47,7 +53,7 @@ class NotificationsManager {
                 }
                 this.currentPage = 1;
                 this.loadNotifications();
-            });
+            }, { signal });
         });
 
         document.querySelectorAll('.notif-filter-btn[data-period]').forEach(btn => {
@@ -62,7 +68,7 @@ class NotificationsManager {
                 }
                 this.currentPage = 1;
                 this.loadNotifications();
-            });
+            }, { signal });
         });
 
         const selectAllBtn = document.getElementById('notif-select-all');
@@ -74,6 +80,27 @@ class NotificationsManager {
         if (deleteAllBtn) {
             deleteAllBtn.onclick = () => this.deleteAll();
         }
+
+        document.getElementById('notif-page-body')?.addEventListener('click', event => {
+            const action = event.target.closest?.('.notif-item-action');
+            const item = event.target.closest?.('.notif-item');
+            if (!action || !item) return;
+            event.stopPropagation();
+            const id = Number(item.dataset.id);
+            if (!Number.isInteger(id) || id < 1) return;
+            if (action.classList.contains('read')) this.toggleRead(id);
+            if (action.classList.contains('delete')) this.deleteNotification(id);
+            if (action.classList.contains('view') && item.dataset.refType && item.dataset.refId) {
+                this.navigateToReference(item.dataset.refType, item.dataset.refId);
+            }
+        }, { signal });
+
+        document.getElementById('notif-page-pagination')?.addEventListener('click', event => {
+            const button = event.target.closest?.('.notif-page-btn:not([disabled])');
+            if (!button) return;
+            this.currentPage = Number(button.dataset.page) || 1;
+            this.loadNotifications();
+        }, { signal });
     }
 
     async loadNotifications() {
@@ -86,7 +113,7 @@ class NotificationsManager {
                 this.unreadCount = response.data.unread_count;
                 this.renderNotifications();
                 this.renderPagination();
-                this.updateBadge();
+                this._renderBadge();
             }
         } catch (error) {
             console.error('Failed to load notifications:', error);
@@ -114,30 +141,6 @@ class NotificationsManager {
         html += '</div>';
         body.innerHTML = html;
 
-        body.querySelectorAll('.notif-item').forEach(item => {
-            const id = parseInt(item.dataset.id);
-
-            item.querySelector('.notif-item-action.read')?.addEventListener('click', (e) => {
-                e.stopPropagation();
-                this.toggleRead(id);
-            });
-
-            item.querySelector('.notif-item-action.delete')?.addEventListener('click', (e) => {
-                e.stopPropagation();
-                this.deleteNotification(id);
-            });
-
-            if (item.querySelector('.notif-item-action.view')) {
-                item.querySelector('.notif-item-action.view').addEventListener('click', (e) => {
-                    e.stopPropagation();
-                    const refType = item.dataset.refType;
-                    const refId = item.dataset.refId;
-                    if (refType && refId) {
-                        this.navigateToReference(refType, refId);
-                    }
-                });
-            }
-        });
     }
 
     _renderNotifItem(n, showActions = false) {
@@ -197,12 +200,6 @@ class NotificationsManager {
         html += '</div>';
         container.innerHTML = html;
 
-        container.querySelectorAll('.notif-page-btn:not([disabled])').forEach(btn => {
-            btn.addEventListener('click', () => {
-                this.currentPage = parseInt(btn.dataset.page);
-                this.loadNotifications();
-            });
-        });
     }
 
     async toggleRead(id) {
@@ -212,12 +209,14 @@ class NotificationsManager {
 
             if (notif.is_read) {
                 notif.is_read = 0;
+                this.unreadCount++;
             } else {
                 await notificationsAPI.markAsRead(id);
                 notif.is_read = 1;
+                this.unreadCount = Math.max(0, this.unreadCount - 1);
             }
             this.renderNotifications();
-            this.updateBadge();
+            this._renderBadge();
         } catch (error) {
             console.error('Failed to toggle read:', error);
         }
@@ -225,12 +224,14 @@ class NotificationsManager {
 
     async deleteNotification(id) {
         try {
+            const deleted = this.notifications.find(n => n.id === id);
             await notificationsAPI.delete(id);
             this.notifications = this.notifications.filter(n => n.id !== id);
+            if (deleted && !deleted.is_read) this.unreadCount = Math.max(0, this.unreadCount - 1);
             this.totalNotifications--;
             this.renderNotifications();
             this.renderPagination();
-            this.updateBadge();
+            this._renderBadge();
             NotificationService.success('Notification deleted');
         } catch (error) {
             NotificationService.error('Failed to delete notification');
@@ -243,7 +244,7 @@ class NotificationsManager {
             this.notifications.forEach(n => n.is_read = 1);
             this.unreadCount = 0;
             this.renderNotifications();
-            this.updateBadge();
+            this._renderBadge();
             NotificationService.success('All notifications marked as read');
         } catch (error) {
             NotificationService.error('Failed to mark all as read');
@@ -265,7 +266,7 @@ class NotificationsManager {
             this.unreadCount = 0;
             this.renderNotifications();
             this.renderPagination();
-            this.updateBadge();
+            this._renderBadge();
             NotificationService.success('All notifications deleted');
         } catch (error) {
             NotificationService.error('Failed to delete notifications');
@@ -292,6 +293,14 @@ class NotificationsManager {
     }
 
     async _fetchUnreadCount() {
+        try {
+            await recurringTransactionsAPI.processDue();
+        } catch (e) {
+        }
+        try {
+            await tasksAPI.processReminders();
+        } catch (e) {
+        }
         try {
             const response = await notificationsAPI.getUnreadCount();
             if (response.success) {
@@ -325,13 +334,26 @@ class NotificationsManager {
 
     startPolling(interval = 60000) {
         this.stopPolling();
-        this._pollInterval = setInterval(() => this._fetchUnreadCount(), interval);
+        const refreshWhenVisible = () => {
+            if (document.visibilityState === 'visible' && window.authManager?.isAuthenticated?.()) {
+                this._fetchUnreadCount();
+            }
+        };
+        this._pollInterval = setInterval(refreshWhenVisible, Math.max(60000, Number(interval) || 60000));
+        this._visibilityHandler = () => {
+            if (document.visibilityState === 'visible') refreshWhenVisible();
+        };
+        document.addEventListener('visibilitychange', this._visibilityHandler);
     }
 
     stopPolling() {
         if (this._pollInterval) {
             clearInterval(this._pollInterval);
             this._pollInterval = null;
+        }
+        if (this._visibilityHandler) {
+            document.removeEventListener('visibilitychange', this._visibilityHandler);
+            this._visibilityHandler = null;
         }
     }
 
@@ -344,6 +366,7 @@ class NotificationsManager {
         const dropdown = document.getElementById('notif-dropdown');
         const markAllBtn = document.getElementById('notif-mark-all-read');
         const viewAllBtn = document.getElementById('notif-view-all');
+        const dropdownBody = document.getElementById('notif-dropdown-body');
 
         if (!bellBtn || !dropdown) return;
 
@@ -365,6 +388,35 @@ class NotificationsManager {
 
         dropdown.addEventListener('click', (e) => {
             e.stopPropagation();
+        });
+
+        this._dropdownViewportHandler = () => {
+            if (dropdown.classList.contains('show')) this._positionDropdown();
+        };
+        window.addEventListener('resize', this._dropdownViewportHandler);
+
+        dropdownBody?.addEventListener('click', async event => {
+            const item = event.target.closest?.('.notif-item');
+            if (!item) return;
+            const id = Number(item.dataset.id);
+            const notif = this._recentNotifications.find(entry => Number(entry.id) === id);
+            if (!notif) return;
+            try {
+                if (!notif.is_read) {
+                    await notificationsAPI.markAsRead(id);
+                    notif.is_read = 1;
+                    this.unreadCount = Math.max(0, this.unreadCount - 1);
+                    this._renderBadge();
+                    item.classList.remove('unread');
+                    item.classList.add('read');
+                }
+                if (notif.reference_type && notif.reference_id) {
+                    this._closeDropdown();
+                    this.navigateToReference(notif.reference_type, notif.reference_id);
+                }
+            } catch (error) {
+                NotificationService.error('Failed to update notification');
+            }
         });
 
         if (markAllBtn) {
@@ -404,7 +456,21 @@ class NotificationsManager {
             if (backdrop) backdrop.classList.remove('show');
         }
         dropdown.classList.add('show');
+        this._positionDropdown();
         await this._loadDropdownNotifications();
+    }
+
+    _positionDropdown() {
+        const dropdown = document.getElementById('notif-dropdown');
+        const header = document.querySelector('.top-nav');
+        if (!dropdown || !header || !window.matchMedia('(max-width: 991px)').matches) {
+            dropdown?.style.removeProperty('--notif-mobile-top');
+            return;
+        }
+        // Align to the actual header edge so wrapping mobile controls cannot
+        // push the panel outside of the visible viewport.
+        const top = Math.ceil(header.getBoundingClientRect().bottom + 8);
+        dropdown.style.setProperty('--notif-mobile-top', `${top}px`);
     }
 
     _closeDropdown() {
@@ -423,6 +489,7 @@ class NotificationsManager {
                 this._renderBadge();
 
                 const notifs = response.data.notifications;
+                this._recentNotifications = notifs;
                 if (notifs.length === 0) {
                     body.innerHTML = `
                         <div class="notif-empty">
@@ -437,25 +504,6 @@ class NotificationsManager {
                     html += this._renderNotifItem(n, false);
                 });
                 body.innerHTML = html;
-
-                body.querySelectorAll('.notif-item').forEach(item => {
-                    const id = parseInt(item.dataset.id);
-                    item.addEventListener('click', async () => {
-                        const notif = notifs.find(n => n.id === id);
-                        if (notif && !notif.is_read) {
-                            await notificationsAPI.markAsRead(id);
-                            notif.is_read = 1;
-                            this.unreadCount = Math.max(0, this.unreadCount - 1);
-                            this._renderBadge();
-                            item.classList.remove('unread');
-                            item.classList.add('read');
-                        }
-                        if (notif && notif.reference_type && notif.reference_id) {
-                            this._closeDropdown();
-                            this.navigateToReference(notif.reference_type, notif.reference_id);
-                        }
-                    });
-                });
             }
         } catch (error) {
             body.innerHTML = `
@@ -467,7 +515,7 @@ class NotificationsManager {
     }
 
     _timeAgo(dateStr) {
-        const date = new Date(dateStr.replace(' ', 'T') + (dateStr.includes('+') ? '' : 'Z'));
+        const date = DateUtils.parseKathmanduDateTime(dateStr);
         const now = new Date();
         const seconds = Math.floor((now - date) / 1000);
 
@@ -488,9 +536,11 @@ class NotificationsManager {
         return div.innerHTML;
     }
 
-    _debounce(fn, delay) {
+    _debounce(fn, delay, signal = null) {
         let timer;
+        signal?.addEventListener('abort', () => clearTimeout(timer), { once: true });
         return (...args) => {
+            if (signal?.aborted) return;
             clearTimeout(timer);
             timer = setTimeout(() => fn(...args), delay);
         };

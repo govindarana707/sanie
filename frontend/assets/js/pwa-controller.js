@@ -2,7 +2,12 @@
 (function initializeSanIEPWA(window) {
     'use strict';
 
-    const APP_FRONTEND_PATH = '/sanie/frontend/';
+    // Resolve from the deployed document location. This is `/` in production
+    // and remains `/sanie/frontend/` for the existing local subdirectory setup.
+    const APP_FRONTEND_URL = new URL('./', document.baseURI || window.location.href);
+    const APP_FRONTEND_PATH = APP_FRONTEND_URL.pathname.endsWith('/')
+        ? APP_FRONTEND_URL.pathname
+        : `${APP_FRONTEND_URL.pathname}/`;
 
     class SanIEPWAController {
         constructor() {
@@ -158,13 +163,15 @@
             if (!('serviceWorker' in navigator)) return;
 
             try {
-                const frontendUrl = new URL(APP_FRONTEND_PATH, window.location.origin);
-                const serviceWorkerUrl = new URL('service-worker.js', frontendUrl);
+                const serviceWorkerUrl = new URL('service-worker.js', APP_FRONTEND_URL);
                 this.registration = await navigator.serviceWorker.register(serviceWorkerUrl.href, {
                     scope: APP_FRONTEND_PATH
                 });
                 this.observeRegistration(this.registration);
-                await this.registration.update().catch(() => undefined);
+                if (this.sessionGet('sanie-sw-update-checked') !== '1') {
+                    this.sessionSet('sanie-sw-update-checked', '1');
+                    await this.registration.update().catch(() => undefined);
+                }
             } catch (error) {
                 console.warn('SanIE service worker registration failed:', error.message);
             }

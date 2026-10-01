@@ -76,17 +76,9 @@ window.DatePickerManager = DatePickerManager;
 class PremiumModal {
     constructor() {
         this.el = document.getElementById('appModal');
-        this.bsModal = this.el ? new bootstrap.Modal(this.el, { keyboard: true, backdrop: 'static' }) : null;
-        this.init();
-    }
-
-    init() {
-        if (!this.el) return;
-        this.el.addEventListener('hidden.bs.modal', () => {
-            if (window.DatePickerManager) {
-                window.DatePickerManager.destroyAll();
-            }
-        });
+        this.bsModal = this.el && window.bootstrap
+            ? bootstrap.Modal.getOrCreateInstance(this.el, { keyboard: true, backdrop: 'static' })
+            : null;
     }
 
     open() {
@@ -139,9 +131,10 @@ class App {
     }
 
     hideLoadingScreen() {
-        setTimeout(() => {
-            document.getElementById('loading-screen').classList.add('hidden');
-        }, 1000);
+        const loadingScreen = document.getElementById('loading-screen');
+        if (!loadingScreen) return;
+        const scheduleFrame = window.requestAnimationFrame || (callback => setTimeout(callback, 0));
+        scheduleFrame(() => loadingScreen.classList.add('hidden'));
     }
 
     setupMobileSidebar() {
@@ -175,12 +168,8 @@ class App {
 
         backdrop.addEventListener('click', closeSidebar);
 
-        document.querySelectorAll('.sidebar .nav-item').forEach(item => {
-            item.addEventListener('click', () => {
-                if (window.innerWidth < 992) {
-                    closeSidebar();
-                }
-            });
+        sidebar.addEventListener('click', event => {
+            if (event.target.closest?.('.nav-item') && window.innerWidth < 992) closeSidebar();
         });
     }
 
@@ -304,7 +293,7 @@ class App {
 
         this.setTheme(savedTheme);
 
-        themeToggle.addEventListener('click', () => {
+        themeToggle?.addEventListener('click', () => {
             const currentTheme = document.documentElement.getAttribute('data-bs-theme');
             const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
             this.setTheme(newTheme);
@@ -361,7 +350,7 @@ class App {
             clearTimeout(searchTimer);
             const query = e.target.value.trim();
             if (query.length >= 2 || query.length === 0) {
-                searchTimer = setTimeout(() => this.performSearch(query), 350);
+                searchTimer = setTimeout(() => this.performSearch(query), 220);
             }
         });
         searchInput.addEventListener('keydown', e => {
@@ -381,17 +370,35 @@ class App {
     async performSearch(query) {
         const term = String(query || '').trim();
         if (term.length === 1) return;
+        if (window.appRouter?.currentPage === 'tasks') {
+            window.tasksManager?.setSearch(term);
+            return;
+        }
         const manager = window.transactionsManager;
         if (!manager) return;
         manager.filters = { ...manager.filters };
         if (term) manager.filters.search = term;
         else delete manager.filters.search;
+        manager.currentPage = 1;
 
         if (window.appRouter?.currentPage === 'transactions') {
             await manager.loadTransactions();
         } else {
             this.navigateTo('transactions');
         }
+    }
+
+    updateGlobalSearchContext(page) {
+        const input = document.getElementById('global-search');
+        const button = document.getElementById('global-search-btn');
+        if (!input) return;
+        const context = page === 'tasks' ? 'tasks' : 'transactions';
+        if (this._searchContext && this._searchContext !== context) input.value = '';
+        this._searchContext = context;
+        const label = context === 'tasks' ? 'Search tasks' : 'Search transactions';
+        input.placeholder = `${label}...`;
+        input.setAttribute('aria-label', label);
+        button?.setAttribute('aria-label', label);
     }
 }
 
@@ -412,8 +419,13 @@ document.addEventListener('DOMContentLoaded', () => {
     // Register feature modules with router for lifecycle management
     if (window.DashboardManager) router.registerRoute('dashboard', new DashboardManager());
     if (window.TransactionsManager) router.registerRoute('transactions', new TransactionsManager());
+    if (window.RecurringTransactionsManager) router.registerRoute('recurring-transactions', new RecurringTransactionsManager());
     if (window.BudgetsManager) router.registerRoute('budgets', new BudgetsManager());
     if (window.GoalsManager) router.registerRoute('goals', new GoalsManager());
+    if (window.TasksManager) {
+        window.tasksManager = new TasksManager();
+        router.registerRoute('tasks', window.tasksManager);
+    }
     if (window.SavingsManager) router.registerRoute('savings', new SavingsManager());
     if (window.CategoriesManager) router.registerRoute('categories', new CategoriesManager());
     if (window.SubcategoriesManager) router.registerRoute('subcategories', new SubcategoriesManager());
@@ -428,12 +440,12 @@ document.addEventListener('DOMContentLoaded', () => {
     if (window.KarobarManager) {
         const karobarMgr = new KarobarManager();
         router.registerRoute('karobar-overview', {
-            onMount() { karobarMgr.currentPage = 'karobar-overview'; karobarMgr.onMount(); karobarMgr.loadOverview(); },
-            onUnmount() {}
+            onMount() { karobarMgr.currentPage = 'karobar-overview'; karobarMgr.onMount(); return karobarMgr.loadOverview(); },
+            onUnmount() { karobarMgr.onUnmount(); }
         });
         router.registerRoute('karobar-people', {
-            onMount() { karobarMgr.currentPage = 'karobar-people'; karobarMgr.onMount(); karobarMgr.loadPeople(); },
-            onUnmount() {}
+            onMount() { karobarMgr.currentPage = 'karobar-people'; karobarMgr.onMount(); return karobarMgr.loadPeople(); },
+            onUnmount() { karobarMgr.onUnmount(); }
         });
         router.registerRoute('karobar-person-profile', {
             routeQueryKeys: ['id'],
@@ -445,23 +457,23 @@ document.addEventListener('DOMContentLoaded', () => {
                 const pid = params.get('id');
                 return karobarMgr.loadPersonProfile(parseInt(pid), routeContext);
             },
-            onUnmount() { karobarMgr.cancelPersonProfileRequest(); }
+            onUnmount() { karobarMgr.cancelPersonProfileRequest(); karobarMgr.onUnmount(); }
         });
         router.registerRoute('karobar-transactions', {
-            onMount() { karobarMgr.currentPage = 'karobar-transactions'; karobarMgr.onMount(); karobarMgr.loadTransactions(); },
-            onUnmount() { karobarMgr.destroyDataTable(); }
+            onMount() { karobarMgr.currentPage = 'karobar-transactions'; karobarMgr.onMount(); return karobarMgr.loadTransactions(); },
+            onUnmount() { karobarMgr.onUnmount(); }
         });
         router.registerRoute('karobar-reports', {
-            onMount() { karobarMgr.currentPage = 'karobar-reports'; karobarMgr.onMount(); karobarMgr.loadReports(); },
-            onUnmount() {}
+            onMount() { karobarMgr.currentPage = 'karobar-reports'; karobarMgr.onMount(); return karobarMgr.loadReports(); },
+            onUnmount() { karobarMgr.onUnmount(); }
         });
         router.registerRoute('karobar-credit-reports', {
-            onMount() { karobarMgr.currentPage = 'karobar-credit-reports'; karobarMgr.onMount(); karobarMgr.loadCreditReports(); },
-            onUnmount() {}
+            onMount() { karobarMgr.currentPage = 'karobar-credit-reports'; karobarMgr.onMount(); return karobarMgr.loadCreditReports(); },
+            onUnmount() { karobarMgr.onUnmount(); }
         });
         router.registerRoute('karobar-ai-analysis', {
-            onMount() { karobarMgr.currentPage = 'karobar-ai-analysis'; karobarMgr.onMount(); karobarMgr.loadAIAnalysis(); },
-            onUnmount() {}
+            onMount() { karobarMgr.currentPage = 'karobar-ai-analysis'; karobarMgr.onMount(); return karobarMgr.loadAIAnalysis(); },
+            onUnmount() { karobarMgr.onUnmount(); }
         });
         window.karobarManager = karobarMgr;
     }
@@ -470,6 +482,7 @@ document.addEventListener('DOMContentLoaded', () => {
     window.categoriesManager = router.routes.get('categories') || null;
     window.subcategoriesManager = router.routes.get('subcategories') || null;
     window.transactionsManager = router.routes.get('transactions') || null;
+    window.recurringTransactionsManager = router.routes.get('recurring-transactions') || null;
     window.budgetsManager = router.routes.get('budgets') || null;
     window.goalsManager = router.routes.get('goals') || null;
     window.dashboardManager = router.routes.get('dashboard') || null;
@@ -481,12 +494,23 @@ document.addEventListener('DOMContentLoaded', () => {
 
     router.init();
 
+    const initializeNotifications = () => {
+        const notifManager = router.routes.get('notifications');
+        if (!notifManager) return;
+        const wasBound = notifManager._dropdownBound;
+        notifManager.setupBellDropdown();
+        notifManager.startPolling(60000);
+        if (wasBound) notifManager._loadDropdownNotifications();
+    };
+
     window.addEventListener('auth:authenticated', () => {
         router.navigate(router.currentPage || 'dashboard', false);
+        initializeNotifications();
     });
 
     window.addEventListener('auth:unauthenticated', () => {
         router.currentPage = 'dashboard';
+        router.routes.get('notifications')?.stopPolling();
     });
 
     window.waitForAuth().then(() => {
@@ -496,12 +520,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const initialPage = (baseHash && router.routes.has(baseHash)) ? hash : 'dashboard';
         router.navigate(initialPage, false);
 
-            const notifManager = router.routes.get('notifications');
-            if (notifManager) {
-                notifManager.setupBellDropdown();
-                notifManager.startPolling(60000);
-                notifManager._fetchUnreadCount();
-            }
+            initializeNotifications();
         }
     });
 });

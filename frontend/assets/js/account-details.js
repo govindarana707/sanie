@@ -13,6 +13,7 @@ class AccountDetailsManager {
         this._routeSignal = null;
         this._routeAbortHandler = null;
         this._isRouteCurrent = () => true;
+        this._filterTimer = null;
     }
 
     async onMount(routeContext = null) {
@@ -48,6 +49,8 @@ class AccountDetailsManager {
     }
 
     onUnmount() {
+        clearTimeout(this._filterTimer);
+        this._filterTimer = null;
         this._requestSequence++;
         this._cancelActiveRequest();
         this.accountData = null;
@@ -226,6 +229,7 @@ class AccountDetailsManager {
                                 <h2 class="acct-header-name">${Formatters.escapeHTML(account.name)}</h2>
                                 <span class="acct-badge acct-badge-type">${typeLabel}</span>
                                 ${account.is_default ? '<span class="acct-badge acct-badge-default">Default Account</span>' : ''}
+                                ${String(account.include_in_net_balance) === '0' ? '<span class="acct-badge acct-badge-net-excluded">Excluded from Net Balance</span>' : ''}
                             </div>
                             <div class="acct-header-meta">
                                 <span><i class="bi bi-calendar3"></i> Created: ${createdDate}</span>
@@ -657,10 +661,9 @@ class AccountDetailsManager {
             clearBtn.addEventListener('click', () => this.clearFilters());
         }
         if (searchInput) {
-            let timeout;
             searchInput.addEventListener('input', () => {
-                clearTimeout(timeout);
-                timeout = setTimeout(() => this.applyFilters(), 400);
+                clearTimeout(this._filterTimer);
+                this._filterTimer = setTimeout(() => this.applyFilters(), 220);
             });
         }
         if (periodSelect && dateRange) {
@@ -685,28 +688,18 @@ class AccountDetailsManager {
             if (s) this.filters.start_date = s;
             if (e) this.filters.end_date = e;
         } else if (period) {
-            const now = new Date();
             switch (period) {
                 case 'today':
-                    this.filters.start_date = this.filters.end_date = now.toISOString().split('T')[0];
+                    this.filters.start_date = this.filters.end_date = DateUtils.getKathmanduDateString();
                     break;
-                case 'week': {
-                    const ws = new Date(now);
-                    ws.setDate(now.getDate() - now.getDay() + 1);
-                    this.filters.start_date = ws.toISOString().split('T')[0];
-                    const we = new Date(ws);
-                    we.setDate(ws.getDate() + 6);
-                    this.filters.end_date = we.toISOString().split('T')[0];
+                case 'week':
+                case 'month':
+                case 'year': {
+                    const range = DateUtils.getKathmanduRange(period);
+                    this.filters.start_date = range.start;
+                    this.filters.end_date = range.end;
                     break;
                 }
-                case 'month':
-                    this.filters.start_date = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0];
-                    this.filters.end_date = new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().split('T')[0];
-                    break;
-                case 'year':
-                    this.filters.start_date = new Date(now.getFullYear(), 0, 1).toISOString().split('T')[0];
-                    this.filters.end_date = new Date(now.getFullYear(), 11, 31).toISOString().split('T')[0];
-                    break;
             }
         }
 
@@ -754,34 +747,61 @@ class AccountDetailsManager {
         }
     }
 
-    exportCSV() {
-        if (!this.statementData || !this.statementData.statement) return;
+    async _allStatementRows(filters = {}) {
+        const requestedAccountId = String(this.accountId);
+        const fetchPage = async page => {
+            const response = await accountsAPI.getStatement(requestedAccountId, {
+                ...filters, page, limit: 200
+            });
+            if (!response?.success) throw new Error(response?.message || 'Could not load complete account statement export');
+            if (String(response.data?.account?.id) !== requestedAccountId) throw new Error('Account statement export scope changed');
+            return response.data;
+        };
 
-        const headers = ['Date', 'Type', 'Category', 'Subcategory', 'Description', 'Reference', 'Money In', 'Money Out', 'Running Balance'];
-        const rows = this.statementData.statement.map(row => [
-            row.date || '',
-            row.type || '',
-            row.category_name || '',
-            row.subcategory_name || '',
-            row.description || '',
-            row.reference || '',
-            row.money_in || '',
-            row.money_out || '',
-            row.running_balance || ''
-        ]);
+        const first = await fetchPage(1);
+        const rows = (first.statement || []).filter(row => row.type !== 'opening');
+        const totalPages = Number(first.pagination?.total_pages || 0);
+        for (let page = 2; page <= totalPages; page++) {
+            const next = await fetchPage(page);
+            rows.push(...(next.statement || []).filter(row => row.type !== 'opening'));
+        }
+        const expected = Number(first.pagination?.total_rows || 0);
+        if (rows.length !== expected) throw new Error('Account statement export was incomplete');
+        return { rows, summary: first.summary || {}, pagination: first.pagination || {} };
+    }
 
-        let csv = headers.join(',') + '\n';
-        rows.forEach(row => {
-            csv += row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(',') + '\n';
-        });
-
-        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-        const url = URL.createObjectURL(blob);
-        const link = document.createElement('a');
-        link.href = url;
-        link.download = `${this.accountData?.name || 'account'}_statement.csv`;
-        link.click();
-        URL.revokeObjectURL(url);
+    async exportCSV() {
+        if (!this.accountId) return;
+        const csvBtn = document.getElementById('acct-export-csv');
+        if (csvBtn) csvBtn.disabled = true;
+        try {
+            const result = await this._allStatementRows({ ...this.filters });
+            const headers = ['Date', 'Type', 'Category', 'Subcategory', 'Description', 'Reference', 'Money In', 'Money Out', 'Running Balance'];
+            const rows = result.rows.map(row => [
+                row.date || '',
+                row.type || '',
+                row.category_name || '',
+                row.subcategory_name || '',
+                row.description || '',
+                row.reference || '',
+                row.money_in ?? '',
+                row.money_out ?? '',
+                row.running_balance ?? ''
+            ]);
+            const csv = CSVUtils.document(headers, rows, new Set([1, 2, 3, 4, 5]));
+            const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = `${this.accountData?.name || 'account'}_statement.csv`;
+            link.click();
+            URL.revokeObjectURL(url);
+            window.NotificationService?.success(`${result.pagination.total_rows || 0} matching statement rows exported`);
+        } catch (error) {
+            window.NotificationService?.error(error.message || 'Account statement export failed');
+        } finally {
+            if (csvBtn) csvBtn.disabled = false;
+        }
     }
 }
 

@@ -7,13 +7,14 @@ const AppLogger = {
 };
 
 class APIError extends Error {
-    constructor(message, { category = 'server_error', code = 'API_ERROR', status = 0, retryable = false, cause = null } = {}) {
+    constructor(message, { category = 'server_error', code = 'API_ERROR', status = 0, retryable = false, cause = null, details = null } = {}) {
         super(message);
         this.name = 'APIError';
         this.category = category;
         this.code = code;
         this.status = status;
         this.retryable = retryable;
+        this.details = details;
         if (cause) this.cause = cause;
     }
 }
@@ -33,6 +34,8 @@ function reportMissingApiConfiguration() {
 // API Client with Response Cache
 class APIClient {
     static _cache = new Map();
+    static _inflightGets = new Map();
+    static _cacheGeneration = 0;
     static _CACHE_TTL = 5000;
     static DEFAULT_TIMEOUT_MS = 15000;
     static UPLOAD_TIMEOUT_MS = 60000;
@@ -40,9 +43,13 @@ class APIClient {
     static RETRYABLE_STATUSES = new Set([502, 503, 504]);
 
     static invalidateCache(pattern) {
-        if (!pattern) { APIClient._cache.clear(); return; }
+        APIClient._cacheGeneration++;
+        if (!pattern) { APIClient._cache.clear(); APIClient._inflightGets.clear(); return; }
         for (const key of APIClient._cache.keys()) {
             if (key.includes(pattern)) APIClient._cache.delete(key);
+        }
+        for (const key of APIClient._inflightGets.keys()) {
+            if (key.includes(pattern)) APIClient._inflightGets.delete(key);
         }
     }
 
@@ -83,15 +90,28 @@ class APIClient {
         return Boolean(this.token);
     }
 
+    getDataGeneration() {
+        try {
+            let encoded = String(this.token || '').split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
+            encoded += '='.repeat((4 - encoded.length % 4) % 4);
+            const payload = JSON.parse(atob(encoded));
+            return Math.max(1, Number(payload.data_generation) || 1);
+        } catch (error) { return 1; }
+    }
+
     setToken(token) {
         this.token = token;
         APIClient._cache.clear();
+        APIClient._inflightGets.clear();
+        APIClient._cacheGeneration++;
         try { window.sessionStorage.setItem('token', token); } catch (error) {}
     }
 
     clearToken() {
         this.token = null;
         APIClient._cache.clear();
+        APIClient._inflightGets.clear();
+        APIClient._cacheGeneration++;
         try { window.sessionStorage.removeItem('token'); } catch (error) {}
         try { window.localStorage.removeItem('token'); } catch (error) {}
     }
@@ -104,6 +124,7 @@ class APIClient {
         
         if (this.token) {
             headers['Authorization'] = `Bearer ${this.token}`;
+            headers['X-SanIE-Data-Generation'] = String(this.getDataGeneration());
         }
         
         return headers;
@@ -116,7 +137,8 @@ class APIClient {
             throw new APIError('API configuration missing.', { category: 'server_error', code: 'CONFIGURATION_ERROR' });
         }
 
-        const requiresAuth = !endpoint.startsWith('/auth/login') && !endpoint.startsWith('/auth/register');
+        const publicAuthEndpoints = ['/auth/login', '/auth/register', '/auth/forgot-password', '/auth/reset-password'];
+        const requiresAuth = !publicAuthEndpoints.some(path => endpoint === path || endpoint.startsWith(`${path}/`));
         if (!this.isAuthenticated() && requiresAuth) {
             throw new APIError('Authentication required.', { category: 'auth_error', code: 'AUTH_REQUIRED', status: 401 });
         }
@@ -124,6 +146,7 @@ class APIClient {
         const method = String(options.method || 'GET').toUpperCase();
         const isGet = method === 'GET';
         const cacheKey = `${method}:${endpoint}`;
+        const cacheGeneration = APIClient._cacheGeneration;
 
         if (isGet) {
             const cached = APIClient._cache.get(cacheKey);
@@ -132,6 +155,7 @@ class APIClient {
             }
         }
 
+        const executeRequest = async () => {
         const url = `${apiBase}${endpoint}`;
         const isFormData = typeof FormData !== 'undefined' && options.body instanceof FormData;
         const {
@@ -154,7 +178,9 @@ class APIClient {
         for (let attempt = 1; attempt <= maxAttempts; attempt++) {
             try {
                 const data = await this._fetchOnce(url, config, { method, endpoint, timeoutMs, callerSignal, requiresAuth });
-                if (isGet && data) APIClient._cache.set(cacheKey, { data, ts: Date.now() });
+                if (isGet && data && cacheGeneration === APIClient._cacheGeneration) {
+                    APIClient._cache.set(cacheKey, { data, ts: Date.now() });
+                }
                 return data || {};
             } catch (error) {
                 const normalized = this._normalizeError(error, { method, endpoint, callerSignal });
@@ -167,6 +193,23 @@ class APIClient {
                 throw normalized;
             }
         }
+        };
+
+        if (isGet && !options.signal) {
+            const existingRequest = APIClient._inflightGets.get(cacheKey);
+            if (existingRequest) return existingRequest;
+            const requestPromise = executeRequest();
+            APIClient._inflightGets.set(cacheKey, requestPromise);
+            try {
+                return await requestPromise;
+            } finally {
+                if (APIClient._inflightGets.get(cacheKey) === requestPromise) {
+                    APIClient._inflightGets.delete(cacheKey);
+                }
+            }
+        }
+
+        return executeRequest();
     }
 
     async _fetchOnce(url, config, { method, endpoint, timeoutMs, callerSignal, requiresAuth }) {
@@ -216,7 +259,8 @@ class APIClient {
                     category,
                     code: 'HTTP_ERROR',
                     status: response.status,
-                    retryable: APIClient.RETRYABLE_STATUSES.has(response.status)
+                    retryable: APIClient.RETRYABLE_STATUSES.has(response.status),
+                    details: data?.errors || null
                 });
                 error.apiCode = data?.code || null;
                 error.serverData = data?.serverData || null;
@@ -286,10 +330,11 @@ class APIClient {
         return this.request(endpoint, { ...options, method: 'GET' });
     }
 
-    async post(endpoint, data) {
+    async post(endpoint, data, options = {}) {
         APIClient.invalidateCache(endpoint.split('?')[0]);
         APIClient.invalidateFinancialDependents(endpoint);
         const result = await this.request(endpoint, {
+            ...options,
             method: 'POST',
             body: JSON.stringify(data)
         });
@@ -297,10 +342,11 @@ class APIClient {
         return result;
     }
 
-    async put(endpoint, data) {
+    async put(endpoint, data, options = {}) {
         APIClient.invalidateCache(endpoint.split('?')[0].replace(/\/\d+$/, ''));
         APIClient.invalidateFinancialDependents(endpoint);
         const result = await this.request(endpoint, {
+            ...options,
             method: 'PUT',
             body: JSON.stringify(data)
         });
@@ -308,10 +354,20 @@ class APIClient {
         return result;
     }
 
-    async delete(endpoint, data = null) {
+    async patch(endpoint, data) {
+        const result = await this.request(endpoint, {
+            method: 'PATCH',
+            body: JSON.stringify(data)
+        });
+        APIClient.invalidateCache(endpoint.split('/').slice(0, 2).join('/'));
+        return result;
+    }
+
+    async delete(endpoint, data = null, options = {}) {
         APIClient.invalidateCache(endpoint.split('?')[0].replace(/\/\d+$/, ''));
         APIClient.invalidateFinancialDependents(endpoint);
         const result = await this.request(endpoint, {
+            ...options,
             method: 'DELETE',
             ...(data ? { body: JSON.stringify(data) } : {})
         });
@@ -360,6 +416,31 @@ const authAPI = {
 
     async changePassword(data) {
         return api.post('/auth/change-password', data);
+    },
+    async prepareFreshStart() { return api.post('/auth/fresh-start/prepare', {}); },
+    async exportFreshStart(operationId, intentToken) {
+        return api.post('/auth/fresh-start/export', { operation_id: operationId }, { headers: { 'X-SanIE-Reset-Intent': intentToken } });
+    },
+    async verifyFreshStart(data, intentToken) {
+        return api.post('/auth/fresh-start/verify', data, { headers: { 'X-SanIE-Reset-Intent': intentToken } });
+    },
+    async executeFreshStart(operationId, intentToken, confirmationToken) {
+        return api.post('/auth/fresh-start/execute', { operation_id: operationId, final_confirmation: true }, { headers: {
+            'X-SanIE-Reset-Intent': intentToken,
+            'X-SanIE-Reset-Confirmation': confirmationToken
+        }, timeoutMs: 60000 });
+    },
+
+    async forgotPassword(data) {
+        return api.post('/auth/forgot-password', data);
+    },
+
+    async validatePasswordReset(data) {
+        return api.post('/auth/reset-password/validate', data);
+    },
+
+    async resetPassword(data) {
+        return api.post('/auth/reset-password', data);
     }
 };
 
@@ -466,43 +547,61 @@ const categoriesAPI = {
 // Budgets API
 const budgetsAPI = {
     async getAll() {
-        return api.get('/budgets');
+        return AjaxService.get('/budgets', { silent: true });
     },
 
     async getById(id) {
-        return api.get(`/budgets/${id}`);
+        return AjaxService.get(`/budgets/${id}`, { silent: true });
     },
 
     async create(data) {
-        return api.post('/budgets', data);
+        return AjaxService.post('/budgets', data, { silent: true });
     },
 
     async update(id, data) {
-        return api.put(`/budgets/${id}`, data);
+        return AjaxService.put(`/budgets/${id}`, data, { silent: true });
     },
 
     async delete(id) {
-        return api.delete(`/budgets/${id}`);
+        return AjaxService.del(`/budgets/${id}`, { silent: true });
     },
 
     async getProgress(id) {
-        return api.get(`/budgets/${id}/progress`);
+        return AjaxService.get(`/budgets/${id}/progress`, { silent: true });
     },
 
-    async getBatchProgress(ids) {
-        return api.get(`/budgets/progress?ids=${ids.join(',')}`);
+    async getBatchProgress(ids, startDate = null, endDate = null) {
+        const params = new URLSearchParams({ ids: ids.join(',') });
+        if (startDate) params.set('start_date', startDate);
+        if (endDate) params.set('end_date', endDate);
+        return AjaxService.get(`/budgets/progress?${params.toString()}`, { silent: true });
+    },
+
+    async getAggregateProgress(ids, startDate = null, endDate = null) {
+        const params = new URLSearchParams({ ids: ids.join(',') });
+        if (startDate) params.set('start_date', startDate);
+        if (endDate) params.set('end_date', endDate);
+        return AjaxService.get(`/budgets/aggregate?${params.toString()}`, { silent: true });
     },
 
     async bulkCreate(budgets) {
-        return api.post('/budgets/bulk', { budgets });
+        return AjaxService.post('/budgets/bulk', { budgets }, { silent: true });
     },
 
     async getSuggestions(period = 'monthly', months = 3) {
-        return api.get(`/budgets/suggestions?period=${period}&months=${months}`);
+        return AjaxService.get(`/budgets/suggestions?period=${period}&months=${months}`, { silent: true });
     },
 
     async copyPrevious(period = 'monthly', source = 'month') {
-        return api.get(`/budgets/copy?period=${period}&source=${source}`);
+        return AjaxService.get(`/budgets/copy?period=${period}&source=${source}`, { silent: true });
+    },
+
+    async copyToMonth(budgetIds, sourceMonth, targetMonth) {
+        return AjaxService.post('/budgets/copy', {
+            budget_ids: budgetIds,
+            source_month: sourceMonth,
+            target_month: targetMonth
+        }, { silent: true });
     }
 };
 
@@ -564,6 +663,41 @@ const goalsAPI = {
         invalidateGoalFinancialCaches();
         return result;
     }
+};
+
+// Tasks API
+const tasksAPI = {
+    async getAll(filters = {}, options = {}) {
+        const params = new URLSearchParams(Object.entries(filters).filter(([, value]) => value !== '' && value != null));
+        return api.get(`/tasks${params.size ? `?${params}` : ''}`, options);
+    },
+    async getById(id) { return api.get(`/tasks/${id}`); },
+    async create(data) { return api.post('/tasks', data); },
+    async update(id, data) { return api.put(`/tasks/${id}`, data); },
+    async setCompletion(id, completed) { return api.patch(`/tasks/${id}/completion`, { completed }); },
+    async delete(id) { return api.delete(`/tasks/${id}`); },
+    async getDeleted() { return api.get('/tasks/deleted'); },
+    async restore(id) { return api.post(`/tasks/${id}/restore`, {}); },
+    async processReminders() { return api.post('/tasks/reminders/process', {}); },
+    async importBoardStudy() { return api.post('/tasks/board-study/import', {}); }
+};
+
+function invalidateRecurringFinancialCaches() {
+    ['/recurring-transactions','/transactions','/accounts','/dashboard','/budgets','/reports','/ledger','/analysis']
+        .forEach(pattern => APIClient.invalidateCache(pattern));
+}
+
+const recurringTransactionsAPI = {
+    async getAll() { return api.get('/recurring-transactions'); },
+    async getById(id) { return api.get(`/recurring-transactions/${id}`); },
+    async create(data) { const result=await api.post('/recurring-transactions',data);APIClient.invalidateCache('/recurring-transactions');return result; },
+    async update(id,data) { const result=await api.put(`/recurring-transactions/${id}`,data);APIClient.invalidateCache('/recurring-transactions');return result; },
+    async delete(id) { const result=await api.delete(`/recurring-transactions/${id}`);APIClient.invalidateCache('/recurring-transactions');return result; },
+    async activate(id,mode='resume') { const result=await api.post(`/recurring-transactions/${id}/activate`,{mode});APIClient.invalidateCache('/recurring-transactions');return result; },
+    async deactivate(id) { const result=await api.post(`/recurring-transactions/${id}/deactivate`,{});APIClient.invalidateCache('/recurring-transactions');return result; },
+    async review(id) { return api.get(`/recurring-transactions/${id}/review`); },
+    async reconcile(id,decisions) { const result=await api.post(`/recurring-transactions/${id}/reconcile`,{decisions});invalidateRecurringFinancialCaches();return result; },
+    async processDue() { const result=await api.post('/recurring-transactions/process',{});if((result?.data?.counts?.generated||0)>0||(result?.data?.counts?.already_processed||0)>0)invalidateRecurringFinancialCaches();return result; }
 };
 
 // Dashboard API

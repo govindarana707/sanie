@@ -45,6 +45,16 @@ try {
                 $controller->uploadAvatar();
             } elseif ($method === 'POST' && $resourceId === 'change-password') {
                 $controller->changePassword();
+            } elseif ($method === 'POST' && $resourceId === 'forgot-password') {
+                $controller->forgotPassword();
+            } elseif ($method === 'POST' && $resourceId === 'reset-password' && $action === 'validate') {
+                $controller->validatePasswordReset();
+            } elseif ($method === 'POST' && $resourceId === 'reset-password' && $action === null) {
+                $controller->resetPassword();
+            } elseif ($method === 'POST' && $resourceId === 'fresh-start' && in_array($action, ['prepare','verify','export','execute','status'], true)) {
+                require_once __DIR__ . '/../controllers/FreshStartController.php';
+                $freshStart = new FreshStartController();
+                $freshStart->{$action}();
             } else {
                 Response::error('Invalid auth endpoint', 404);
             }
@@ -56,10 +66,16 @@ try {
             
             if ($method === 'GET' && count($segments) === 1) {
                 $controller->index();
+            } elseif ($method === 'GET' && $resourceId === 'query') {
+                $controller->query();
             } elseif ($method === 'GET' && $resourceId === 'statistics') {
                 $controller->statistics();
             } elseif ($method === 'GET' && $resourceId === 'category-breakdown') {
                 $controller->categoryBreakdown();
+            } elseif ($method === 'POST' && $resourceId === 'import' && $action === 'preview') {
+                $controller->importPreview();
+            } elseif ($method === 'POST' && $resourceId === 'import' && $action === null) {
+                $controller->importCsv();
             } elseif ($method === 'POST' && $resourceId === 'bulk-delete') {
                 $controller->bulkDestroy();
             } elseif ($method === 'GET' && $resourceId !== null) {
@@ -174,12 +190,16 @@ try {
                 $controller->index();
             } elseif ($method === 'GET' && $resourceId === 'progress' && $action === null) {
                 $controller->progressBatch();
+            } elseif ($method === 'GET' && $resourceId === 'aggregate' && $action === null) {
+                $controller->aggregate();
             } elseif ($method === 'GET' && $resourceId !== null && $action === 'progress') {
                 $controller->progress($resourceId);
             } elseif ($method === 'GET' && $resourceId === 'suggestions') {
                 $controller->suggestions();
             } elseif ($method === 'GET' && $resourceId === 'copy') {
                 $controller->copyPrevious();
+            } elseif ($method === 'POST' && $resourceId === 'copy') {
+                $controller->copyToMonth();
             } elseif ($method === 'GET' && $resourceId !== null) {
                 $controller->show($resourceId);
             } elseif ($method === 'POST' && $resourceId === 'bulk') {
@@ -221,6 +241,62 @@ try {
                 $controller->destroy($resourceId);
             } else {
                 Response::error('Invalid goals endpoint', 404);
+            }
+            break;
+
+        case 'tasks':
+            require_once __DIR__ . '/../controllers/TaskController.php';
+            $controller = new TaskController();
+            if ($method === 'POST' && $resourceId === 'board-study' && $action === 'import') {
+                $controller->importBoardStudy();
+            } elseif ($method === 'POST' && $resourceId === 'reminders' && $action === 'process') {
+                $controller->processReminders();
+            } elseif ($method === 'GET' && $resourceId === 'deleted') {
+                $controller->deleted();
+            } elseif ($method === 'POST' && $resourceId !== null && $action === 'restore') {
+                $controller->restore($resourceId);
+            } elseif ($method === 'GET' && count($segments) === 1) {
+                $controller->index();
+            } elseif ($method === 'GET' && $resourceId !== null) {
+                $controller->show($resourceId);
+            } elseif ($method === 'POST' && count($segments) === 1) {
+                $controller->store();
+            } elseif ($method === 'PUT' && $resourceId !== null) {
+                $controller->update($resourceId);
+            } elseif ($method === 'PATCH' && $resourceId !== null && $action === 'completion') {
+                $controller->completion($resourceId);
+            } elseif ($method === 'DELETE' && $resourceId !== null) {
+                $controller->destroy($resourceId);
+            } else {
+                Response::error('Invalid tasks endpoint', 404);
+            }
+            break;
+
+        case 'recurring-transactions':
+            require_once __DIR__ . '/../controllers/RecurringTransactionController.php';
+            $controller = new RecurringTransactionController();
+            if ($method === 'POST' && $resourceId === 'process') {
+                $controller->process();
+            } elseif ($method === 'GET' && count($segments) === 1) {
+                $controller->index();
+            } elseif ($method === 'POST' && count($segments) === 1) {
+                $controller->store();
+            } elseif ($method === 'GET' && $resourceId !== null && $action === 'review') {
+                $controller->review($resourceId);
+            } elseif ($method === 'POST' && $resourceId !== null && $action === 'reconcile') {
+                $controller->reconcile($resourceId);
+            } elseif ($method === 'POST' && $resourceId !== null && $action === 'activate') {
+                $controller->activate($resourceId);
+            } elseif ($method === 'POST' && $resourceId !== null && $action === 'deactivate') {
+                $controller->deactivate($resourceId);
+            } elseif ($method === 'GET' && $resourceId !== null) {
+                $controller->show($resourceId);
+            } elseif ($method === 'PUT' && $resourceId !== null) {
+                $controller->update($resourceId);
+            } elseif ($method === 'DELETE' && $resourceId !== null) {
+                $controller->destroy($resourceId);
+            } else {
+                Response::error('Invalid recurring transactions endpoint',404);
             }
             break;
             

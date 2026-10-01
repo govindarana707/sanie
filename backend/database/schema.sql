@@ -23,6 +23,7 @@ CREATE TABLE users (
     notification_preferences LONGTEXT,
     settings LONGTEXT,
     token_version INT NOT NULL DEFAULT 1,
+    data_generation INT NOT NULL DEFAULT 1,
     password_changed_at TIMESTAMP NULL,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -52,6 +53,7 @@ CREATE TABLE accounts (
     is_active BOOLEAN DEFAULT TRUE,
     is_default BOOLEAN DEFAULT FALSE,
     include_in_savings BOOLEAN NOT NULL DEFAULT FALSE,
+    include_in_net_balance BOOLEAN NOT NULL DEFAULT TRUE,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
@@ -71,7 +73,8 @@ CREATE TABLE categories (
     is_default BOOLEAN DEFAULT FALSE,
     parent_id INT NULL,
     status ENUM('active', 'archived', 'deleted') DEFAULT 'active',
-    sort_order INT DEFAULT 0,
+    is_pinned TINYINT(1) NOT NULL DEFAULT 0,
+    sort_order INT NOT NULL DEFAULT 999,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     deleted_at TIMESTAMP NULL,
@@ -81,7 +84,8 @@ CREATE TABLE categories (
     INDEX idx_type (type),
     INDEX idx_parent_id (parent_id),
     INDEX idx_status (status),
-    INDEX idx_sort_order (sort_order)
+    INDEX idx_sort_order (sort_order),
+    INDEX idx_category_priority (user_id, type, status, is_pinned, sort_order)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Subcategories Table
@@ -172,6 +176,8 @@ CREATE TABLE transactions (
     client_request_id VARCHAR(64) NULL,
     transfer_parent_id INT NULL,
     goal_id INT NULL,
+    recurring_definition_id INT NULL,
+    recurring_occurrence_date DATE NULL,
     version INT NOT NULL DEFAULT 1,
     date DATE NOT NULL,
     description TEXT,
@@ -185,6 +191,7 @@ CREATE TABLE transactions (
     FOREIGN KEY (to_account_id) REFERENCES accounts(id) ON DELETE SET NULL,
     FOREIGN KEY (transfer_parent_id) REFERENCES transactions(id) ON DELETE CASCADE,
     FOREIGN KEY (goal_id) REFERENCES goals(id) ON DELETE RESTRICT,
+    CONSTRAINT fk_transactions_recurring_definition FOREIGN KEY (recurring_definition_id) REFERENCES recurring_transactions(id) ON DELETE RESTRICT,
     INDEX idx_user_id (user_id),
     INDEX idx_account_id (account_id),
     INDEX idx_category_id (category_id),
@@ -192,9 +199,11 @@ CREATE TABLE transactions (
     INDEX idx_transactions_user_date_created (user_id, date, created_at),
     INDEX idx_type (type),
     INDEX idx_amount (amount),
+    INDEX idx_transactions_category_usage (user_id, type, category_id),
     INDEX idx_from_account_id (from_account_id),
     INDEX idx_to_account_id (to_account_id),
     INDEX idx_goal_id (goal_id),
+    UNIQUE KEY uq_transactions_recurring_occurrence (user_id, recurring_definition_id, recurring_occurrence_date),
     UNIQUE KEY uq_transactions_transfer_fee (user_id, transfer_parent_id),
     UNIQUE KEY uq_transactions_user_client_request (user_id, client_request_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -219,7 +228,8 @@ CREATE TABLE budgets (
     CONSTRAINT fk_budgets_subcategory FOREIGN KEY (subcategory_id) REFERENCES subcategories(id) ON DELETE RESTRICT,
     INDEX idx_user_id (user_id),
     INDEX idx_category_id (category_id),
-    INDEX idx_period (period)
+    INDEX idx_period (period),
+    INDEX idx_budgets_user_scope_dates (user_id, category_id, subcategory_id, start_date, end_date)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Attachments Table
@@ -239,6 +249,35 @@ CREATE TABLE attachments (
     FOREIGN KEY (goal_id) REFERENCES goals(id) ON DELETE CASCADE,
     INDEX idx_user_id (user_id),
     INDEX idx_transaction_id (transaction_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Tasks Table
+CREATE TABLE tasks (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    user_id INT NOT NULL,
+    task_type ENUM('general', 'board_study') NOT NULL DEFAULT 'general',
+    title VARCHAR(255) NOT NULL,
+    content TEXT,
+    category VARCHAR(80) NULL,
+    due_date DATE NULL,
+    display_date_bs CHAR(10) NULL,
+    subject VARCHAR(100) NULL,
+    unit_label VARCHAR(50) NULL,
+    status ENUM('pending', 'in_progress', 'completed') NOT NULL DEFAULT 'pending',
+    completed_at TIMESTAMP NULL,
+    priority ENUM('low', 'normal', 'high', 'urgent') NOT NULL DEFAULT 'normal',
+    reminder_at DATETIME NULL,
+    summary_url VARCHAR(2048) NULL,
+    seed_key VARCHAR(100) NULL,
+    deleted_at TIMESTAMP NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    UNIQUE INDEX uq_tasks_user_seed (user_id, seed_key),
+    INDEX idx_tasks_user_type_status (user_id, task_type, status),
+    INDEX idx_tasks_user_due_date (user_id, due_date),
+    INDEX idx_tasks_user_category (user_id, category),
+    INDEX idx_tasks_user_subject (user_id, subject)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Notifications Table
@@ -263,6 +302,21 @@ CREATE TABLE notifications (
     INDEX idx_created_at (created_at),
     INDEX idx_user_unread (user_id, is_read),
     INDEX idx_reference (reference_type, reference_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Durable Notification Event Claims
+CREATE TABLE notification_events (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    user_id INT NOT NULL,
+    event_key VARCHAR(191) NOT NULL,
+    event_type VARCHAR(50) NOT NULL,
+    source_type VARCHAR(50) NULL,
+    source_id INT NULL,
+    occurred_at DATETIME NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    UNIQUE INDEX uq_notification_events_user_key (user_id, event_key),
+    INDEX idx_notification_events_source (user_id, source_type, source_id, id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- AI Analysis History Table
@@ -392,6 +446,37 @@ CREATE TABLE email_verification_tokens (
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
     INDEX idx_token (token),
     INDEX idx_expires_at (expires_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Fresh Start reset intents and recoverable file cleanup work.
+CREATE TABLE fresh_start_operations (
+    operation_id CHAR(36) PRIMARY KEY,
+    user_id INT NOT NULL,
+    intent_hash CHAR(64) NOT NULL,
+    confirmation_hash CHAR(64),
+    status ENUM('prepared','verified','processing','cleanup_pending','completed','failed','cancelled') NOT NULL DEFAULT 'prepared',
+    summary_json LONGTEXT,
+    expires_at DATETIME NOT NULL,
+    verified_at DATETIME,
+    completed_at DATETIME,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    INDEX idx_fresh_start_user_status (user_id,status,created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE fresh_start_file_cleanup (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    operation_id CHAR(36) NOT NULL,
+    relative_path VARCHAR(500) NOT NULL,
+    status ENUM('pending','completed','failed') NOT NULL DEFAULT 'pending',
+    attempts INT NOT NULL DEFAULT 0,
+    last_error_code VARCHAR(80),
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (operation_id) REFERENCES fresh_start_operations(operation_id) ON DELETE CASCADE,
+    UNIQUE INDEX uq_fresh_start_cleanup_path (operation_id,relative_path),
+    INDEX idx_fresh_start_cleanup_status (status,created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 /*

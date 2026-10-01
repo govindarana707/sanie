@@ -75,6 +75,7 @@ try {
         'amount' => 1000,
         'transaction_date' => '2026-01-10',
         'due_date' => '2026-01-20',
+        'client_request_id' => 'http-origin-borrowed',
     ], $userIds['owner']);
 
     $base = [
@@ -126,6 +127,7 @@ try {
         'amount' => 800,
         'transaction_date' => '2026-01-10',
         'due_date' => '2026-01-20',
+        'client_request_id' => 'http-origin-lent',
     ], $userIds['owner']);
     [$status, $body] = httpPaymentRequest('receiving', $userIds['owner'], $base + [
         'amount' => 300,

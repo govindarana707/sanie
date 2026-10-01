@@ -2,7 +2,9 @@
 class ModalService {
     constructor() {
         this.el = document.getElementById('appModal');
-        this.bsModal = this.el && window.bootstrap ? new bootstrap.Modal(this.el, { keyboard: true, backdrop: 'static' }) : null;
+        this.bsModal = this.el && window.bootstrap
+            ? bootstrap.Modal.getOrCreateInstance(this.el, { keyboard: true, backdrop: 'static' })
+            : null;
         this._cleanupHandlers = [];
         this._activeForm = null;
         this.init();

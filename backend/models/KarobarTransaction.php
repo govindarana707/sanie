@@ -62,6 +62,10 @@ class KarobarTransaction {
     }
 
     public function findAll($userId, $filters = [], $limit = 50, $offset = 0) {
+        return $this->findPage($userId,$filters,max(1,(int)floor($offset/max(1,$limit))+1),$limit)['transactions'];
+    }
+
+    public function findPage(int $userId,array $filters,int $page,int $limit):array {
         $query = "SELECT kt.*, 
                   p.name as person_name, p.phone as person_phone, p.photo as person_photo, p.type as person_type,
                   a.name as account_name
@@ -100,7 +104,8 @@ class KarobarTransaction {
             $params[':search3'] = $searchTerm;
         }
         
-        $query .= " ORDER BY kt.transaction_date DESC, kt.created_at DESC LIMIT :limit OFFSET :offset";
+        $where=$query;
+        $query .= " ORDER BY kt.transaction_date DESC, kt.created_at DESC,kt.id DESC LIMIT :limit OFFSET :offset";
         
         $stmt = $this->conn->prepare($query);
         
@@ -109,11 +114,15 @@ class KarobarTransaction {
         }
         
         $stmt->bindValue(':limit', (int)$limit, PDO::PARAM_INT);
-        $stmt->bindValue(':offset', (int)$offset, PDO::PARAM_INT);
+        $offset=($page-1)*$limit;
+        $stmt->bindValue(':offset', $offset, PDO::PARAM_INT);
         
         $stmt->execute();
         
-        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+        $rows=$stmt->fetchAll(PDO::FETCH_ASSOC);
+        $countSql=preg_replace('/^SELECT[\s\S]+?FROM /','SELECT COUNT(*) total_rows,COALESCE(SUM(CASE WHEN kt.type=\'lent\' THEN kt.amount ELSE 0 END),0) total_lent,COALESCE(SUM(CASE WHEN kt.type=\'borrowed\' THEN kt.amount ELSE 0 END),0) total_borrowed,COALESCE(SUM(CASE WHEN kt.type=\'returned\' THEN kt.amount ELSE 0 END),0) total_returned,COALESCE(SUM(CASE WHEN kt.type=\'repaid\' THEN kt.amount ELSE 0 END),0) total_repaid FROM ',$where,1);
+        $aggregateStmt=$this->conn->prepare($countSql);foreach($params as$key=>$value)$aggregateStmt->bindValue($key,$value);$aggregateStmt->execute();$summary=$aggregateStmt->fetch(PDO::FETCH_ASSOC)?:[];$total=(int)($summary['total_rows']??0);
+        return['transactions'=>$rows,'pagination'=>['page'=>$page,'limit'=>$limit,'offset'=>$offset,'total_rows'=>$total,'total_pages'=>$total?(int)ceil($total/$limit):0,'has_previous'=>$page>1&&$total>0,'has_next'=>$page*$limit<$total],'summary'=>['total_lent'=>(float)($summary['total_lent']??0),'total_borrowed'=>(float)($summary['total_borrowed']??0),'total_returned'=>(float)($summary['total_returned']??0),'total_repaid'=>(float)($summary['total_repaid']??0)]];
     }
 
     public function findById($id, $userId) {

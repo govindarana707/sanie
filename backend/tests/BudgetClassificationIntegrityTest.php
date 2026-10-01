@@ -101,6 +101,13 @@ try {
     $run('dashboard period intersection retains a zero-usage budget row', function () use ($model,$foodBudget,$owner): void {
         $rows=$model->getBatchProgress([$foodBudget],$owner,'2026-09-01','2026-09-30');bcAssert(count($rows)===1,'budget disappeared outside the dashboard period');bcClose(0,(float)$rows[0]['spent'],'out-of-range dashboard usage');
     });
+    $run('consumer range intersects rather than replaces stored budget dates', function () use ($model,$foodBudget,$owner): void {
+        $rows=$model->getBatchProgress([$foodBudget],$owner,'2026-07-01','2026-07-31');bcAssert(count($rows)===1,'budget disappeared outside the consumer range');bcClose(0,(float)$rows[0]['spent'],'consumer range escaped stored budget dates');
+    });
+    $run('overlapping scopes retain individual usage but aggregate each expense once', function () use ($model,$foodBudget,$restaurantBudget,$owner): void {
+        $individual=$model->getBatchProgress([$foodBudget,$restaurantBudget],$owner);bcClose(4150,array_sum(array_map(fn($row)=>(float)$row['spent'],$individual)),'individual utilization sum');
+        $aggregate=$model->getAggregateProgress([$foodBudget,$restaurantBudget],$owner);bcClose(2550,(float)$aggregate['unique_spent'],'unique aggregate spending');bcAssert((int)$aggregate['transaction_count']===7,'aggregate transaction count duplicated overlapping rows');
+    });
     $run('invalid, mismatched, and foreign classifications are rejected', function () use ($model,$base,$owner,$food,$fuel,$foreignCategory,$foreignSubcategory): void {
         $cases=[
             ['name'=>'foreign category','category_id'=>$foreignCategory],
@@ -134,7 +141,7 @@ try {
         $before=(int)$db->query("SELECT COUNT(*) FROM transactions WHERE description='Phase 9 classification fixture'")->fetchColumn(); bcAssert($model->delete($overallBudget,$owner),'budget delete failed'); bcAssert($model->findById($overallBudget,$owner)===false,'budget survived delete'); bcAssert((int)$db->query("SELECT COUNT(*) FROM transactions WHERE description='Phase 9 classification fixture'")->fetchColumn()===$before,'transactions changed'); bcAssert((int)$db->query("SELECT COUNT(*) FROM categories WHERE id={$food}")->fetchColumn()===1,'category changed'); bcAssert((int)$db->query("SELECT COUNT(*) FROM subcategories WHERE id={$restaurant}")->fetchColumn()===1,'subcategory changed');
     });
     $run('schema migration remains current and repeat-safe', function () use ($db): void {
-        $a=(new SchemaMigrator($db))->run();$b=(new SchemaMigrator($db))->run();bcAssert(!$a['applied']&&!$b['applied'],'migration was not a no-op');bcAssert($a['migration_id']===SchemaMigrator::PHASE11_MIGRATION_ID,'wrong migration ID');
+        $a=(new SchemaMigrator($db))->run();$b=(new SchemaMigrator($db))->run();bcAssert(!$a['applied']&&!$b['applied'],'migration was not a no-op');bcAssert($a['migration_id']===SchemaMigrator::CURRENT_MIGRATION_ID,'wrong migration ID');
     });
 } finally {
     foreach (array_reverse($users) as $id) {

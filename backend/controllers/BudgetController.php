@@ -58,7 +58,16 @@ class BudgetController {
             'is_active' => $data['is_active'] ?? true
         ];
 
-        try{$budgetId = $this->budgetModel->create($budgetData);}catch(BudgetValidationException$e){Response::error($e->getMessage(),422);}
+        try {
+            $budgetId = $this->budgetModel->create($budgetData);
+        } catch (DuplicateBudgetException $e) {
+            Response::error($e->getMessage(), 409, [
+                'code' => 'BUDGET_DUPLICATE',
+                'existing_budget' => $e->existingBudget,
+            ]);
+        } catch (BudgetValidationException $e) {
+            Response::error($e->getMessage(), 422);
+        }
         
         if ($budgetId) {
             $budget = $this->budgetModel->findById($budgetId, $userId);
@@ -71,6 +80,7 @@ class BudgetController {
                 'Budget Created',
                 "Budget \"{$data['name']}\" with limit Rs " . number_format($data['amount'], 0) . " has been created.",
                 'budget', $budgetId);
+            $this->notifService->syncUserBudgetAlertStates($userId);
             Response::success($budget, 'Budget created successfully', 201);
         }
         
@@ -108,6 +118,7 @@ class BudgetController {
                 'used' => $progress['spent'], 'spent' => $progress['spent'],
                 'remaining' => $progress['remaining'], 'percentage' => $progress['percentage']
             ]);
+            $this->notifService->syncUserBudgetAlertStates($userId);
             Response::success($budget, 'Budget updated successfully');
         }
         
@@ -128,20 +139,7 @@ class BudgetController {
         $userId = Middleware::auth();
         $progress = $this->budgetModel->getBudgetProgress($id, $userId);
         
-        if ($progress) {
-            if (isset($progress['percentage']) && $progress['percentage'] >= 100) {
-                $this->notifService->create($userId, 'budget_exceeded',
-                    'Budget Exceeded',
-                    "Your budget has exceeded the limit! (" . round($progress['percentage']) . "% used)",
-                    'budget', $id);
-            } elseif (isset($progress['percentage']) && $progress['percentage'] >= 80) {
-                $this->notifService->create($userId, 'budget_warning',
-                    'Budget Warning',
-                    "Your budget has reached " . round($progress['percentage']) . "% of the limit.",
-                    'budget', $id);
-            }
-            Response::success($progress);
-        }
+        if ($progress) Response::success($progress);
         
         Response::notFound('Budget not found');
     }
@@ -187,6 +185,8 @@ class BudgetController {
         if ($insertedIds === false) {
             Response::serverError('Bulk budget creation failed');
         }
+
+        $this->notifService->syncUserBudgetAlertStates($userId);
 
         Response::success([
             'created' => count($insertedIds),
@@ -244,6 +244,26 @@ class BudgetController {
         Response::success($result);
     }
 
+    public function copyToMonth() {
+        $userId = Middleware::auth();
+        $data = json_decode(file_get_contents('php://input'), true) ?: [];
+        try {
+            $result = $this->budgetModel->copyMonthlyBudgets(
+                $userId,
+                $data['budget_ids'] ?? [],
+                (string)($data['source_month'] ?? ''),
+                (string)($data['target_month'] ?? '')
+            );
+        } catch (BudgetValidationException $e) {
+            Response::error($e->getMessage(), 422);
+        }
+        if ($result === false) Response::serverError('Budget copy failed');
+        $this->notifService->syncUserBudgetAlertStates($userId);
+        $message = $result['created'] . ' budget(s) copied successfully';
+        if (!empty($result['skipped'])) $message .= '; ' . count($result['skipped']) . ' already existed';
+        Response::success($result, $message, $result['created'] ? 201 : 200);
+    }
+
     public function progressBatch() {
         $userId = Middleware::auth();
         $ids = isset($_GET['ids']) ? array_map('intval', explode(',', $_GET['ids'])) : [];
@@ -251,7 +271,35 @@ class BudgetController {
             Response::success([]);
             return;
         }
-        $progress = $this->budgetModel->getBatchProgress($ids, $userId);
+        $startDate = $this->queryDate('start_date');
+        $endDate = $this->queryDate('end_date');
+        if (($startDate === null) !== ($endDate === null)) {
+            Response::error('Both start_date and end_date are required', 422);
+        }
+        if ($startDate !== null && $startDate > $endDate) {
+            Response::error('start_date cannot be after end_date', 422);
+        }
+        $progress = $this->budgetModel->getBatchProgress($ids, $userId, $startDate, $endDate);
         Response::success($progress);
+    }
+
+    public function aggregate() {
+        $userId=Middleware::auth();
+        $ids=isset($_GET['ids'])?array_map('intval',explode(',',$_GET['ids'])):[];
+        if(empty($ids)){Response::success(['allocated_budget'=>0,'unique_spent'=>0,'remaining'=>0,'budget_count'=>0,'transaction_count'=>0]);return;}
+        $startDate=$this->queryDate('start_date');$endDate=$this->queryDate('end_date');
+        if(($startDate===null)!==($endDate===null))Response::error('Both start_date and end_date are required',422);
+        if($startDate!==null&&$startDate>$endDate)Response::error('start_date cannot be after end_date',422);
+        Response::success($this->budgetModel->getAggregateProgress($ids,$userId,$startDate,$endDate));
+    }
+
+    private function queryDate(string $key): ?string {
+        if (!isset($_GET[$key]) || $_GET[$key] === '') return null;
+        $value = (string)$_GET[$key];
+        $date = DateTime::createFromFormat('!Y-m-d', $value);
+        if (!$date || $date->format('Y-m-d') !== $value) {
+            Response::error("Invalid {$key}", 422);
+        }
+        return $value;
     }
 }

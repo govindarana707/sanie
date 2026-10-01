@@ -6,6 +6,7 @@ require_once __DIR__ . '/../includes/middleware.php';
 require_once __DIR__ . '/../models/Account.php';
 require_once __DIR__ . '/../services/NotificationService.php';
 require_once __DIR__ . '/../services/BalanceService.php';
+require_once __DIR__ . '/../services/MoneyValidator.php';
 
 class AccountController {
     private $accountModel;
@@ -49,19 +50,26 @@ class AccountController {
             Response::error('Validation failed', 422, $errors);
         }
 
+        try {
+            $openingBalance = MoneyValidator::parseSigned($data['opening_balance'] ?? $data['balance'] ?? 0, 'Opening balance');
+        } catch (InvalidArgumentException $e) {
+            Response::error('Validation failed', 422, ['opening_balance' => $e->getMessage()]);
+        }
+
         $accountData = [
             'user_id' => $userId,
             'name' => $data['name'],
             'type' => $data['type'],
             'account_number' => $data['account_number'] ?? '',
-            'balance' => $data['balance'] ?? 0,
-            'opening_balance' => $data['opening_balance'] ?? $data['balance'] ?? 0,
+            'balance' => $openingBalance,
+            'opening_balance' => $openingBalance,
             'currency' => $data['currency'] ?? 'NPR',
             'color' => $data['color'] ?? '#10B981',
             'icon' => $data['icon'] ?? 'wallet',
             'is_active' => $data['is_active'] ?? true,
             'is_default' => $data['is_default'] ?? false
-            ,'include_in_savings' => $data['include_in_savings'] ?? (($data['type'] ?? '') === 'savings')
+            ,'include_in_savings' => $data['include_in_savings'] ?? (($data['type'] ?? '') === 'savings'),
+            'include_in_net_balance' => array_key_exists('include_in_net_balance', $data) ? $data['include_in_net_balance'] : true
         ];
 
         $accountId = $this->accountModel->create($accountData);
@@ -88,6 +96,12 @@ class AccountController {
             Response::notFound('Account not found');
         }
 
+        try {
+            $openingBalance = MoneyValidator::parseSigned($data['opening_balance'] ?? $existingAccount['opening_balance'], 'Opening balance');
+        } catch (InvalidArgumentException $e) {
+            Response::error('Validation failed', 422, ['opening_balance' => $e->getMessage()]);
+        }
+
         $accountData = [
             'name' => $data['name'] ?? $existingAccount['name'],
             'type' => $data['type'] ?? $existingAccount['type'],
@@ -95,15 +109,17 @@ class AccountController {
             'currency' => $data['currency'] ?? $existingAccount['currency'],
             'color' => $data['color'] ?? $existingAccount['color'],
             'icon' => $data['icon'] ?? $existingAccount['icon'],
-            'opening_balance' => $data['opening_balance'] ?? $existingAccount['opening_balance'],
+            'opening_balance' => $openingBalance,
             'is_active' => $data['is_active'] ?? $existingAccount['is_active'],
             'is_default' => $data['is_default'] ?? $existingAccount['is_default']
-            ,'include_in_savings' => $data['include_in_savings'] ?? $existingAccount['include_in_savings']
+            ,'include_in_savings' => $data['include_in_savings'] ?? $existingAccount['include_in_savings'],
+            'include_in_net_balance' => array_key_exists('include_in_net_balance', $data) ? $data['include_in_net_balance'] : $existingAccount['include_in_net_balance']
         ];
 
         if ($this->accountModel->update($id, $userId, $accountData)) {
+            $calculatedBalance = $this->balanceService->recalculateAndPersistAccountBalance($id, $userId);
             $account = $this->accountModel->findById($id, $userId);
-            $account['calculated_balance'] = $this->balanceService->calculateAccountBalance($id, $userId);
+            $account['calculated_balance'] = $calculatedBalance;
             Response::success($account, 'Account updated successfully');
         }
 
@@ -119,6 +135,14 @@ class AccountController {
             Response::error('Cannot delete account with existing transactions. Please delete all transactions first.', 409);
         }
 
+        if ($this->accountModel->getRecurringTransactionCount($id, $userId) > 0) {
+            Response::error('Cannot delete account used by recurring transaction templates. Delete those templates first.', 409);
+        }
+
+        if ($this->accountModel->getKarobarTransactionCount($id, $userId) > 0) {
+            Response::error('Cannot delete account with existing Karobar history. Preserve or reassign that history first.', 409);
+        }
+
         if ($this->accountModel->delete($id, $userId)) {
             Response::success(null, 'Account deleted successfully');
         }
@@ -128,7 +152,7 @@ class AccountController {
 
     public function totalBalance() {
         $userId = Middleware::auth();
-        $totalBalance = $this->balanceService->getTotalBalance($userId);
+        $totalBalance = $this->balanceService->getNetBalance($userId);
         Response::success(['total_balance' => $totalBalance]);
     }
 

@@ -18,6 +18,16 @@ class KarobarManager {
         this._profileRouteSignal = null;
         this._profileRouteAbortHandler = null;
         this._requestedPersonId = null;
+        this.peoplePage = 1;
+        this.peoplePagination = {};
+        this.peopleSearch = '';
+        this._peoplePageRows = [];
+        this.transactionsPage = 1;
+        this.transactionsPagination = {};
+        this.transactionsSummary = {};
+        this.profilePage = 1;
+        this.profilePagination = {};
+        this.historyPageSize = 25;
     }
 
     onMount() {
@@ -34,7 +44,6 @@ class KarobarManager {
             else if (page === 'karobar-credit-reports') this.loadCreditReports();
             else if (page === 'karobar-ai-analysis') this.loadAIAnalysis();
         });
-        this.loadOverview();
     }
 
     onUnmount() {
@@ -79,9 +88,7 @@ class KarobarManager {
     }
 
     getLocalDateValue() {
-        const now = new Date();
-        const offset = now.getTimezoneOffset() * 60000;
-        return new Date(now.getTime() - offset).toISOString().slice(0, 10);
+        return DateUtils.getKathmanduDateString();
     }
 
     createClientRequestId() {
@@ -205,22 +212,22 @@ class KarobarManager {
                 </div>
             </div>
 
-            <div class="row g-4 mb-4">
+            <div class="row g-4 mb-4 karobar-overview-charts">
                 <div class="col-lg-8">
                     <div class="karobar-chart-container">
                         <h5><i class="fas fa-chart-bar me-2 text-primary"></i>Monthly Overview</h5>
-                        <div id="karobar-monthly-chart" style="height: 280px;"></div>
+                        <div id="karobar-monthly-chart" class="karobar-overview-chart"></div>
                     </div>
                 </div>
                 <div class="col-lg-4">
                     <div class="karobar-chart-container">
                         <h5><i class="fas fa-chart-pie me-2 text-warning"></i>Received vs Paid</h5>
-                        <div id="karobar-ratio-chart" style="height: 280px;"></div>
+                        <div id="karobar-ratio-chart" class="karobar-overview-chart"></div>
                     </div>
                 </div>
             </div>
 
-            <div class="row g-4">
+            <div class="row g-4 karobar-overview-lists">
                 <div class="col-lg-6">
                     <div class="karobar-chart-container">
                         <div class="d-flex justify-content-between align-items-center mb-3">
@@ -258,14 +265,14 @@ class KarobarManager {
             const receivable = parseFloat(p.receivable_outstanding) || 0;
             const payable = parseFloat(p.payable_outstanding) || 0;
             return `
-                <div class="d-flex align-items-center justify-content-between py-2 border-bottom" style="cursor:pointer;" onclick="window.karobarManager?.showPersonLedger(${p.id})">
-                    <div class="d-flex align-items-center gap-2">
+                <div class="karobar-overview-list-row d-flex align-items-center justify-content-between py-2 border-bottom" style="cursor:pointer;" onclick="window.karobarManager?.showPersonLedger(${p.id})">
+                    <div class="karobar-overview-list-primary d-flex align-items-center gap-2">
                         <div class="karobar-person-card person-avatar" style="width:36px;height:36px;font-size:0.8rem;border-radius:50%;background:linear-gradient(135deg,#6366f1,#4f46e5);display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;">
                             ${this.getPersonInitials(p.name)}
                         </div>
                         <span class="fw-semibold" style="font-size:0.9rem;">${Formatters.escapeHTML(p.name)}</span>
                     </div>
-                    <span class="text-end" style="font-size:0.85rem;">
+                    <span class="karobar-overview-list-amounts text-end" style="font-size:0.85rem;">
                         <span class="d-block balance-positive">Receive ${this.formatCurrency(receivable)}</span>
                         <span class="d-block balance-negative">Pay ${this.formatCurrency(payable)}</span>
                     </span>
@@ -281,15 +288,15 @@ class KarobarManager {
 
         return transactions.slice(0, 6).map(tx => {
             return `
-                <div class="d-flex align-items-center justify-content-between py-2 border-bottom">
-                    <div class="d-flex align-items-center gap-2">
+                <div class="karobar-overview-list-row d-flex align-items-center justify-content-between py-2 border-bottom">
+                    <div class="karobar-overview-list-primary d-flex align-items-center gap-2">
                         ${this.getTypeBadge(tx.type)}
                         <div>
                             <span class="fw-semibold d-block" style="font-size:0.9rem;">${Formatters.escapeHTML(tx.person_name || 'Unknown')}</span>
                             <small class="text-muted">${this.formatDate(tx.transaction_date)}</small>
                         </div>
                     </div>
-                    <span class="fw-bold" style="font-size:0.95rem;color:${['lent','repaid'].includes(tx.type) ? '#EF4444' : '#10B981'};">
+                    <span class="karobar-overview-list-amount fw-bold" style="font-size:0.95rem;color:${['lent','repaid'].includes(tx.type) ? '#EF4444' : '#10B981'};">
                         ${['lent','repaid'].includes(tx.type) ? '-' : '+'}${this.formatCurrency(tx.amount)}
                     </span>
                 </div>
@@ -318,6 +325,12 @@ class KarobarManager {
                     labels: { style: { colors: '#6B7280', fontSize: '12px' }, formatter: (val) => Formatters.compactCurrency(val) }
                 },
                 legend: { position: 'top', horizontalAlign: 'right' },
+                responsive: [{ breakpoint: 600, options: {
+                    chart: { height: 220 },
+                    legend: { position: 'bottom', horizontalAlign: 'center', fontSize: '11px' },
+                    xaxis: { labels: { rotate: -45, style: { fontSize: '10px' } } },
+                    yaxis: { labels: { style: { fontSize: '10px' } } }
+                }}],
                 tooltip: { y: { formatter: (val) => Formatters.currency(val) } }
             };
             ChartService.create('#karobar-monthly-chart', barOptions);
@@ -330,6 +343,10 @@ class KarobarManager {
                 plotOptions: { pie: { donut: { size: '70%' } } },
                 dataLabels: { enabled: false },
                 legend: { position: 'bottom' },
+                responsive: [{ breakpoint: 600, options: {
+                    chart: { height: 220 },
+                    legend: { fontSize: '11px' }
+                }}],
                 tooltip: { y: { formatter: (val) => Formatters.currency(val) } }
             };
             ChartService.create('#karobar-ratio-chart', pieOptions);
@@ -360,9 +377,11 @@ class KarobarManager {
     async loadPeople() {
         AjaxService?.showSkeleton('karobar-people-content');
         try {
-            const result = await karobarAPI.getPeople({ status: 'active' });
+            const result = await karobarAPI.getPeople({ status: 'active', search: this.peopleSearch || undefined, page: this.peoplePage, limit: 20 });
             if (result.success) {
-                this.people = result.data;
+                this._peoplePageRows = result.data?.people || [];
+                this.peoplePagination = result.data?.pagination || {};
+                await this._ensureAllPeople();
                 this.renderPeople();
             }
         } catch (error) {
@@ -377,7 +396,7 @@ class KarobarManager {
         const container = document.getElementById('karobar-people-content');
         if (!container) return;
 
-        if (!this.people || this.people.length === 0) {
+        if (!this._peoplePageRows || this._peoplePageRows.length === 0) {
             container.innerHTML = `
                 <div class="text-center py-5">
                     <div style="width:80px;height:80px;border-radius:50%;background:rgba(99,102,241,0.1);display:inline-flex;align-items:center;justify-content:center;margin-bottom:1.5rem;">
@@ -394,11 +413,11 @@ class KarobarManager {
         }
 
         let html = `
-            <div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-3">
-                <div class="d-flex align-items-center gap-2 flex-wrap">
-                    <div class="input-group" style="max-width:300px;">
+            <div class="karobar-people-toolbar d-flex justify-content-between align-items-center mb-4 flex-wrap gap-3">
+                <div class="karobar-people-search-wrap d-flex align-items-center gap-2 flex-wrap">
+                    <div class="input-group karobar-people-search">
                         <span class="input-group-text bg-transparent border-end-0"><i class="fas fa-search text-muted"></i></span>
-                        <input type="text" id="karobar-people-search" class="form-control border-start-0" placeholder="Search people...">
+                        <input type="text" id="karobar-people-search" class="form-control border-start-0" placeholder="Search people..." value="${Formatters.escapeHTML(this.peopleSearch || '')}">
                     </div>
                 </div>
                 <button class="btn btn-primary" onclick="window.karobarManager?.showAddPersonModal()">
@@ -408,7 +427,7 @@ class KarobarManager {
             <div class="karobar-people-grid">
         `;
 
-        this.people.forEach(person => {
+        this._peoplePageRows.forEach(person => {
             const balance = parseFloat(person.balance) || 0;
             const receivable = parseFloat(person.receivable_outstanding) || 0;
             const payable = parseFloat(person.payable_outstanding) || 0;
@@ -419,8 +438,8 @@ class KarobarManager {
 
             html += `
                 <div class="karobar-person-card" onclick="window.appRouter?.navigate('karobar-person-profile?id=${person.id}')">
-                    <div class="karobar-person-card person-status-badge">${positionStatus}</div>
-                    <div class="d-flex align-items-center gap-3 mb-3">
+                    <div class="person-status-badge">${positionStatus}</div>
+                    <div class="person-card-head d-flex align-items-center gap-3 mb-3">
                         <div class="person-avatar">${this.getPersonInitials(person.name)}</div>
                         <div>
                             <div class="person-name">${Formatters.escapeHTML(person.name)}</div>
@@ -430,14 +449,14 @@ class KarobarManager {
                             </div>
                         </div>
                     </div>
-                    <div class="d-flex justify-content-between align-items-end">
+                    <div class="person-card-footer d-flex justify-content-between align-items-end">
                         <div>
                             <div class="text-muted small">Receivable</div>
                             <div class="person-balance balance-positive">${this.formatCurrency(receivable)}</div>
                             <div class="text-muted small mt-1">Payable</div>
                             <div class="person-balance balance-negative">${this.formatCurrency(payable)}</div>
                         </div>
-                        <div class="text-end">
+                        <div class="person-card-actions text-end">
                             <div class="text-muted small">${txCount} transaction${txCount !== 1 ? 's' : ''}</div>
                             <div class="d-flex gap-1 mt-1">
                                 <button class="btn btn-sm btn-outline-primary" onclick="event.stopPropagation(); window.karobarManager?.showEditPersonModal(${person.id})" title="Edit"><i class="fas fa-pen"></i></button>
@@ -449,20 +468,27 @@ class KarobarManager {
             `;
         });
 
-        html += '</div>';
+        html += `</div>${this._paginationHTML(this.peoplePagination,'goToPeoplePage')}`;
         container.innerHTML = html;
 
         const searchInput = document.getElementById('karobar-people-search');
         if (searchInput) {
-            searchInput.addEventListener('input', (e) => {
-                const term = e.target.value.toLowerCase();
-                const cards = container.querySelectorAll('.karobar-person-card');
-                cards.forEach(card => {
-                    const name = card.querySelector('.person-name')?.textContent.toLowerCase() || '';
-                    card.style.display = name.includes(term) ? '' : 'none';
-                });
-            });
+            let timer;searchInput.addEventListener('input',(e)=>{clearTimeout(timer);timer=setTimeout(()=>{this.peopleSearch=e.target.value.trim();this.peoplePage=1;this.loadPeople();},250);});
         }
+    }
+
+    goToPeoplePage(page){const total=Number(this.peoplePagination?.total_pages||1);this.peoplePage=Math.max(1,Math.min(total,Number(page)||1));this.loadPeople();}
+
+    async _ensureAllPeople(){
+        const first=await karobarAPI.getPeople({status:'active',page:1,limit:200});if(!first.success){this.people=[];return;}
+        const rows=[...(first.data?.people||[])],pages=Number(first.data?.pagination?.total_pages||1);
+        for(let page=2;page<=pages;page++){const next=await karobarAPI.getPeople({status:'active',page,limit:200});if(next.success)rows.push(...(next.data?.people||[]));}
+        this.people=rows;
+    }
+
+    _paginationHTML(pagination,handler){
+        const total=Number(pagination?.total_pages||0),page=Number(pagination?.page||1);if(total<=1)return'';
+        return `<div class="karobar-pagination d-flex justify-content-between align-items-center mt-3"><span class="text-muted small">Page ${page} of ${total} · ${Number(pagination.total_rows||0)} records</span><div class="btn-group"><button class="btn btn-sm btn-outline-secondary" onclick="window.karobarManager?.${handler}(${page-1})" ${page<=1?'disabled':''}>Previous</button><button class="btn btn-sm btn-outline-secondary" onclick="window.karobarManager?.${handler}(${page+1})" ${page>=total?'disabled':''}>Next</button></div></div>`;
     }
 
     showAddPersonModal() {
@@ -598,6 +624,7 @@ class KarobarManager {
                 this._editingPersonId = null;
                 if (window.modalService) modalService.close();
                 window.dispatchEvent(new CustomEvent('app:data-changed'));
+                if (window.appRouter?.currentPage === 'transactions') await window.transactionsManager?.loadTransactions();
             } else {
                 NotificationService.error(result.message || 'Failed to save person');
             }
@@ -631,8 +658,10 @@ class KarobarManager {
     // PERSON LEDGER
     // ========================
     async showPersonLedger(personId) {
+        window.appRouter?.navigate(`karobar-person-profile?id=${personId}`);
+        return;
         try {
-            const result = await karobarAPI.getPersonLedger(personId);
+            const result = await karobarAPI.getPersonLedger(personId,{});
             if (!result.success || !result.data) {
                 NotificationService.error('Person not found');
                 return;
@@ -762,6 +791,7 @@ class KarobarManager {
 
     async loadPersonProfile(personId, routeContext = null) {
         this.cancelPersonProfileRequest(true);
+        this.profilePage=1;this._profileSearch='';this._profileFilter='all';
         const requestedPersonId = String(Number(personId) || '');
         const container = document.getElementById('karobar-person-profile-content');
         this._requestedPersonId = requestedPersonId;
@@ -787,7 +817,7 @@ class KarobarManager {
             && !controller.signal.aborted
             && isRouteCurrent();
         try {
-            const result = await karobarAPI.getPersonLedger(personId, { signal: controller.signal });
+            const result = await karobarAPI.getPersonLedger(personId, this._profileQuery(), { signal: controller.signal });
             if (!isCurrent()) return;
             if (!result.success || !result.data) {
                 this.currentPerson = null;
@@ -802,8 +832,10 @@ class KarobarManager {
             this.currentPerson = result.data.person;
             this._profileLedger = result.data.ledger || [];
             this._profileBalance = parseFloat(result.data.balance) || 0;
-            this._profileSearch = '';
-            this._profileFilter = 'all';
+            this.profilePagination=result.data.pagination||{};
+            this._profileHistoryContext=result.data.history_context||{};
+            this._profileSearch = this._profileSearch || '';
+            this._profileFilter = this._profileFilter || 'all';
             this.renderPersonProfile();
         } catch (error) {
             if (!isCurrent() || error?.category === 'aborted_error' || error?.code === 'ABORTED_ERROR') return;
@@ -899,7 +931,8 @@ class KarobarManager {
             `;
         }).join('');
 
-        const monthlyData = this._getMonthlyChartData(ledger);
+        const monthlyData = this._monthlyContextData(this._profileHistoryContext?.monthly||[]);
+        const recentLedger=this._profileHistoryContext?.recent||ledger.slice(-10).reverse();
 
         let html = `
             <div class="d-flex align-items-center mb-4">
@@ -986,35 +1019,35 @@ class KarobarManager {
                     <div class="profile-timeline-card mt-4">
                         <h6 class="fw-bold mb-3"><i class="fas fa-stream me-2 text-primary"></i>Timeline</h6>
                         <div class="profile-timeline">
-                            ${ledger.slice(-10).reverse().map(tx => {
+                            ${recentLedger.map(tx => {
                                 const icon = {lent:'fa-arrow-up text-danger',borrowed:'fa-arrow-down text-success',returned:'fa-undo text-info',repaid:'fa-check-circle text-warning',adjustment:'fa-sliders-h text-secondary'}[tx.type] || 'fa-circle text-muted';
                                 return `<div class="timeline-item"><div class="timeline-dot"><i class="fas ${icon}"></i></div><div class="timeline-content"><div class="timeline-date">${this.formatDate(tx.transaction_date)}</div><div class="timeline-label">${tx.type.charAt(0).toUpperCase() + tx.type.slice(1)}</div><div class="timeline-amount">${this.formatCurrency(tx.amount)}</div></div></div>`;
                             }).join('')}
-                            ${ledger.length === 0 ? '<div class="text-center text-muted py-3">No transactions yet</div>' : ''}
+                            ${recentLedger.length === 0 ? '<div class="text-center text-muted py-3">No transactions yet</div>' : ''}
                         </div>
                     </div>
                 </div>
             </div>
 
             <div class="profile-ledger-card mt-4">
-                <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+                <div class="karobar-transaction-toolbar d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
                     <h6 class="fw-bold mb-0"><i class="fas fa-book me-2 text-primary"></i>Ledger</h6>
                     <div class="d-flex gap-2 flex-wrap">
                         <select id="profile-filter" class="form-select form-select-sm" style="width:auto;" onchange="window.karobarManager?._onProfileFilterChange(this.value)">
-                            <option value="all">All Time</option>
-                            <option value="today">Today</option>
-                            <option value="week">This Week</option>
-                            <option value="month">This Month</option>
-                            <option value="year">This Year</option>
+                            <option value="all" ${this._profileFilter==='all'?'selected':''}>All Time</option>
+                            <option value="today" ${this._profileFilter==='today'?'selected':''}>Today</option>
+                            <option value="week" ${this._profileFilter==='week'?'selected':''}>This Week</option>
+                            <option value="month" ${this._profileFilter==='month'?'selected':''}>This Month</option>
+                            <option value="year" ${this._profileFilter==='year'?'selected':''}>This Year</option>
                         </select>
                         <div class="input-group input-group-sm" style="width:220px;">
                             <span class="input-group-text bg-transparent"><i class="fas fa-search text-muted"></i></span>
-                            <input type="text" id="profile-search" class="form-control" placeholder="Search ledger..." oninput="window.karobarManager?._onProfileSearchChange(this.value)">
+                            <input type="text" id="profile-search" class="form-control" placeholder="Search ledger..." value="${Formatters.escapeHTML(this._profileSearch||'')}" oninput="window.karobarManager?._onProfileSearchChange(this.value)">
                         </div>
                         <button class="btn btn-sm btn-outline-secondary" onclick="window.karobarManager?.exportProfileLedgerCSV()"><i class="fas fa-download me-1"></i>Export</button>
                     </div>
                 </div>
-                <div class="table-responsive">
+                <div class="table-responsive karobar-transactions-table-shell">
                     <table class="table table-hover align-middle mb-0 profile-ledger-table">
                         <thead>
                             <tr>
@@ -1033,6 +1066,7 @@ class KarobarManager {
                         </tbody>
                     </table>
                 </div>
+                ${this._paginationHTML(this.profilePagination,'goToProfilePage')}
             </div>
         `;
 
@@ -1050,20 +1084,19 @@ class KarobarManager {
         let filtered = [...ledger];
         const term = (this._profileSearch || '').toLowerCase();
         const filter = this._profileFilter || 'all';
-        const now = new Date();
+        const today = DateUtils.getKathmanduDateString();
 
         if (filter === 'today') {
-            const today = now.toISOString().split('T')[0];
             filtered = filtered.filter(tx => tx.transaction_date === today);
         } else if (filter === 'week') {
-            const weekAgo = new Date(now); weekAgo.setDate(now.getDate() - 7);
-            filtered = filtered.filter(tx => new Date(tx.transaction_date) >= weekAgo);
+            const weekAgo = DateUtils.addCalendarDays(today, -7);
+            filtered = filtered.filter(tx => tx.transaction_date >= weekAgo);
         } else if (filter === 'month') {
-            const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-            filtered = filtered.filter(tx => new Date(tx.transaction_date) >= monthStart);
+            const monthStart = DateUtils.getKathmanduRange('month').start;
+            filtered = filtered.filter(tx => tx.transaction_date >= monthStart);
         } else if (filter === 'year') {
-            const yearStart = new Date(now.getFullYear(), 0, 1);
-            filtered = filtered.filter(tx => new Date(tx.transaction_date) >= yearStart);
+            const yearStart = DateUtils.getKathmanduRange('year').start;
+            filtered = filtered.filter(tx => tx.transaction_date >= yearStart);
         }
 
         if (term) {
@@ -1078,13 +1111,17 @@ class KarobarManager {
 
     _onProfileFilterChange(value) {
         this._profileFilter = value;
-        this.renderPersonProfile();
+        this.profilePage=1;this.reloadProfileLedger();
     }
 
     _onProfileSearchChange(value) {
         this._profileSearch = value;
-        this.renderPersonProfile();
+        clearTimeout(this._profileSearchTimer);this._profileSearchTimer=setTimeout(()=>{this.profilePage=1;this.reloadProfileLedger();},250);
     }
+
+    _profileQuery(){const query={page:this.profilePage,limit:this.historyPageSize,search:this._profileSearch||undefined};const filter=this._profileFilter||'all';if(filter!=='all'){const today=DateUtils.getKathmanduDateString();if(filter==='today'){query.start_date=today;query.end_date=today;}else if(filter==='week')query.start_date=DateUtils.addCalendarDays(today,-7);else if(filter==='month')query.start_date=DateUtils.getKathmanduRange('month').start;else if(filter==='year')query.start_date=DateUtils.getKathmanduRange('year').start;}return query;}
+    async reloadProfileLedger(){if(!this.currentPerson?.id)return;const result=await karobarAPI.getPersonLedger(this.currentPerson.id,this._profileQuery());if(result.success){this.currentPerson=result.data.person;this._profileLedger=result.data.ledger||[];this._profileBalance=parseFloat(result.data.balance)||0;this.profilePagination=result.data.pagination||{};this._profileHistoryContext=result.data.history_context||{};this.renderPersonProfile();}}
+    goToProfilePage(page){const total=Number(this.profilePagination?.total_pages||1);this.profilePage=Math.max(1,Math.min(total,Number(page)||1));this.reloadProfileLedger();}
 
     _getMonthlyChartData(ledger) {
         const monthly = {};
@@ -1100,6 +1137,8 @@ class KarobarManager {
         });
         return monthly;
     }
+
+    _monthlyContextData(rows){const monthly={};rows.forEach(row=>{const month=row.month;if(!monthly[month])monthly[month]={borrowed:0,lent:0,returned:0,repaid:0};if(Object.prototype.hasOwnProperty.call(monthly[month],row.type))monthly[month][row.type]=Number(row.amount)||0;});return monthly;}
 
     _renderProfileChart(monthlyData) {
         const chartEl = document.getElementById('profile-chart');
@@ -1134,8 +1173,8 @@ class KarobarManager {
         this._profileChart = chart;
     }
 
-    exportProfileLedgerCSV() {
-        const ledger = this._filterProfileLedger(this._profileLedger);
+    async exportProfileLedgerCSV() {
+        const ledger=[];const first=await karobarAPI.getPersonLedger(this.currentPerson.id,{...this._profileQuery(),page:1,limit:200});if(first.success)ledger.push(...(first.data.ledger||[]));const pages=Number(first.data?.pagination?.total_pages||1);for(let page=2;page<=pages;page++){const next=await karobarAPI.getPersonLedger(this.currentPerson.id,{...this._profileQuery(),page,limit:200});if(next.success)ledger.push(...(next.data.ledger||[]));}
         if (!ledger.length) { NotificationService.info('No data to export'); return; }
         let csv = 'Date,Type,Description,Debit,Credit,Running Outstanding\n';
         ledger.forEach(tx => {
@@ -1151,7 +1190,7 @@ class KarobarManager {
 
     showQuickTxModal(personId, type) {
         if (!this.people || this.people.length === 0) {
-            karobarAPI.getPeople().then(r => { if (r.success) this.people = r.data; });
+            this._ensureAllPeople();
         }
         if (window.modalService) {
             window.modalService.open({
@@ -1180,7 +1219,7 @@ class KarobarManager {
         const clientRequestId = this.createClientRequestId();
         let submitting = false;
         if (!this.people || this.people.length === 0) {
-            karobarAPI.getPeople().then(r => { if (r.success) this.people = r.data; });
+            this._ensureAllPeople();
         }
         const bodyHTML = `
             <form id="profile-repay-form">
@@ -1273,7 +1312,7 @@ class KarobarManager {
         const clientRequestId = this.createClientRequestId();
         let submitting = false;
         if (!this.people || this.people.length === 0) {
-            karobarAPI.getPeople().then(r => { if (r.success) this.people = r.data; });
+            this._ensureAllPeople();
         }
         const bodyHTML = `
             <form id="profile-receive-form">
@@ -1365,13 +1404,14 @@ class KarobarManager {
         try {
             if (!this.people || this.people.length === 0) {
                 try {
-                    const pResult = await karobarAPI.getPeople();
-                    if (pResult.success) this.people = pResult.data;
+                    await this._ensureAllPeople();
                 } catch (e) {}
             }
-            const result = await karobarAPI.getTransactions(this.filters);
+            const result = await karobarAPI.getTransactions({...this.filters,page:this.transactionsPage,limit:this.historyPageSize});
             if (result.success) {
-                this.transactions = result.data;
+                this.transactions = result.data?.transactions || [];
+                this.transactionsPagination=result.data?.pagination||{};
+                this.transactionsSummary=result.data?.summary||{};
                 this.renderTransactionsPage();
             }
         } catch (error) {
@@ -1386,14 +1426,7 @@ class KarobarManager {
         const container = document.getElementById('karobar-transactions-content');
         if (!container) return;
 
-        let totalLent = 0, totalBorrowed = 0, totalReturned = 0, totalRepaid = 0;
-        (this.transactions || []).forEach(tx => {
-            const amt = parseFloat(tx.amount) || 0;
-            if (tx.type === 'lent') totalLent += amt;
-            if (tx.type === 'borrowed') totalBorrowed += amt;
-            if (tx.type === 'returned') totalReturned += amt;
-            if (tx.type === 'repaid') totalRepaid += amt;
-        });
+        const totalLent=Number(this.transactionsSummary.total_lent||0),totalBorrowed=Number(this.transactionsSummary.total_borrowed||0),totalReturned=Number(this.transactionsSummary.total_returned||0),totalRepaid=Number(this.transactionsSummary.total_repaid||0);
 
         let html = `
             <div class="karobar-report-summary mb-4">
@@ -1413,13 +1446,14 @@ class KarobarManager {
                     <div class="report-value" style="color:#F59E0B;">${this.formatCurrency(totalRepaid)}</div>
                     <div class="report-label">Total Repaid</div>
                 </div>
+                ${this._paginationHTML(this.transactionsPagination,'goToTransactionsPage')}
             </div>
 
             <div class="karobar-chart-container">
                 <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
                     <h5 class="mb-0"><i class="fas fa-exchange-alt me-2 text-info"></i>All Transactions</h5>
-                    <div class="d-flex gap-2 flex-wrap">
-                        <select id="karobar-tx-filter-type" class="form-select form-select-sm" style="width:auto;">
+                    <div class="karobar-transaction-filters d-flex gap-2 flex-wrap">
+                        <select id="karobar-tx-filter-type" class="form-select form-select-sm">
                             <option value="">All Types</option>
                             <option value="lent">Money Lent</option>
                             <option value="borrowed">Money Borrowed</option>
@@ -1427,7 +1461,7 @@ class KarobarManager {
                             <option value="repaid">Money Repaid</option>
                             <option value="adjustment">Adjustment</option>
                         </select>
-                        <select id="karobar-tx-filter-person" class="form-select form-select-sm" style="width:auto;">
+                        <select id="karobar-tx-filter-person" class="form-select form-select-sm">
                             <option value="">All People</option>
                             ${(this.people || []).map(p => `<option value="${p.id}">${Formatters.escapeHTML(p.name)}</option>`).join('')}
                         </select>
@@ -1473,31 +1507,37 @@ class KarobarManager {
                         </tbody>
                     </table>
                 </div>
+                <div class="karobar-transaction-mobile-list">
+                    ${(this.transactions || []).map(tx => `
+                        <article class="karobar-transaction-mobile-card">
+                            <div class="karobar-transaction-mobile-heading">
+                                <div>
+                                    <strong>${Formatters.escapeHTML(tx.person_name || 'Unknown')}</strong>
+                                    <span>${this.formatDate(tx.transaction_date)}</span>
+                                </div>
+                                <strong class="karobar-transaction-mobile-amount" style="color:${['lent','repaid'].includes(tx.type) ? '#EF4444' : '#10B981'};">${['lent','repaid'].includes(tx.type) ? '-' : '+'}${this.formatCurrency(tx.amount)}</strong>
+                            </div>
+                            <div class="karobar-transaction-mobile-meta">
+                                ${this.getTypeBadge(tx.type)}
+                                <span>${tx.due_date ? `Due ${this.formatDate(tx.due_date)}` : 'No due date'}</span>
+                            </div>
+                            ${tx.description ? `<p>${Formatters.escapeHTML(tx.description)}</p>` : ''}
+                            <div class="karobar-transaction-mobile-actions">
+                                <button class="btn btn-sm btn-outline-primary" onclick="window.karobarManager?.editTransaction(${tx.id})"><i class="fas fa-pen me-1"></i>Edit</button>
+                                <button class="btn btn-sm btn-outline-danger" onclick="window.karobarManager?.deleteTransaction(${tx.id})"><i class="fas fa-trash me-1"></i>Delete</button>
+                            </div>
+                        </article>
+                    `).join('') || '<p class="text-muted text-center py-3">No transactions found</p>'}
+                </div>
             </div>
         `;
 
         container.innerHTML = html;
 
-        if (this.transactions && this.transactions.length > 0 && window.$ && $.fn.DataTable) {
-            try {
-                this.dataTable = $('#karobar-transactions-table').DataTable({
-                    responsive: true,
-                    pageLength: 15,
-                    lengthMenu: [10, 25, 50, 100],
-                    order: [[0, 'desc']],
-                    columnDefs: [
-                        { orderable: false, targets: [6] }
-                    ],
-                    language: {
-                        search: '', searchPlaceholder: 'Search transactions...',
-                        info: 'Showing _START_ to _END_ of _TOTAL_ transactions',
-                        zeroRecords: 'No matching transactions found'
-                    },
-                    dom: '<"row"<"col-sm-12"f>>' + '<"row"<"col-sm-12"t>>' + '<"row align-items-center mt-2"<"col-sm-12 col-md-5"l><"col-sm-12 col-md-3"i><"col-sm-12 col-md-4"p>>'
-                });
-            } catch (e) {}
-        }
+
     }
+
+    goToTransactionsPage(page){const total=Number(this.transactionsPagination?.total_pages||1);this.transactionsPage=Math.max(1,Math.min(total,Number(page)||1));this.loadTransactions();}
 
     applyTxFilters() {
         this.filters = {
@@ -1505,11 +1545,13 @@ class KarobarManager {
             person_id: document.getElementById('karobar-tx-filter-person')?.value || undefined
         };
         Object.keys(this.filters).forEach(k => { if (!this.filters[k]) delete this.filters[k]; });
+        this.transactionsPage=1;
         this.loadTransactions();
     }
 
     clearTxFilters() {
         this.filters = {};
+        this.transactionsPage=1;
         this.loadTransactions();
     }
 
@@ -1519,8 +1561,7 @@ class KarobarManager {
 
         if (!this.people || this.people.length === 0) {
             try {
-                const result = await karobarAPI.getPeople();
-                if (result.success) this.people = result.data;
+                await this._ensureAllPeople();
             } catch (e) {}
         }
 
@@ -1557,8 +1598,7 @@ class KarobarManager {
 
             if (!this.people || this.people.length === 0) {
                 try {
-                    const pResult = await karobarAPI.getPeople();
-                    if (pResult.success) this.people = pResult.data;
+                    await this._ensureAllPeople();
                 } catch (e) {}
             }
 
@@ -1693,7 +1733,7 @@ class KarobarManager {
             due_date: document.getElementById('kt-due-date')?.value || null,
             description: document.getElementById('kt-description').value.trim()
         };
-        if (!this._editingTxId && ['repaid', 'returned'].includes(data.type)) {
+        if (!this._editingTxId) {
             data.client_request_id = this._paymentRequestId || (this._paymentRequestId = this.createClientRequestId());
         }
         if (this._editingTxId && this._editingCreditPurchase) {
@@ -1715,7 +1755,7 @@ class KarobarManager {
 
             if (result.success) {
                 NotificationService.success(this._editingTxId ? 'Transaction updated' : 'Transaction recorded');
-                if (!this._editingTxId && ['repaid', 'returned'].includes(data.type)) this._paymentRequestId = null;
+                if (!this._editingTxId) this._paymentRequestId = null;
                 this._editingTxId = null;
                 this._editingTxVersion = null;
                 this._editingCreditPurchase = false;
@@ -1755,6 +1795,7 @@ class KarobarManager {
             if (result.success) {
                 NotificationService.success('Transaction deleted');
                 window.dispatchEvent(new CustomEvent('app:data-changed'));
+                if (window.appRouter?.currentPage === 'transactions') await window.transactionsManager?.loadTransactions();
             }
         } catch (error) {
             NotificationService.error(error?.message || 'Failed to delete transaction');
@@ -1817,7 +1858,7 @@ class KarobarManager {
                 </div>
             </div>
 
-            <div class="row g-4 mb-4">
+            <div class="row g-4 mb-4 karobar-credit-detail-grid">
                 <div class="col-lg-6">
                     <div class="karobar-chart-container">
                         <h5><i class="fas fa-hand-holding-usd me-2 text-danger"></i>Receivable Detail</h5>
@@ -1864,7 +1905,7 @@ class KarobarManager {
                 </div>
             </div>
 
-            <div class="row g-4 mb-4">
+            <div class="row g-4 mb-4 karobar-credit-detail-grid">
                 <div class="col-lg-6">
                     <div class="karobar-chart-container">
                         <h5><i class="fas fa-store me-2 text-warning"></i>Shop-wise Summary</h5>
@@ -1960,23 +2001,31 @@ class KarobarManager {
             return;
         }
 
-        const score = data.health_score || 0;
-        const status = data.health_status || 'Unknown';
-        const scoreColor = score >= 80 ? '#10B981' : (score >= 60 ? '#34D399' : (score >= 40 ? '#F59E0B' : '#EF4444'));
+        const scoreAvailable = data.health_score !== null && data.health_score !== undefined && Number.isFinite(Number(data.health_score));
+        const score = scoreAvailable ? Number(data.health_score) : null;
+        const status = data.health_status || 'Not enough data';
+        const scoreColor = !scoreAvailable ? '#6B7280' : (score >= 80 ? '#10B981' : (score >= 65 ? '#34D399' : (score >= 45 ? '#F59E0B' : (score >= 25 ? '#F97316' : '#EF4444'))));
 
         const insights = data.insights || [];
         const recommendations = data.recommendations || [];
         const monthlyTrend = data.monthly_trend || [];
+        const trendHasActivity = Boolean(data.monthly_trend_has_activity);
+        const netPosition = Number(data.net_position ?? data.net_karobar ?? 0);
+        const creditDependency = data.credit_dependency === null || data.credit_dependency === undefined ? 'N/A' : `${Number(data.credit_dependency).toLocaleString(undefined, { maximumFractionDigits: 1 })}%`;
+        const avgRepayment = data.avg_repayment_days === null || data.avg_repayment_days === undefined ? 'N/A' : `${Number(data.avg_repayment_days)} days`;
+        const mostBorrowed = data.most_borrowed_person || data.most_borrowed_shop;
+        const signedNet = `${netPosition > 0 ? '+' : (netPosition < 0 ? '-' : '')}${this.formatCurrency(netPosition)}`;
 
         let html = `
-            <div class="row g-4 mb-4">
+            <div class="row g-4 mb-4 karobar-ai-summary-grid">
                 <div class="col-md-4">
-                    <div class="karobar-chart-container text-center py-5">
-                        <div style="width:120px;height:120px;border-radius:50%;border:8px solid ${scoreColor};display:inline-flex;align-items:center;justify-content:center;margin-bottom:1rem;">
-                            <span style="font-size:2.5rem;font-weight:800;color:${scoreColor};">${score}</span>
+                    <div class="karobar-chart-container karobar-health-card text-center py-5">
+                        <div class="karobar-health-score" style="--karobar-health-color:${scoreColor};">
+                            <span>${scoreAvailable ? score : '—'}</span>
                         </div>
                         <h4 class="fw-bold">${status}</h4>
-                        <p class="text-muted">Health Score</p>
+                        <p class="text-muted mb-0">Karobar Health Score${scoreAvailable ? ' / 100' : ''}</p>
+                        ${!scoreAvailable ? '<small class="text-muted d-block mt-2">Add Karobar activity to calculate a meaningful score.</small>' : ''}
                     </div>
                 </div>
                 <div class="col-md-8">
@@ -1986,43 +2035,44 @@ class KarobarManager {
                             <div class="col-sm-4">
                                 <div class="text-center p-3 rounded bg-success bg-opacity-10">
                                     <p class="text-muted small mb-1">Receivable</p>
-                                    <p class="fw-bold" style="color:#10B981;font-size:1.3rem;">${this.formatCurrency(data.total_receivable)}</p>
+                                    <p class="fw-bold karobar-ai-metric-value" style="color:#10B981;">${this.formatCurrency(data.total_receivable)}</p>
                                 </div>
                             </div>
                             <div class="col-sm-4">
                                 <div class="text-center p-3 rounded bg-danger bg-opacity-10">
                                     <p class="text-muted small mb-1">Payable</p>
-                                    <p class="fw-bold" style="color:#EF4444;font-size:1.3rem;">${this.formatCurrency(data.total_payable)}</p>
+                                    <p class="fw-bold karobar-ai-metric-value" style="color:#EF4444;">${this.formatCurrency(data.total_payable)}</p>
                                 </div>
                             </div>
                             <div class="col-sm-4">
                                 <div class="text-center p-3 rounded bg-primary bg-opacity-10">
-                                    <p class="text-muted small mb-1">Net Karobar</p>
-                                    <p class="fw-bold" style="font-size:1.3rem;color:${parseFloat(data.net_karobar) >= 0 ? '#10B981' : '#EF4444'};">${this.formatCurrency(Math.abs(data.net_karobar))}</p>
+                                    <p class="text-muted small mb-1">Net Position</p>
+                                    <p class="fw-bold karobar-ai-metric-value" style="color:${netPosition >= 0 ? '#10B981' : '#EF4444'};">${signedNet}</p>
                                 </div>
                             </div>
                             <div class="col-sm-3">
                                 <div class="text-center p-3 rounded bg-secondary bg-opacity-10">
-                                    <p class="text-muted small mb-1">Credit Dependency</p>
-                                    <p class="fw-bold">${data.credit_dependency || 0}%</p>
+                                    <p class="text-muted small mb-1">Credit Dependency <i class="fas fa-circle-info ms-1" tabindex="0" role="img" aria-label="Credit Dependency is the share of recorded expenses made on credit." title="The share of recorded expenses made on credit. N/A means there is not enough expense data to calculate it."></i></p>
+                                    <p class="fw-bold">${creditDependency}</p>
                                 </div>
                             </div>
                             <div class="col-sm-3">
                                 <div class="text-center p-3 rounded bg-secondary bg-opacity-10">
                                     <p class="text-muted small mb-1">Avg Repayment</p>
-                                    <p class="fw-bold">${data.avg_repayment_days || 0} days</p>
+                                    <p class="fw-bold">${avgRepayment}</p>
                                 </div>
                             </div>
                             <div class="col-sm-3">
                                 <div class="text-center p-3 rounded bg-secondary bg-opacity-10">
-                                    <p class="text-muted small mb-1">People</p>
-                                    <p class="fw-bold">${data.people_count || 0}</p>
+                                    <p class="text-muted small mb-1">Active People</p>
+                                    <p class="fw-bold mb-1">${Number(data.active_people_count ?? data.people_count ?? 0)}</p>
+                                    <small class="text-muted d-block">You owe ${Number(data.people_you_owe || 0)} · Owe you ${Number(data.people_who_owe_you || 0)}</small>
                                 </div>
                             </div>
                             <div class="col-sm-3">
                                 <div class="text-center p-3 rounded bg-secondary bg-opacity-10">
                                     <p class="text-muted small mb-1">Most Borrowed</p>
-                                    <p class="fw-bold" style="font-size:0.9rem;">${data.most_borrowed_shop ? Formatters.escapeHTML(data.most_borrowed_shop.name) : 'N/A'}</p>
+                                    <p class="fw-bold" style="font-size:0.9rem;">${mostBorrowed ? Formatters.escapeHTML(mostBorrowed.name) : 'N/A'}</p>
                                 </div>
                             </div>
                         </div>
@@ -2030,7 +2080,7 @@ class KarobarManager {
                 </div>
             </div>
 
-            <div class="row g-4 mb-4">
+            <div class="row g-4 mb-4 karobar-ai-insight-grid">
                 <div class="col-lg-6">
                     <div class="karobar-chart-container">
                         <h5><i class="fas fa-lightbulb me-2 text-warning"></i>AI Insights</h5>
@@ -2047,29 +2097,30 @@ class KarobarManager {
                 </div>
             </div>
 
-            ${monthlyTrend.length > 0 ? `
             <div class="karobar-chart-container mb-4">
                 <h5><i class="fas fa-chart-line me-2 text-info"></i>Monthly Debt Trend</h5>
-                <div id="karobar-ai-monthly-trend" style="height:300px;"></div>
+                ${trendHasActivity ? '<div id="karobar-ai-monthly-trend" class="karobar-responsive-chart" aria-label="Monthly borrowed, repaid, and outstanding debt chart"></div>' : '<div class="karobar-ai-chart-empty"><i class="fas fa-chart-line" aria-hidden="true"></i><p class="mb-0">No Karobar activity available for this period.</p></div>'}
             </div>
-            ` : ''}
         `;
 
         container.innerHTML = html;
 
-        if (window.ChartService && monthlyTrend.length > 0) {
+        if (window.ChartService && trendHasActivity && monthlyTrend.length > 0) {
             ChartService.create('#karobar-ai-monthly-trend', {
                 series: [
                     { name: 'Borrowed', data: monthlyTrend.map(d => parseFloat(d.borrowed) || 0) },
-                    { name: 'Repaid', data: monthlyTrend.map(d => parseFloat(d.repaid) || 0) }
+                    { name: 'Repaid', data: monthlyTrend.map(d => parseFloat(d.repaid) || 0) },
+                    { name: 'Outstanding Balance', data: monthlyTrend.map(d => parseFloat(d.outstanding_balance) || 0) }
                 ],
-                chart: { type: 'area', height: 300, toolbar: { show: false } },
-                colors: ['#EF4444', '#10B981'],
+                chart: { type: 'line', height: 300, toolbar: { show: false }, redrawOnParentResize: true, redrawOnWindowResize: true },
+                colors: ['#EF4444', '#10B981', '#3B82F6'],
                 stroke: { curve: 'smooth', width: 2 },
-                fill: { type: 'gradient', gradient: { shadeIntensity: 1, opacityFrom: 0.3, opacityTo: 0.05 } },
+                markers: { size: 3 },
                 xaxis: { categories: monthlyTrend.map(d => d.month) },
-                yaxis: { labels: { formatter: (v) => Formatters.compactCurrency(v) } },
-                legend: { position: 'top' }
+                yaxis: { min: 0, labels: { formatter: (v) => Formatters.compactCurrency(v) } },
+                tooltip: { shared: true, y: { formatter: (v) => this.formatCurrency(v) } },
+                legend: { position: 'top' },
+                responsive: [{ breakpoint: 600, options: { chart: { height: 220 }, legend: { position: 'bottom', horizontalAlign: 'center', fontSize: '11px' } }}]
             });
         }
     }
@@ -2128,7 +2179,7 @@ class KarobarManager {
                 </div>
             </div>
 
-            <div class="row g-4 mb-4">
+            <div class="row g-4 mb-4 karobar-report-detail-grid">
                 <div class="col-lg-6">
                     <div class="karobar-chart-container">
                         <h5><i class="fas fa-file-alt me-2 text-danger"></i>Receivable Report</h5>
@@ -2175,17 +2226,17 @@ class KarobarManager {
                 </div>
             </div>
 
-            <div class="row g-4 mb-4">
+            <div class="row g-4 mb-4 karobar-report-charts">
                 <div class="col-lg-8">
                     <div class="karobar-chart-container">
                         <h5><i class="fas fa-chart-line me-2 text-primary"></i>Monthly Trend</h5>
-                        <div id="karobar-report-monthly-chart" style="height:300px;"></div>
+                        <div id="karobar-report-monthly-chart" class="karobar-responsive-chart"></div>
                     </div>
                 </div>
                 <div class="col-lg-4">
                     <div class="karobar-chart-container">
                         <h5><i class="fas fa-chart-pie me-2 text-warning"></i>Balance Distribution</h5>
-                        <div id="karobar-report-dist-chart" style="height:300px;"></div>
+                        <div id="karobar-report-dist-chart" class="karobar-responsive-chart"></div>
                     </div>
                 </div>
             </div>
@@ -2223,7 +2274,8 @@ class KarobarManager {
                     xaxis: { categories: monthlyData.map(d => d.month), labels: { style: { colors: '#6B7280' } } },
                     yaxis: { labels: { style: { colors: '#6B7280' }, formatter: (v) => Formatters.compactCurrency(v) } },
                     tooltip: { y: { formatter: (v) => Formatters.currency(v) } },
-                    legend: { position: 'top', horizontalAlign: 'right' }
+                    legend: { position: 'top', horizontalAlign: 'right' },
+                    responsive: [{ breakpoint: 600, options: { chart: { height: 220 }, legend: { position: 'bottom', horizontalAlign: 'center', fontSize: '11px' } }}]
                 });
             }
 
@@ -2238,7 +2290,8 @@ class KarobarManager {
                 colors: ['#10B981', '#EF4444', '#6B7280'],
                 plotOptions: { pie: { donut: { size: '65%' } } },
                 dataLabels: { enabled: false },
-                legend: { position: 'bottom' }
+                legend: { position: 'bottom' },
+                responsive: [{ breakpoint: 600, options: { chart: { height: 220 }, legend: { fontSize: '11px' } }}]
             });
         }
     }
@@ -2251,7 +2304,7 @@ class KarobarManager {
         this._exportData('excel');
     }
 
-    exportPDF() {
+    async exportPDF() {
         if (!this.transactions || this.transactions.length === 0) {
             NotificationService.warning('No data to export');
             return;
@@ -2285,11 +2338,44 @@ class KarobarManager {
             styles: { header: { fontSize: 18, bold: true, margin: [0, 0, 0, 10] }, subheader: { fontSize: 10, color: 'gray', margin: [0, 0, 0, 10] } }
         };
 
-        if (window.pdfMake) {
-            pdfMake.createPdf(docDefinition).download('karobar-report.pdf');
-        } else {
-            NotificationService.warning('PDF export library not loaded');
+        const pdfReady = await this._ensurePdfExportLibrary();
+        if (!pdfReady) return;
+        window.pdfMake.createPdf(docDefinition).download('karobar-report.pdf');
+    }
+
+    async _ensurePdfExportLibrary() {
+        if (window.pdfMake) return true;
+        if (!this._pdfLibraryPromise) {
+            this._pdfLibraryPromise = this._loadExternalScript('https://cdnjs.cloudflare.com/ajax/libs/pdfmake/0.2.7/pdfmake.min.js')
+                .then(() => this._loadExternalScript('https://cdnjs.cloudflare.com/ajax/libs/pdfmake/0.2.7/vfs_fonts.js'))
+                .then(() => Boolean(window.pdfMake))
+                .catch(() => false);
         }
+        const loaded = await this._pdfLibraryPromise;
+        if (!loaded) {
+            this._pdfLibraryPromise = null;
+            NotificationService.warning('PDF export could not be loaded. Check your connection and try again.');
+        }
+        return loaded;
+    }
+
+    _loadExternalScript(src) {
+        const existing = document.querySelector(`script[src="${src}"]`);
+        if (existing?.dataset.loaded === 'true') return Promise.resolve();
+        return new Promise((resolve, reject) => {
+            const script = existing || document.createElement('script');
+            const onLoad = () => {
+                script.dataset.loaded = 'true';
+                resolve();
+            };
+            script.addEventListener('load', onLoad, { once: true });
+            script.addEventListener('error', reject, { once: true });
+            if (!existing) {
+                script.src = src;
+                script.defer = true;
+                document.head.appendChild(script);
+            }
+        });
     }
 
     _exportData(format) {

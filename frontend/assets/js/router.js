@@ -10,6 +10,10 @@ class RouterService {
         this._routeController = null;
         this._pendingNavigation = null;
         this._navigationLoop = null;
+        this._initialized = false;
+        this._navClickHandler = null;
+        this._popstateHandler = null;
+        this._chartResizeFrame = null;
     }
 
     registerRoute(pageName, moduleInstance) {
@@ -17,31 +21,33 @@ class RouterService {
     }
 
     init() {
-        document.querySelectorAll('.nav-item').forEach(item => {
-            item.addEventListener('click', (e) => {
-                if (item.classList.contains('has-submenu')) {
-                    e.preventDefault();
-                    item.classList.toggle('expanded');
-                    const submenu = item.nextElementSibling;
-                    if (submenu && submenu.classList.contains('submenu')) {
-                        submenu.classList.toggle('expanded');
-                    }
-                    return;
-                }
+        if (this._initialized) return;
+        this._initialized = true;
 
+        this._navClickHandler = (e) => {
+            const item = e.target.closest?.('.nav-item, .mobile-nav-item');
+            if (!item) return;
+            if (item.classList.contains('has-submenu')) {
                 e.preventDefault();
-                const page = item.dataset.page;
-                if (page) {
-                    this.navigate(page);
-                }
-            });
-        });
+                item.classList.toggle('expanded');
+                const submenu = item.nextElementSibling;
+                if (submenu?.classList.contains('submenu')) submenu.classList.toggle('expanded');
+                return;
+            }
 
-        window.addEventListener('popstate', (e) => {
+            const page = item.dataset.page;
+            if (!page) return;
+            e.preventDefault();
+            this.navigate(page);
+        };
+        document.addEventListener?.('click', this._navClickHandler);
+
+        this._popstateHandler = (e) => {
             const hash = window.location.hash.slice(1);
             const destination = hash || e.state?.page || '';
             if (destination) this.navigate(destination, false);
-        });
+        };
+        window.addEventListener('popstate', this._popstateHandler);
     }
 
     navigate(page, updateHistory = true) {
@@ -157,6 +163,7 @@ class RouterService {
             if (targetPage) {
                 targetPage.classList.add('active');
             }
+            window.app?.updateGlobalSearchContext?.(basePage);
 
             // 5. Update browser history
             if (updateHistory) {
@@ -195,12 +202,16 @@ class RouterService {
                 }
             }
 
-            // 7. Resize active charts after layout settles
-            setTimeout(() => {
+            // 7. Resize active charts once after the new page has been painted.
+            const scheduleFrame = window.requestAnimationFrame || (callback => setTimeout(callback, 0));
+            const cancelFrame = window.cancelAnimationFrame || clearTimeout;
+            if (this._chartResizeFrame !== null) cancelFrame(this._chartResizeFrame);
+            this._chartResizeFrame = scheduleFrame(() => {
+                this._chartResizeFrame = null;
                 if (window.ChartService) {
                     window.ChartService.resizeAll();
                 }
-            }, 100);
+            });
             return true;
         }
     }

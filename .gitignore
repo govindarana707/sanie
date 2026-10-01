@@ -1,6 +1,7 @@
 .env
 .env.*
 !.env.example
+!.env.production.example
 backend/backups/*.json
 # Local database dumps never belong in source control. The sanitized DDL-only
 # compatibility fixture lives under backend/database/fixtures instead.
@@ -16,7 +17,9 @@ backend/backups/*.json
 /backend/backups/*.tar.gz
 backend/uploads/*
 !backend/uploads/.gitkeep
+!backend/uploads/.htaccess
 *.log
 .phpunit.cache/
 node_modules/
 vendor/
+production-release/

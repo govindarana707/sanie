@@ -12,7 +12,10 @@ class CategoriesManager {
         this._listeners = {};
         this._bulkListeners = [];
         this._dragState = { draggedId: null };
-        this._sortField = 'name';
+        this._sortField = 'priority';
+        this._pinRequests = new Set();
+        this._priorityOrders = { expense: [], income: [] };
+        this._priorityDirtyTypes = new Set();
     }
 
     onMount() {
@@ -37,21 +40,20 @@ class CategoriesManager {
         }
 
         const removers = [
-            ['addClick', 'add-category-btn'],
-            ['addEmptyClick', 'add-category-btn-empty'],
-            ['applyClick', 'apply-category-filters'],
-            ['clearClick', 'clear-category-filters'],
-            ['searchInput', 'search-categories'],
-            ['selectAllChange', 'select-all-categories'],
-            ['sortChange', 'category-sort-select']
+            ['addClick', 'add-category-btn', 'click'],
+            ['addEmptyClick', 'add-category-btn-empty', 'click'],
+            ['clearEmptyClick', 'clear-category-filters-empty', 'click'],
+            ['applyClick', 'apply-category-filters', 'click'],
+            ['clearClick', 'clear-category-filters', 'click'],
+            ['searchInput', 'search-categories', 'input'],
+            ['selectAllChange', 'select-all-categories', 'change'],
+            ['sortChange', 'category-sort-select', 'change'],
+            ['priorityClick', 'manage-pinned-order-btn', 'click']
         ];
 
-        removers.forEach(([key, id]) => {
+        removers.forEach(([key, id, event]) => {
             if (this._listeners[key]) {
-                document.getElementById(id)?.removeEventListener(
-                    key === 'searchInput' ? 'input' : key === 'sortChange' ? 'change' : 'click',
-                    this._listeners[key]
-                );
+                document.getElementById(id)?.removeEventListener(event, this._listeners[key]);
             }
         });
         this._listeners = {};
@@ -72,6 +74,8 @@ class CategoriesManager {
 
         this._listeners.addClick = bind('add-category-btn', 'click', () => this.showAddCategoryModal());
         this._listeners.addEmptyClick = bind('add-category-btn-empty', 'click', () => this.showAddCategoryModal());
+        this._listeners.clearEmptyClick = bind('clear-category-filters-empty', 'click', () => this.clearFilters());
+        this._listeners.priorityClick = bind('manage-pinned-order-btn', 'click', () => this.showPriorityModal());
         this._listeners.applyClick = bind('apply-category-filters', 'click', () => this.loadCategories());
         this._listeners.clearClick = bind('clear-category-filters', 'click', () => this.clearFilters());
         this._listeners.searchInput = bind('search-categories', 'input', (e) => this.handleSearch(e.target.value));
@@ -142,7 +146,8 @@ class CategoriesManager {
             ...cat,
             id: Number(cat.id),
             is_default: Number(cat.is_default),
-            sort_order: Number(cat.sort_order) || 0,
+            is_pinned: Number(cat.is_pinned) === 1,
+            sort_order: Number(cat.sort_order) || 999,
             transaction_count: Number(cat.transaction_count) || 0,
             subcategory_count: Number(cat.subcategory_count) || 0,
             subcategories: (cat.subcategories || []).map(s => ({
@@ -187,6 +192,9 @@ class CategoriesManager {
         const sorted = [...data];
 
         switch (this._sortField) {
+            case 'priority':
+                sorted.sort((a, b) => this._priorityCompare(a, b));
+                break;
             case 'name':
                 sorted.sort((a, b) => a.name.localeCompare(b.name));
                 break;
@@ -215,6 +223,14 @@ class CategoriesManager {
         this.renderCards();
     }
 
+    _priorityCompare(a, b) {
+        return (Number(b.is_pinned) - Number(a.is_pinned))
+            || (a.is_pinned ? a.sort_order - b.sort_order : 0)
+            || (b.transaction_count - a.transaction_count)
+            || a.name.localeCompare(b.name)
+            || (a.id - b.id);
+    }
+
     handleSearch(query) {
         clearTimeout(this._searchTimer);
         this._searchTimer = setTimeout(() => {
@@ -232,12 +248,29 @@ class CategoriesManager {
 
         const data = this._renderData || this._filtered || this.categories;
 
-        if (countBadge) countBadge.textContent = data.length;
+        if (countBadge) {
+            countBadge.textContent = data.length;
+            countBadge.setAttribute('aria-label', `${data.length} ${data.length === 1 ? 'category' : 'categories'}`);
+        }
 
         if (data.length === 0) {
             grid.innerHTML = '';
             grid.classList.add('d-none');
-            if (emptyState) emptyState.classList.remove('d-none');
+            if (emptyState) {
+                const hasActiveFilters = [
+                    document.getElementById('search-categories')?.value,
+                    document.getElementById('filter-category-type')?.value,
+                    document.getElementById('filter-category-status')?.value,
+                    document.getElementById('filter-category-default')?.value,
+                ].some(value => String(value || '').trim() !== '');
+                const title = document.getElementById('categories-empty-title');
+                const message = document.getElementById('categories-empty-message');
+                if (title) title.textContent = hasActiveFilters ? 'No matching categories' : 'No categories found';
+                if (message) message.textContent = hasActiveFilters
+                    ? 'Try clearing your filters or using a broader search.'
+                    : 'Create your first category to organize your transactions.';
+                emptyState.classList.remove('d-none');
+            }
             return;
         }
 
@@ -253,26 +286,31 @@ class CategoriesManager {
     buildCardHTML(cat) {
         const esc = (str) => (str ? String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;') : '');
         const subcats = cat.subcategories || [];
+        const previewSubcats = subcats.slice(0, 3);
         const typeClass = cat.type === 'income' ? 'income' : 'expense';
         const statusClass = cat.status === 'active' ? 'bg-success' : cat.status === 'archived' ? 'bg-warning' : 'bg-danger';
         const statusText = cat.status.charAt(0).toUpperCase() + cat.status.slice(1);
         const isSelected = this.selectedCategories.has(String(cat.id));
         const isDefault = Number(cat.is_default) === 1;
+        const isPinned = Boolean(cat.is_pinned);
+        const canTogglePin = cat.status === 'active' || isPinned;
         const txCount = cat.transaction_count || 0;
         const lastUsed = cat.last_used_at ? Formatters.date(cat.last_used_at) : 'Never';
-        const subCount = subcats.length;
-        const catColor = cat.color || '#10B981';
+        const subCount = Math.max(Number(cat.subcategory_count) || 0, subcats.length);
+        const remainingSubCount = Math.max(0, subCount - previewSubcats.length);
+        const catColor = /^#[0-9a-f]{6}$/i.test(cat.color || '') ? cat.color : '#10B981';
+        const categoryIcon = /^[a-z0-9-]+$/i.test(cat.icon || '') ? cat.icon : 'tag';
 
-        const subChips = subcats.map(s => `
+        const subChips = previewSubcats.map(s => `
             <span class="cat-sub-chip" data-sub-id="${s.id}" data-cat-id="${cat.id}">
-                <i class="bi bi-${esc(s.icon || 'tag')}"></i>
+                <i class="bi bi-${/^[a-z0-9-]+$/i.test(s.icon || '') ? s.icon : 'tag'}" aria-hidden="true"></i>
                 <span class="cat-sub-chip-name">${esc(s.name)}</span>
                 ${!isDefault ? `
-                <button class="cat-sub-chip-edit" data-sub-id="${s.id}" data-cat-id="${cat.id}" title="Edit subcategory">
-                    <i class="fas fa-pencil-alt"></i>
+                <button type="button" class="cat-sub-chip-edit" data-sub-id="${s.id}" data-cat-id="${cat.id}" title="Edit ${esc(s.name)}" aria-label="Edit ${esc(s.name)} subcategory">
+                    <i class="fas fa-pencil-alt" aria-hidden="true"></i>
                 </button>
-                <button class="cat-sub-chip-delete" data-sub-id="${s.id}" data-cat-id="${cat.id}" title="Delete subcategory">
-                    <i class="fas fa-trash-alt"></i>
+                <button type="button" class="cat-sub-chip-delete" data-sub-id="${s.id}" data-cat-id="${cat.id}" title="Delete ${esc(s.name)}" aria-label="Delete ${esc(s.name)} subcategory">
+                    <i class="fas fa-trash-alt" aria-hidden="true"></i>
                 </button>
                 ` : ''}
             </span>
@@ -281,14 +319,22 @@ class CategoriesManager {
         const menuId = `cat-menu-${cat.id}`;
 
         return `
-        <div class="category-card${isSelected ? ' selected' : ''}" data-id="${cat.id}" draggable="${!isDefault}" style="border-left: 4px solid ${catColor}">
-            <input type="checkbox" class="cat-card-checkbox category-checkbox" value="${cat.id}" ${isSelected ? 'checked' : ''} ${isDefault ? 'disabled title="Default category"' : ''}>
+        <article class="category-card${isSelected ? ' selected' : ''}${isPinned ? ' is-pinned' : ''}" data-id="${cat.id}" style="--category-accent: ${catColor}">
             <div class="cat-card-header">
+                <input type="checkbox" class="cat-card-checkbox category-checkbox" value="${cat.id}" aria-label="Select ${esc(cat.name)} category" ${isSelected ? 'checked' : ''} ${isDefault ? 'disabled title="Default category"' : ''}>
                 <div class="cat-card-icon" style="background-color: ${catColor}18; color: ${catColor}">
-                    <i class="bi bi-${esc(cat.icon || 'tag')}"></i>
+                    <i class="bi bi-${categoryIcon}" aria-hidden="true"></i>
                 </div>
                 <div class="cat-card-title-area">
-                    <h6 class="cat-card-name" title="${esc(cat.name)}">${esc(cat.name)}</h6>
+                    <div class="cat-card-name-row">
+                        <h6 class="cat-card-name" title="${esc(cat.name)}">${esc(cat.name)}</h6>
+                        <button type="button" class="cat-pin-toggle${isPinned ? ' active' : ''}" data-id="${cat.id}"
+                            title="${canTogglePin ? (isPinned ? 'Unpin category' : 'Pin category') : 'Activate category before pinning'}"
+                            aria-label="${canTogglePin ? (isPinned ? `Unpin ${esc(cat.name)}` : `Pin ${esc(cat.name)}`) : `Activate ${esc(cat.name)} before pinning`}"
+                            aria-pressed="${isPinned ? 'true' : 'false'}" ${this._pinRequests.has(cat.id) || !canTogglePin ? 'disabled' : ''}>
+                            <span aria-hidden="true">${isPinned ? '&#9733;' : '&#9734;'}</span>
+                        </button>
+                    </div>
                     <div class="cat-card-meta">
                         <span class="cat-card-type-badge ${typeClass}">${typeClass}</span>
                         <span class="cat-card-status-badge badge ${statusClass}">${statusText}</span>
@@ -296,11 +342,13 @@ class CategoriesManager {
                     </div>
                 </div>
                 <div class="cat-dropdown">
-                    <button class="cat-card-dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false" title="More actions">
-                        <i class="fas fa-ellipsis-v"></i>
+                    <button type="button" class="cat-card-dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false" title="More actions" aria-label="More actions for ${esc(cat.name)}">
+                        <i class="fas fa-ellipsis-v" aria-hidden="true"></i>
                     </button>
                     <ul class="dropdown-menu dropdown-menu-end cat-dropdown-menu" id="${menuId}">
                         <li><a class="dropdown-item cat-menu-view" data-id="${cat.id}" href="#"><i class="fas fa-eye me-2"></i>View Details</a></li>
+                        ${canTogglePin ? `<li><a class="dropdown-item cat-menu-pin" data-id="${cat.id}" href="#"><i class="fas fa-thumbtack me-2"></i>${isPinned ? 'Unpin' : 'Pin to top'}</a></li>` : ''}
+                        ${isPinned ? `<li><a class="dropdown-item cat-menu-priority" data-id="${cat.id}" href="#"><i class="fas fa-sort-amount-up me-2"></i>Change priority</a></li>` : ''}
                         ${!isDefault ? `
                         <li><a class="dropdown-item cat-menu-edit" data-id="${cat.id}" href="#"><i class="fas fa-edit me-2"></i>Edit Category</a></li>
                         <li><a class="dropdown-item cat-menu-duplicate" data-id="${cat.id}" href="#"><i class="fas fa-copy me-2"></i>Duplicate</a></li>
@@ -315,13 +363,14 @@ class CategoriesManager {
                 </div>
             </div>
             <div class="cat-card-body">
-                ${cat.description ? `<p class="cat-card-description">${esc(cat.description)}</p>` : ''}
+                <p class="cat-card-description">${cat.description ? esc(cat.description) : '<span class="cat-card-description-empty">No description</span>'}</p>
                 <div class="cat-card-subcategories" data-cat-id="${cat.id}">
                     ${(subChips || '')}
+                    ${remainingSubCount > 0 ? `<span class="cat-sub-chip cat-sub-chip-more" title="${remainingSubCount} more subcategories">+${remainingSubCount} more</span>` : ''}
                     ${subCount === 0 ? '<span class="cat-card-no-subs"><i class="fas fa-folder-open" style="font-size:0.55rem;opacity:0.5;"></i> No subcategories yet</span>' : ''}
                     ${!isDefault ? `
-                    <button class="cat-card-sub-add" data-category-id="${cat.id}" title="Add subcategory">
-                        <i class="fas fa-plus"></i>Add
+                    <button type="button" class="cat-card-sub-add" data-category-id="${cat.id}" title="Add subcategory to ${esc(cat.name)}" aria-label="Add subcategory to ${esc(cat.name)}">
+                        <i class="fas fa-plus" aria-hidden="true"></i>Add subcategory
                     </button>` : ''}
                 </div>
             </div>
@@ -332,7 +381,7 @@ class CategoriesManager {
                     <span class="cat-card-stat" title="Last used"><i class="far fa-clock"></i>${lastUsed}</span>
                 </div>
             </div>
-        </div>`;
+        </article>`;
     }
 
     attachCardListeners() {
@@ -343,21 +392,12 @@ class CategoriesManager {
             cb.addEventListener('change', () => this.handleSelectionChange());
         });
 
-        grid.querySelectorAll('.category-card[draggable="true"]').forEach(card => {
-            card.addEventListener('dragstart', (e) => this.onDragStart(e));
-            card.addEventListener('dragend', (e) => this.onDragEnd(e));
-            card.addEventListener('dragover', (e) => this.onDragOver(e));
-            card.addEventListener('dragenter', (e) => this.onDragEnter(e));
-            card.addEventListener('dragleave', (e) => this.onDragLeave(e));
-            card.addEventListener('drop', (e) => this.onDrop(e));
-        });
-
         if (!this._cardHandler) {
             this._cardHandler = (e) => {
                 const page = document.getElementById('categories-page');
                 if (!page || !page.contains(e.target)) return;
 
-                const target = e.target.closest('.cat-menu-view, .cat-menu-edit, .cat-menu-duplicate, .cat-menu-archive, .cat-menu-restore, .cat-menu-delete, .cat-card-sub-add, .cat-sub-chip-edit, .cat-sub-chip-delete');
+                const target = e.target.closest('.cat-pin-toggle, .cat-menu-pin, .cat-menu-priority, .cat-menu-view, .cat-menu-edit, .cat-menu-duplicate, .cat-menu-archive, .cat-menu-restore, .cat-menu-delete, .cat-card-sub-add, .cat-sub-chip-edit, .cat-sub-chip-delete');
                 if (!target) return;
 
                 e.preventDefault();
@@ -366,6 +406,8 @@ class CategoriesManager {
                 const subId = Number(target.dataset.subId || 0);
                 const catCategoryId = Number(target.dataset.categoryId || 0);
 
+                if (target.classList.contains('cat-pin-toggle') || target.classList.contains('cat-menu-pin')) { e.stopPropagation(); this.togglePin(catId); return; }
+                if (target.classList.contains('cat-menu-priority')) { this.showPriorityModal(this.categories.find(cat => cat.id === catId)?.type); return; }
                 if (target.classList.contains('cat-menu-view')) { this.viewCategory(catId); return; }
                 if (target.classList.contains('cat-menu-edit')) { this.editCategory(catId); return; }
                 if (target.classList.contains('cat-menu-duplicate')) { this.duplicateCategory(catId); return; }
@@ -381,6 +423,210 @@ class CategoriesManager {
                 if (target.classList.contains('cat-sub-chip-delete')) { e.stopPropagation(); this.inlineDeleteSubcategory(subId, catId); return; }
             };
             document.addEventListener('click', this._cardHandler);
+        }
+    }
+
+    async togglePin(id) {
+        const category = this.categories.find(cat => cat.id === Number(id));
+        if (!category || this._pinRequests.has(category.id) || (category.status !== 'active' && !category.is_pinned)) return;
+
+        const previous = { is_pinned: category.is_pinned, sort_order: category.sort_order };
+        const shouldPin = !category.is_pinned;
+        const sameType = this.categories.filter(cat => cat.type === category.type && cat.status === 'active');
+        category.is_pinned = shouldPin;
+        category.sort_order = shouldPin
+            ? Math.min(sameType.length, 1 + Math.max(0, ...sameType.filter(cat => cat.id !== category.id && cat.is_pinned).map(cat => cat.sort_order)))
+            : 999;
+        this._pinRequests.add(category.id);
+        this.applyClientFilters();
+
+        try {
+            const result = await window.Api.put(`/categories/${category.id}`, { is_pinned: shouldPin });
+            if (!result?.success) throw new Error(result?.message || 'Category priority was not saved');
+            category.is_pinned = Number(result.data?.is_pinned) === 1;
+            category.sort_order = Number(result.data?.sort_order) || 999;
+            await this._updateCachedCategoryPriority(category);
+            NotificationService.success(shouldPin ? 'Category pinned' : 'Category unpinned');
+        } catch (error) {
+            category.is_pinned = previous.is_pinned;
+            category.sort_order = previous.sort_order;
+            NotificationService.error(navigator.onLine === false
+                ? 'You are offline. Category priority was not changed.'
+                : (error.message || 'Failed to update category priority'));
+        } finally {
+            this._pinRequests.delete(category.id);
+            this.applyClientFilters();
+        }
+    }
+
+    async _updateCachedCategoryPriority(category) {
+        const userId = window.authManager?.getCurrentUser()?.id;
+        if (userId === undefined || userId === null || !window.OfflineStorage) return;
+        const key = `categories:${category.type}`;
+        const cached = await window.OfflineStorage.getReferenceData(userId, key);
+        if (!Array.isArray(cached?.data)) return;
+        const updated = cached.data.map(item => Number(item.id) === category.id
+            ? { ...item, is_pinned: category.is_pinned ? 1 : 0, sort_order: category.sort_order }
+            : item);
+        updated.sort((a, b) => this._priorityCompare(this._normalize(a), this._normalize(b)));
+        await window.OfflineStorage.saveReferenceData(userId, key, updated);
+    }
+
+    async _savePriorityTypeCache(type) {
+        const userId = window.authManager?.getCurrentUser()?.id;
+        if (userId === undefined || userId === null || !window.OfflineStorage) return;
+        const key = `categories:${type}`;
+        const cached = await window.OfflineStorage.getReferenceData(userId, key);
+        if (!Array.isArray(cached?.data)) return;
+        const orderById = new Map((this._priorityOrders[type] || []).map((id, index) => [id, index + 1]));
+        const updated = cached.data.map(item => orderById.has(Number(item.id))
+            ? { ...item, is_pinned: 1, sort_order: orderById.get(Number(item.id)) }
+            : item);
+        updated.sort((a, b) => this._priorityCompare(this._normalize(a), this._normalize(b)));
+        await window.OfflineStorage.saveReferenceData(userId, key, updated);
+    }
+
+    async showPriorityModal(preferredType = null) {
+        try {
+            const result = await window.Api.get('/categories?status=active');
+            if (!result?.success || !Array.isArray(result.data)) throw new Error('Pinned categories could not be loaded');
+            const active = result.data.map(cat => this._normalize(cat));
+            this._priorityCategories = active;
+            for (const type of ['expense', 'income']) {
+                this._priorityOrders[type] = active
+                    .filter(cat => cat.type === type && cat.is_pinned)
+                    .sort((a, b) => this._priorityCompare(a, b))
+                    .map(cat => cat.id);
+            }
+            this._priorityDirtyTypes.clear();
+            const filterType = document.getElementById('filter-category-type')?.value;
+            const initialType = ['expense', 'income'].includes(preferredType)
+                ? preferredType
+                : (['expense', 'income'].includes(filterType) ? filterType : 'expense');
+            const bodyHTML = `
+                <div class="pinned-priority-modal">
+                    <label class="form-label fw-semibold" for="pinned-priority-type">Category type</label>
+                    <select class="form-select mb-3" id="pinned-priority-type">
+                        <option value="expense" ${initialType === 'expense' ? 'selected' : ''}>Expense</option>
+                        <option value="income" ${initialType === 'income' ? 'selected' : ''}>Income</option>
+                    </select>
+                    <p class="text-muted small mb-3">Drag rows or use the arrow buttons. Expense and income orders are saved independently.</p>
+                    <div id="pinned-priority-list" class="pinned-priority-list" aria-live="polite"></div>
+                </div>`;
+
+            window.modalService?.open({
+                title: 'Pinned Categories',
+                subtitle: 'Choose which favorites appear first',
+                icon: 'fa-thumbtack',
+                bodyHTML,
+                showFooter: true,
+                saveText: '<i class="fas fa-check me-1"></i> Save Order',
+                onSave: () => this.savePriorityOrder()
+            });
+            requestAnimationFrame(() => {
+                document.getElementById('pinned-priority-type')?.addEventListener('change', () => this._renderPriorityList());
+                this._renderPriorityList();
+            });
+        } catch (error) {
+            NotificationService.error(navigator.onLine === false
+                ? 'Pinned order is unavailable while offline.'
+                : (error.message || 'Failed to load pinned categories'));
+        }
+    }
+
+    _renderPriorityList() {
+        const list = document.getElementById('pinned-priority-list');
+        const type = document.getElementById('pinned-priority-type')?.value || 'expense';
+        if (!list) return;
+        const ids = this._priorityOrders[type] || [];
+        if (!ids.length) {
+            list.innerHTML = '<div class="pinned-priority-empty"><span aria-hidden="true">&#9734;</span><p class="mb-0">No pinned categories for this type yet.</p></div>';
+            return;
+        }
+        list.innerHTML = ids.map((id, index) => {
+            const category = this._priorityCategories.find(cat => cat.id === id);
+            if (!category) return '';
+            return `<div class="pinned-priority-row" draggable="true" data-id="${id}">
+                <span class="pinned-drag-handle" title="Drag to reorder" aria-hidden="true"><i class="fas fa-grip-vertical"></i></span>
+                <span class="pinned-priority-rank" aria-label="Priority ${index + 1}">${index + 1}</span>
+                <span class="pinned-priority-star" aria-hidden="true">&#9733;</span>
+                <span class="pinned-priority-name">${this._esc(category.name)}</span>
+                <span class="pinned-priority-actions">
+                    <button type="button" class="priority-move" data-id="${id}" data-direction="-1" aria-label="Move ${this._esc(category.name)} up" ${index === 0 ? 'disabled' : ''}><i class="fas fa-chevron-up"></i></button>
+                    <button type="button" class="priority-move" data-id="${id}" data-direction="1" aria-label="Move ${this._esc(category.name)} down" ${index === ids.length - 1 ? 'disabled' : ''}><i class="fas fa-chevron-down"></i></button>
+                </span>
+            </div>`;
+        }).join('');
+
+        list.querySelectorAll('.priority-move').forEach(button => {
+            button.addEventListener('click', () => this._movePriority(Number(button.dataset.id), Number(button.dataset.direction)));
+        });
+        list.querySelectorAll('.pinned-priority-row').forEach(row => {
+            row.addEventListener('dragstart', event => {
+                this._priorityDraggedId = Number(row.dataset.id);
+                row.classList.add('dragging');
+                event.dataTransfer.effectAllowed = 'move';
+            });
+            row.addEventListener('dragend', () => {
+                this._priorityDraggedId = null;
+                list.querySelectorAll('.pinned-priority-row').forEach(item => item.classList.remove('dragging', 'drag-over'));
+            });
+            row.addEventListener('dragover', event => { event.preventDefault(); row.classList.add('drag-over'); });
+            row.addEventListener('dragleave', () => row.classList.remove('drag-over'));
+            row.addEventListener('drop', event => {
+                event.preventDefault();
+                this._dropPriority(Number(row.dataset.id));
+            });
+        });
+    }
+
+    _movePriority(id, direction) {
+        const type = document.getElementById('pinned-priority-type')?.value || 'expense';
+        const ids = this._priorityOrders[type];
+        const index = ids.indexOf(id);
+        const target = index + direction;
+        if (index < 0 || target < 0 || target >= ids.length) return;
+        [ids[index], ids[target]] = [ids[target], ids[index]];
+        this._priorityDirtyTypes.add(type);
+        this._renderPriorityList();
+    }
+
+    _dropPriority(targetId) {
+        const type = document.getElementById('pinned-priority-type')?.value || 'expense';
+        const ids = this._priorityOrders[type];
+        const from = ids.indexOf(this._priorityDraggedId);
+        const to = ids.indexOf(targetId);
+        if (from < 0 || to < 0 || from === to) return;
+        const [moved] = ids.splice(from, 1);
+        ids.splice(to, 0, moved);
+        this._priorityDirtyTypes.add(type);
+        this._renderPriorityList();
+    }
+
+    async savePriorityOrder() {
+        if (this._priorityDirtyTypes.size === 0) {
+            window.modalService?.close();
+            return;
+        }
+        const saveButton = document.getElementById('modal-save-btn');
+        AjaxService?.showButtonLoading(saveButton);
+        try {
+            const ordersByType = {};
+            for (const type of this._priorityDirtyTypes) {
+                ordersByType[type] = this._priorityOrders[type].map((id, index) => ({ id, sort_order: index + 1 }));
+            }
+            const result = await window.Api.post('/categories/reorder', { orders_by_type: ordersByType });
+            if (!result?.success) throw new Error(result?.message || 'Failed to save pinned order');
+            for (const type of this._priorityDirtyTypes) await this._savePriorityTypeCache(type);
+            window.modalService?.close();
+            NotificationService.success('Pinned category order saved');
+            await this.loadCategories();
+        } catch (error) {
+            NotificationService.error(navigator.onLine === false
+                ? 'You are offline. Pinned order was not changed.'
+                : (error.message || 'Failed to save pinned order'));
+        } finally {
+            AjaxService?.hideButtonLoading(saveButton);
         }
     }
 
@@ -538,8 +784,6 @@ class CategoriesManager {
         set('stat-inactive-categories', inactive);
         set('stat-active-categories', Math.max(0, total - inactive));
 
-        const badge = document.getElementById('category-count-badge');
-        if (badge) badge.textContent = total;
     }
 
     showLoading(show) {
@@ -559,7 +803,7 @@ class CategoriesManager {
     clearFilters() {
         const setVal = (id, val) => { const el = document.getElementById(id); if (el) el.value = val; };
         setVal('filter-category-type', '');
-        setVal('filter-category-status', 'active');
+        setVal('filter-category-status', '');
         setVal('filter-category-default', '');
         setVal('search-categories', '');
         setVal('category-sort-select', 'name');
@@ -624,27 +868,13 @@ class CategoriesManager {
                 <textarea class="form-control" id="category-description" rows="2">${v(category?.description)}</textarea>
             </div>
             ${category ? `
-            <div class="row">
-                <div class="col-md-6">
-                    <div class="form-group mb-3">
-                        <label class="form-label">Status</label>
-                        <select class="form-control" id="category-status">
-                            <option value="active" ${category.status === 'active' ? 'selected' : ''}>Active</option>
-                            <option value="archived" ${category.status === 'archived' ? 'selected' : ''}>Archived</option>
-                        </select>
-                    </div>
-                </div>
-                <div class="col-md-6">
-                    <div class="form-group mb-3">
-                        <label class="form-label">Sort Order</label>
-                        <input type="number" class="form-control" id="category-sort-order" value="${category.sort_order || 0}" min="0">
-                    </div>
-                </div>
-            </div>` : `
             <div class="form-group mb-3">
-                <label class="form-label">Sort Order</label>
-                <input type="number" class="form-control" id="category-sort-order" value="0" min="0">
-            </div>`}
+                <label class="form-label">Status</label>
+                <select class="form-control" id="category-status">
+                    <option value="active" ${category.status === 'active' ? 'selected' : ''}>Active</option>
+                    <option value="archived" ${category.status === 'archived' ? 'selected' : ''}>Archived</option>
+                </select>
+            </div>` : ''}
         </form>`;
     }
 
@@ -760,8 +990,7 @@ class CategoriesManager {
             icon: document.getElementById('category-icon').value,
             color: document.getElementById('category-color').value,
             type: document.getElementById('category-type').value,
-            description: document.getElementById('category-description').value.trim(),
-            sort_order: parseInt(document.getElementById('category-sort-order').value) || 0
+            description: document.getElementById('category-description').value.trim()
         };
 
         const saveBtn = document.querySelector('#modal-footer .btn-primary');
@@ -795,8 +1024,7 @@ class CategoriesManager {
             color: document.getElementById('category-color').value,
             type: document.getElementById('category-type').value,
             description: document.getElementById('category-description').value.trim(),
-            status: document.getElementById('category-status')?.value || 'active',
-            sort_order: parseInt(document.getElementById('category-sort-order').value) || 0
+            status: document.getElementById('category-status')?.value || 'active'
         };
 
         const saveBtn = document.querySelector('#modal-footer .btn-primary');
@@ -853,7 +1081,7 @@ class CategoriesManager {
                     <div class="col-4"><strong class="d-block text-muted small mb-1">Subcategories</strong><span class="fw-semibold">${cat.subcategory_count || subcats.length || 0}</span></div>
                     <div class="col-4"><strong class="d-block text-muted small mb-1">Last Used</strong><span class="fw-semibold">${lastUsed}</span></div>
                     <div class="col-6"><strong class="d-block text-muted small mb-1">Created</strong>${Formatters.date(cat.created_at)}</div>
-                    <div class="col-6"><strong class="d-block text-muted small mb-1">Sort Order</strong>${cat.sort_order || 0}</div>
+                    <div class="col-6"><strong class="d-block text-muted small mb-1">Pinned</strong>${Number(cat.is_pinned) === 1 ? `Yes (priority ${cat.sort_order})` : 'No'}</div>
                 </div>
                 <div><strong class="d-block text-muted small mb-2">Subcategories</strong><div class="d-flex flex-wrap gap-1">${subList}</div></div>
             `;
@@ -1212,10 +1440,10 @@ class CategoriesManager {
             const result = await window.Api.get('/categories');
             if (result.success) {
                 const escCSV = val => `"${String(val || '').replace(/"/g, '""')}"`;
-                const headers = ['Name', 'Type', 'Icon', 'Color', 'Description', 'Status', 'Sort Order', 'Subcategories'];
+                const headers = ['Name', 'Type', 'Icon', 'Color', 'Description', 'Status', 'Pinned', 'Priority', 'Subcategories'];
                 const rows = result.data.map(cat => [
                     cat.name, cat.type, cat.icon, cat.color,
-                    cat.description || '', cat.status, cat.sort_order || 0,
+                    cat.description || '', cat.status, Number(cat.is_pinned) === 1 ? 'Yes' : 'No', cat.sort_order || 999,
                     (cat.subcategories || []).map(s => s.name).join('; ')
                 ].map(escCSV));
                 const csv = '\uFEFF' + [headers.map(escCSV), ...rows].map(r => r.join(',')).join('\r\n');

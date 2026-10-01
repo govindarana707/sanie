@@ -13,8 +13,8 @@ class Transaction {
 
     public function create($data) {
         $query = "INSERT INTO " . $this->table . "
-                  (user_id, account_id, from_account_id, to_account_id, category_id, subcategory_id, amount, type, payment_method, karobar_transaction_id, client_request_id, transfer_parent_id, goal_id, date, description)
-                  VALUES (:user_id, :account_id, :from_account_id, :to_account_id, :category_id, :subcategory_id, :amount, :type, :payment_method, :karobar_transaction_id, :client_request_id, :transfer_parent_id, :goal_id, :date, :description)";
+                  (user_id, account_id, from_account_id, to_account_id, category_id, subcategory_id, amount, type, payment_method, karobar_transaction_id, client_request_id, transfer_parent_id, goal_id, recurring_definition_id, recurring_occurrence_date, date, description)
+                  VALUES (:user_id, :account_id, :from_account_id, :to_account_id, :category_id, :subcategory_id, :amount, :type, :payment_method, :karobar_transaction_id, :client_request_id, :transfer_parent_id, :goal_id, :recurring_definition_id, :recurring_occurrence_date, :date, :description)";
         
         $stmt = $this->conn->prepare($query);
 
@@ -31,6 +31,8 @@ class Transaction {
         $stmt->bindValue(':client_request_id', $data['client_request_id'] ?? null);
         $stmt->bindValue(':transfer_parent_id', $data['transfer_parent_id'] ?? null);
         $stmt->bindValue(':goal_id', $data['goal_id'] ?? null);
+        $stmt->bindValue(':recurring_definition_id', $data['recurring_definition_id'] ?? null);
+        $stmt->bindValue(':recurring_occurrence_date', $data['recurring_occurrence_date'] ?? null);
         $stmt->bindValue(':date', $data['date']);
         $stmt->bindValue(':description', $data['description'] ?? '');
         
@@ -161,6 +163,17 @@ class Transaction {
         $stmt->execute();
         $id = $stmt->fetchColumn();
         return $id ? $this->findById($id, $userId) : false;
+    }
+
+    public function findByRecurringOccurrence(int $definitionId, int $userId, string $occurrenceDate) {
+        $stmt = $this->conn->prepare(
+            "SELECT id FROM {$this->table}
+             WHERE user_id=:user_id AND recurring_definition_id=:definition_id
+               AND recurring_occurrence_date=:occurrence_date LIMIT 1"
+        );
+        $stmt->execute([':user_id'=>$userId,':definition_id'=>$definitionId,':occurrence_date'=>$occurrenceDate]);
+        $id=$stmt->fetchColumn();
+        return $id ? $this->findById($id,$userId) : false;
     }
 
     public function existsById($id) {

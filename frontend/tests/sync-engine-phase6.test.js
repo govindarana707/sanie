@@ -2,6 +2,9 @@ const fs = require('fs');
 const vm = require('vm');
 
 const source = fs.readFileSync('frontend/assets/js/sync-engine.js', 'utf8');
+const utilityContext = { window: {}, Intl, Date, Object, String, Number, TypeError };
+vm.createContext(utilityContext);
+vm.runInContext(fs.readFileSync('frontend/assets/js/utils.js', 'utf8'), utilityContext);
 
 async function runScenario(action, behavior) {
     const records = [{ ...action }];
@@ -55,6 +58,7 @@ async function runScenario(action, behavior) {
         dashboardAPI: { getData: async () => ({ success: true, data: {} }) },
         document: { dispatchEvent: () => true },
         CustomEvent: class CustomEvent {},
+        DateUtils: utilityContext.window.DateUtils,
         console,
         setTimeout,
         clearTimeout

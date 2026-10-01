@@ -7,10 +7,11 @@ class JWT {
     private static $algorithm = JWT_ALGORITHM;
 
     public static function encode($payload) {
-        if(isset($payload['user_id'])&&!isset($payload['token_version'])){
-            require_once __DIR__.'/../config/database.php';$conn=(new Database())->getConnection();$version=0;
-            if($conn){$stmt=$conn->prepare('SELECT token_version FROM users WHERE id=:id LIMIT 1');$stmt->execute([':id'=>(int)$payload['user_id']]);$version=(int)($stmt->fetchColumn()?:0);}
-            $payload['token_version']=$version;
+        if(isset($payload['user_id'])&&(!isset($payload['token_version'])||!isset($payload['data_generation']))){
+            require_once __DIR__.'/../config/database.php';$conn=(new Database())->getConnection();$state=['token_version'=>0,'data_generation'=>1];
+            if($conn)$state=self::getUserSessionState($conn,(int)$payload['user_id'])?:$state;
+            $payload['token_version']=$payload['token_version']??(int)$state['token_version'];
+            $payload['data_generation']=$payload['data_generation']??(int)$state['data_generation'];
         }
         $header = json_encode(['typ' => 'JWT', 'alg' => self::$algorithm]);
         $payload['iat'] = time();
@@ -72,7 +73,24 @@ class JWT {
         $payload = self::decode($token);
         if(!$payload||!isset($payload['user_id'],$payload['token_version']))return false;
         require_once __DIR__.'/../config/database.php';$conn=(new Database())->getConnection();if(!$conn)return false;
-        $stmt=$conn->prepare('SELECT token_version FROM users WHERE id=:id LIMIT 1');$stmt->execute([':id'=>(int)$payload['user_id']]);$version=$stmt->fetchColumn();
-        return$version!==false&&hash_equals((string)(int)$version,(string)(int)$payload['token_version'])?(int)$payload['user_id']:false;
+        $state=self::getUserSessionState($conn,(int)$payload['user_id']);
+        $generation=(int)($payload['data_generation']??1);
+        return$state&&hash_equals((string)(int)$state['token_version'],(string)(int)$payload['token_version'])&&hash_equals((string)(int)$state['data_generation'],(string)$generation)?(int)$payload['user_id']:false;
+    }
+
+    public static function getUserSessionState(PDO $conn, int $userId): ?array {
+        try {
+            $stmt=$conn->prepare('SELECT token_version,data_generation FROM users WHERE id=:id LIMIT 1');
+            $stmt->execute([':id'=>$userId]);
+            return $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
+        } catch (PDOException $e) {
+            if ((int)($e->errorInfo[1]??0)!==1054) throw $e;
+            $stmt=$conn->prepare('SELECT token_version FROM users WHERE id=:id LIMIT 1');
+            $stmt->execute([':id'=>$userId]);
+            $state=$stmt->fetch(PDO::FETCH_ASSOC);
+            if (!$state) return null;
+            $state['data_generation']=1;
+            return $state;
+        }
     }
 }

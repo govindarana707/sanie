@@ -1,19 +1,36 @@
 <?php
 
-// Load installation-specific settings from the protected project .env file.
-// Existing server environment variables always take precedence.
-$envFile = dirname(__DIR__, 2) . '/.env';
-if (is_readable($envFile)) {
+// Load installation-specific settings from protected environment files.
+// Values supplied by the web server or process always take precedence. Local
+// overrides may replace shared .env defaults, but never explicit runtime values.
+$runtimeEnvironment = getenv();
+if (!is_array($runtimeEnvironment)) $runtimeEnvironment = [];
+$loadEnvFile = static function ($envFile, $overrideExisting = false) use ($runtimeEnvironment) {
+    if (!is_readable($envFile)) return;
+
     foreach (file($envFile, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) as $line) {
         $line = trim($line);
         if ($line === '' || str_starts_with($line, '#') || !str_contains($line, '=')) continue;
         [$name, $value] = array_map('trim', explode('=', $line, 2));
-        if ($name !== '' && getenv($name) === false) {
+        $existingValue = $name !== '' ? getenv($name) : false;
+        $hasRuntimeValue = $name !== ''
+            && array_key_exists($name, $runtimeEnvironment)
+            && $runtimeEnvironment[$name] !== '';
+        if ($name !== '' && !$hasRuntimeValue && ($overrideExisting || $existingValue === false || $existingValue === '')) {
             $value = trim($value, "\"'");
             putenv($name . '=' . $value);
             $_ENV[$name] = $value;
         }
     }
+};
+
+$projectRoot = dirname(__DIR__, 2);
+$loadEnvFile($projectRoot . '/.env');
+
+$requestHost = strtolower(preg_replace('/:\\d+$/', '', $_SERVER['HTTP_HOST'] ?? ''));
+$isLocalRequest = in_array($requestHost, ['localhost', '127.0.0.1', '::1'], true);
+if ($isLocalRequest) {
+    $loadEnvFile($projectRoot . '/.env.local', true);
 }
 
 if (!function_exists('getallheaders')) {
@@ -35,6 +52,10 @@ if (!function_exists('getallheaders')) {
 }
 
 function env_value($name, $default = null) {
+    if (array_key_exists($name, $_ENV) && $_ENV[$name] !== '') {
+        return $_ENV[$name];
+    }
+
     $value = getenv($name);
     return ($value === false || $value === '') ? $default : $value;
 }
@@ -42,6 +63,22 @@ function env_value($name, $default = null) {
 define('APP_ENV', env_value('APP_ENV', 'production'));
 define('APP_DEBUG', filter_var(env_value('APP_DEBUG', '0'), FILTER_VALIDATE_BOOLEAN));
 define('BASE_URL', env_value('BASE_URL', 'http://localhost/sanie/backend/api'));
+$derivedFrontendUrl = preg_replace('#/backend/api/?$#i', '/frontend', BASE_URL);
+define('FRONTEND_URL', rtrim(env_value('FRONTEND_URL', $derivedFrontendUrl), '/'));
+define('PASSWORD_RESET_TTL', 3600);
+define('PASSWORD_RESET_DEV_LOG', env_value(
+    'PASSWORD_RESET_DEV_LOG',
+    dirname(__DIR__) . '/storage/password-reset-deliveries.log'
+));
+define('MAIL_TRANSPORT', strtolower((string)env_value('MAIL_TRANSPORT', '')));
+define('MAIL_HOST', (string)env_value('MAIL_HOST', ''));
+define('MAIL_PORT', (int)env_value('MAIL_PORT', '587'));
+define('MAIL_USERNAME', (string)env_value('MAIL_USERNAME', ''));
+define('MAIL_PASSWORD', (string)env_value('MAIL_PASSWORD', ''));
+define('MAIL_ENCRYPTION', strtolower((string)env_value('MAIL_ENCRYPTION', 'tls')));
+define('MAIL_FROM_ADDRESS', (string)env_value('MAIL_FROM_ADDRESS', ''));
+define('MAIL_FROM_NAME', (string)env_value('MAIL_FROM_NAME', 'SanIE'));
+define('MAIL_TIMEOUT_SECONDS', (int)env_value('MAIL_TIMEOUT_SECONDS', '10'));
 
 $jwtSecret = env_value('JWT_SECRET');
 $requestHost = strtolower(preg_replace('/:\\d+$/', '', $_SERVER['HTTP_HOST'] ?? ''));

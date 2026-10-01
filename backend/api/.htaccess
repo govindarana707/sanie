@@ -1,5 +1,8 @@
 RewriteEngine On
 
+# Override the backend default-deny boundary for the authoritative API only.
+Require all granted
+
 <IfModule mod_headers.c>
     Header unset X-Powered-By
     Header always unset X-Powered-By

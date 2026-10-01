@@ -1,6 +1,12 @@
 Options -Indexes
 
-<FilesMatch "(^\.|\.(sql|dump|backup|bak|sql\.gz|gz|zip|tar|tar\.gz|json|log|env)$)">
+RewriteEngine On
+
+# Private repository and development directories are never HTTP surfaces.
+# Internal PHP includes continue to work because these rules only affect web requests.
+RewriteRule "(^|/)(?:\.git|\.agents|tests?|docs?|backups?|storage|diagnostics|fixtures|vendor)(?:/|$)" - [F,L,NC]
+
+<FilesMatch "(^\.|^(?:composer\.(?:json|lock)|README(?:\.[^.]+)?|deployment-check\.php|.*AUDIT_REPORT.*)$|\.(?:sql|dump|backup|bak|old|orig|save|swp|sql\.gz|gz|zip|tar|tar\.gz|json|log|env|ini|dist)$)">
     Require all denied
 </FilesMatch>
 
@@ -10,4 +16,15 @@ Options -Indexes
     Header always set X-Frame-Options "DENY"
     Header always set Referrer-Policy "strict-origin-when-cross-origin"
     Header always set Permissions-Policy "camera=(), microphone=(), geolocation=()"
+    Header always set Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://code.jquery.com https://cdn.datatables.net https://cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://cdn.datatables.net https://cdnjs.cloudflare.com https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com https://cdnjs.cloudflare.com https://cdn.jsdelivr.net data:; img-src 'self' data: blob:; connect-src 'self' https://cdn.jsdelivr.net https://code.jquery.com https://cdn.datatables.net https://cdnjs.cloudflare.com https://fonts.googleapis.com https://fonts.gstatic.com; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'"
 </IfModule>
+
+<Files "manifest.webmanifest">
+    ForceType application/manifest+json
+    Header set Content-Type "application/manifest+json"
+</Files>
+
+<Files "service-worker.js">
+    ForceType application/javascript
+    Header set Content-Type "application/javascript"
+</Files>

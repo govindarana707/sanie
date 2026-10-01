@@ -26,6 +26,10 @@ class ReportsController {
             'type'=>$_GET['type']??null,'category_id'=>$_GET['category_id']??null,'subcategory_id'=>$_GET['subcategory_id']??null,
             'account_id'=>$_GET['account_id']??null,'search'=>trim((string)($_GET['search']??''))
         ];
+        if (array_key_exists('scope', $_GET)) {
+            if (!in_array($_GET['scope'], ['all','personal','karobar'], true)) Response::error('Invalid transaction scope.',422);
+            $filters['scope']=$_GET['scope'];
+        }
         $page=max(1,(int)($_GET['page']??1));$limit=max(1,min(200,(int)($_GET['limit']??50)));
         if(!$this->validDate($filters['start_date'])||!$this->validDate($filters['end_date'])||$filters['start_date']>$filters['end_date'])Response::error('Invalid report date range.',422);
         $result=$this->reportingService->incomeExpensePage($userId,$filters,$page,$limit);
@@ -88,12 +92,24 @@ class ReportsController {
 
     public function budgetHealth() {
         $userId = Middleware::auth();
+        $startDate = $_GET['start_date'] ?? date('Y-01-01');
+        $endDate = $_GET['end_date'] ?? date('Y-12-31');
+        if (!$this->validDate($startDate) || !$this->validDate($endDate) || $startDate > $endDate) {
+            Response::error('Invalid report date range.', 422);
+        }
 
-        $budgets = $this->budgetModel->findAll($userId);
+        $budgets = array_values(array_filter(
+            $this->budgetModel->findAll($userId),
+            fn($budget) => ($budget['start_date'] ?? '') <= $endDate && ($budget['end_date'] ?? '') >= $startDate
+        ));
+        $budgetIds = array_map(fn($budget) => (int)$budget['id'], $budgets);
+        $progressRows = $this->budgetModel->getBatchProgress($budgetIds, $userId, $startDate, $endDate);
+        $progressById = [];
+        foreach ($progressRows as $progress) $progressById[(int)$progress['budget_id']] = $progress;
         $reportData = [];
 
         foreach ($budgets as $budget) {
-            $progress = $this->budgetModel->getBudgetProgress($budget['id'], $userId);
+            $progress = $progressById[(int)$budget['id']] ?? null;
 
             $amount = (float)$budget['amount'];
             $spent = $progress ? (float)$progress['spent'] : 0;
@@ -129,7 +145,8 @@ class ReportsController {
         Response::success([
             'budgets' => $reportData,
             'total_budget' => array_sum(array_column($reportData, 'amount')),
-            'total_spent' => array_sum(array_column($reportData, 'spent'))
+            'total_spent' => $this->budgetModel->getAggregateProgress($budgetIds, $userId, $startDate, $endDate)['unique_spent'],
+            'total_individual_spent' => array_sum(array_column($reportData, 'spent'))
         ]);
     }
 

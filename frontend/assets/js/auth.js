@@ -4,11 +4,21 @@ class AuthManager {
         this.currentUser = null;
         this.authState = 'UNKNOWN';
         this._bootstrapInProgress = false;
+        this.resetToken = null;
         this.setupEventListeners();
         this.initPromise = this.init();
     }
 
     async init() {
+        const resetMatch = String(window.location?.search || '').match(/[?&]reset_token=([^&#]*)/);
+        let resetToken = null;
+        try { resetToken = resetMatch ? decodeURIComponent(resetMatch[1].replace(/\+/g, ' ')) : null; } catch (error) {}
+        if (resetToken) {
+            this.authState = 'UNAUTHENTICATED';
+            this.showAuthScreen();
+            await this.showResetPasswordView(resetToken);
+            return;
+        }
         const token = api?.token || null;
         if (token) {
             api.setToken(token);
@@ -114,6 +124,22 @@ class AuthManager {
             this.handleRegister();
         });
 
+        document.getElementById('forgot-password-link')?.addEventListener('click', () => this.showRecoveryView('forgot-password'));
+        document.querySelectorAll('.auth-back-to-login').forEach(button => {
+            button.addEventListener('click', () => {
+                this.clearResetTokenFromUrl();
+                this.switchAuthTab('login');
+            });
+        });
+        document.getElementById('forgot-password-form')?.addEventListener('submit', (e) => {
+            e.preventDefault();
+            this.handleForgotPassword();
+        });
+        document.getElementById('reset-password-form')?.addEventListener('submit', (e) => {
+            e.preventDefault();
+            this.handleResetPassword();
+        });
+
         // Logout button
         document.getElementById('logout-btn').addEventListener('click', () => {
             this.handleLogout();
@@ -126,6 +152,7 @@ class AuthManager {
     }
 
     switchAuthTab(tab) {
+        document.querySelector('.auth-tabs')?.classList.remove('recovery-mode');
         document.querySelectorAll('.auth-tab').forEach(t => {
             const active = t.dataset.tab === tab;
             t.classList.toggle('active', active);
@@ -140,6 +167,108 @@ class AuthManager {
         });
         const form = document.getElementById(`${tab}-form`);
         form.querySelector('input')?.focus({ preventScroll: true });
+    }
+
+    showRecoveryView(view) {
+        document.querySelector('.auth-tabs')?.classList.add('recovery-mode');
+        document.querySelectorAll('.auth-form').forEach(form => {
+            const active = form.id === `${view}-form`;
+            form.classList.toggle('active', active);
+            form.setAttribute('aria-hidden', active ? 'false' : 'true');
+        });
+        document.querySelector(`#${view}-form input`)?.focus({ preventScroll: true });
+    }
+
+    async showResetPasswordView(token) {
+        this.resetToken = token;
+        this.showRecoveryView('reset-password');
+        const fields = document.getElementById('reset-password-fields');
+        const error = document.getElementById('reset-password-error');
+        if (fields) fields.hidden = true;
+        if (error) error.textContent = 'Checking your reset link…';
+        try {
+            await authAPI.validatePasswordReset({ token });
+            if (fields) fields.hidden = false;
+            if (error) error.textContent = '';
+        } catch (requestError) {
+            if (error) error.textContent = requestError?.status === 422
+                ? 'This reset link is invalid, expired, or has already been used.'
+                : 'Unable to check this reset link right now. Please try again.';
+        }
+    }
+
+    async handleForgotPassword() {
+        const form = document.getElementById('forgot-password-form');
+        const button = form.querySelector('button[type="submit"]');
+        const email = document.getElementById('forgot-password-email').value.trim();
+        const success = document.getElementById('forgot-password-success');
+        const error = document.getElementById('forgot-password-error');
+        button.disabled = true;
+        success.textContent = '';
+        error.textContent = '';
+        try {
+            const response = await authAPI.forgotPassword({ email });
+            success.textContent = response.message || 'If an eligible account exists and password reset delivery is configured, reset instructions will be provided.';
+            form.reset();
+        } catch (requestError) {
+            error.textContent = requestError?.status === 429
+                ? 'Too many requests. Please wait before trying again.'
+                : requestError?.status === 422
+                    ? 'Enter a valid email address.'
+                    : 'Unable to request a reset right now. Please try again.';
+        } finally {
+            button.disabled = false;
+        }
+    }
+
+    async handleResetPassword() {
+        const form = document.getElementById('reset-password-form');
+        const button = form.querySelector('button[type="submit"]');
+        const password = document.getElementById('reset-new-password').value;
+        const confirmation = document.getElementById('reset-confirm-password').value;
+        const success = document.getElementById('reset-password-success');
+        const error = document.getElementById('reset-password-error');
+        success.textContent = '';
+        error.textContent = '';
+        if (password !== confirmation) {
+            error.textContent = 'Password confirmation does not match.';
+            return;
+        }
+        if (password.length < 12 || password.length > 72) {
+            error.textContent = 'Password must be 12–72 characters.';
+            return;
+        }
+        button.disabled = true;
+        try {
+            await authAPI.resetPassword({
+                token: this.resetToken,
+                new_password: password,
+                new_password_confirmation: confirmation
+            });
+            api.clearToken();
+            this.authState = 'UNAUTHENTICATED';
+            this.currentUser = null;
+            window.OfflineStorage?.clearRememberedIdentity();
+            form.reset();
+            success.textContent = 'Password updated. You can now sign in with your new password.';
+            this.clearResetTokenFromUrl();
+            window.setTimeout(() => this.switchAuthTab('login'), 900);
+        } catch (requestError) {
+            error.textContent = requestError?.status === 422
+                ? (requestError.message || 'This reset link is invalid, expired, or has already been used.')
+                : requestError?.status === 429
+                    ? 'Too many attempts. Please wait before trying again.'
+                    : 'Unable to reset your password right now. Please try again.';
+        } finally {
+            button.disabled = false;
+        }
+    }
+
+    clearResetTokenFromUrl() {
+        this.resetToken = null;
+        const url = new URL(window.location.href);
+        url.searchParams.delete('reset_token');
+        window.history.replaceState({}, document.title, `${url.pathname}${url.search}${url.hash}`);
     }
 
     async handleLogin() {

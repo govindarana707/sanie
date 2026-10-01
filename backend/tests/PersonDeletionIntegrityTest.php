@@ -33,6 +33,6 @@ try{
 
     $run('foreign user cannot remove person',function()use($person,$foreign,$owner,$model):void{$p=$person($foreign,'Foreign person');pdAssert($model->removeSafely($p,$owner)===null,'foreign person was removed');pdAssert($model->findById($p,$foreign)!==false,'foreign person disappeared');});
 
-    $run('schema migration remains current and repeat-safe',function()use($db):void{$first=(new SchemaMigrator($db))->run();$second=(new SchemaMigrator($db))->run();pdAssert(!$first['applied']&&!$second['applied'],'current migration was not a no-op');pdAssert($first['migration_id']===SchemaMigrator::PHASE11_MIGRATION_ID,'wrong current migration ID');});
+    $run('schema migration remains current and repeat-safe',function()use($db):void{$first=(new SchemaMigrator($db))->run();$second=(new SchemaMigrator($db))->run();pdAssert(!$first['applied']&&!$second['applied'],'current migration was not a no-op');pdAssert($first['migration_id']===SchemaMigrator::CURRENT_MIGRATION_ID,'wrong current migration ID');});
 }finally{foreach(array_reverse($users)as$id){try{$db->prepare('DELETE FROM users WHERE id=?')->execute([$id]);}catch(Throwable$e){fwrite(STDERR,"Cleanup warning: {$e->getMessage()}\n");}}}
 echo"RESULT: $passed passed, $failed failed, 0 skipped\n";exit($failed?1:0);
