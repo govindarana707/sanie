@@ -96,7 +96,7 @@ class _HomePageState extends ConsumerState<HomePage> {
                       constraints.maxWidth < 360
                           ? SanieSpace.md
                           : SanieSpace.lg,
-                      SanieSpace.xl,
+                      SanieSpace.xl + SanieShape.touchTarget,
                     ),
                     children: [
                       Center(
@@ -112,7 +112,7 @@ class _HomePageState extends ConsumerState<HomePage> {
                                 signingOut: _signingOut,
                                 onSignOut: _signOut,
                               ),
-                              const SizedBox(height: SanieSpace.xl),
+                              const SizedBox(height: SanieSpace.lg),
                               FutureBuilder<HomeSnapshot>(
                                 future: _snapshot,
                                 builder: (context, snapshot) => _Greeting(
@@ -126,7 +126,9 @@ class _HomePageState extends ConsumerState<HomePage> {
                                       setState(() => _monthOffset = offset),
                                 ),
                               ),
-                              const SizedBox(height: SanieSpace.lg),
+                              const SizedBox(
+                                height: SanieSpace.md + SanieSpace.xs,
+                              ),
                               FutureBuilder<HomeSnapshot>(
                                 future: _snapshot,
                                 builder: (context, snapshot) {
@@ -403,7 +405,7 @@ class _Greeting extends StatelessWidget {
               style: Theme.of(context).textTheme.bodySmall
                   ?.copyWith(color: palette.mutedText),
             ),
-            const SizedBox(height: SanieSpace.sm),
+            const SizedBox(height: SanieSpace.xs),
             PopupMenuButton<int>(
               tooltip: 'Select period',
               onSelected: onMonthChanged,
@@ -469,8 +471,13 @@ String _rupees(double amount, {bool whole = false}) {
 }
 
 class _HomeCard extends StatelessWidget {
-  const _HomeCard({required this.child});
+  const _HomeCard({
+    super.key,
+    required this.child,
+    this.padding = const EdgeInsets.all(SanieSpace.md),
+  });
   final Widget child;
+  final EdgeInsetsGeometry padding;
 
   @override
   Widget build(BuildContext context) {
@@ -488,10 +495,7 @@ class _HomeCard extends StatelessWidget {
           ),
         ],
       ),
-      child: Padding(
-        padding: const EdgeInsets.all(SanieSpace.md),
-        child: child,
-      ),
+      child: Padding(padding: padding, child: child),
     );
   }
 }
@@ -649,17 +653,18 @@ class _MetricCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => _HomeCard(
+    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
     child: LayoutBuilder(
       builder: (context, constraints) {
         final icon = CircleAvatar(
-          radius: 20,
+          radius: 18,
           backgroundColor: kind.surface(context),
           child: Icon(
             kind == FinanceKind.income
                 ? Icons.arrow_downward_rounded
                 : Icons.arrow_upward_rounded,
             color: kind.color(context),
-            size: 22,
+            size: 20,
           ),
         );
         final words = Column(
@@ -667,9 +672,10 @@ class _MetricCard extends StatelessWidget {
           children: [
             Text(
               title,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: Theme.of(context).textTheme.bodyMedium,
+              maxLines: 2,
+              softWrap: true,
+              style: Theme.of(context).textTheme.bodyMedium
+                  ?.copyWith(fontSize: 13),
             ),
             const SizedBox(height: SanieSpace.xs),
             FittedBox(
@@ -702,7 +708,7 @@ class _MetricCard extends StatelessWidget {
             : Row(
                 children: [
                   icon,
-                  const SizedBox(width: SanieSpace.sm),
+                  const SizedBox(width: 6),
                   Expanded(child: words),
                 ],
               );
@@ -826,6 +832,7 @@ class _RecentCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final palette = Theme.of(context).extension<SaniePalette>()!;
     return _HomeCard(
+      key: const Key('home-recent-card'),
       child: Column(
         children: [
           Row(

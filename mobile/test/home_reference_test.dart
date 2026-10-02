@@ -137,6 +137,11 @@ void main() {
     await tester.pump(const Duration(milliseconds: 1));
   }
 
+  test('email-derived display name is presentation-only title case', () {
+    expect(presentationNameFromEmail('govinda@sanie.test'), 'Govinda');
+    expect(presentationNameFromEmail(null), 'Friend');
+  });
+
   test('local dashboard snapshot uses only scoped real values', () async {
     final empty = await home.load(userA, today);
     expect(empty.hasAccounts, isFalse);
@@ -233,6 +238,19 @@ void main() {
         expect(text.maxLines, 1);
       }
       expect(tester.takeException(), isNull);
+      expect(
+        tester
+            .getSize(find.byKey(const Key('finance-bottom-navigation')))
+            .height,
+        lessThan(76),
+      );
+      await tester.drag(find.byType(ListView), const Offset(0, -1000));
+      await tester.pumpAndSettle();
+      final recent = tester.getRect(find.byKey(const Key('home-recent-card')));
+      final navigationBar = tester.getRect(
+        find.byKey(const Key('finance-bottom-navigation')),
+      );
+      expect(recent.bottom, lessThanOrEqualTo(navigationBar.top));
       await tester.tap(find.text('More'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('Accounts'));
@@ -254,4 +272,24 @@ void main() {
       await finish(tester);
     }
   });
+
+  testWidgets(
+    'income and expense titles are complete at device-like width with large amounts',
+    (tester) async {
+      tester.view.physicalSize = const Size(345, 760);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      await seedTransaction('income', 9999999999999.99, 'Large income');
+      await mount(tester);
+      for (final label in ['Total Income', 'Total Expense']) {
+        final title = tester.widget<Text>(find.text(label));
+        expect(title.data, label);
+        expect(title.overflow, isNot(TextOverflow.ellipsis));
+        expect(title.maxLines, 2);
+      }
+      expect(tester.takeException(), isNull);
+      await finish(tester);
+    },
+  );
 }

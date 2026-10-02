@@ -41,6 +41,7 @@ class FinanceAppShell extends StatelessWidget {
     return Scaffold(
       body: child,
       bottomNavigationBar: DecoratedBox(
+        key: const Key('finance-bottom-navigation'),
         decoration: BoxDecoration(
           color: palette.surface,
           borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
@@ -57,9 +58,9 @@ class FinanceAppShell extends StatelessWidget {
           child: Padding(
             padding: const EdgeInsets.fromLTRB(
               SanieSpace.xs,
-              SanieSpace.sm,
               SanieSpace.xs,
-              SanieSpace.sm,
+              SanieSpace.xs,
+              SanieSpace.xs,
             ),
             child: Row(
               children: [
@@ -85,8 +86,8 @@ class FinanceAppShell extends StatelessWidget {
                         mainAxisSize: MainAxisSize.min,
                         children: [
                           Container(
-                            width: 52,
-                            height: 52,
+                            width: 46,
+                            height: 46,
                             decoration: BoxDecoration(
                               shape: BoxShape.circle,
                               color: palette.emerald,
@@ -101,10 +102,10 @@ class FinanceAppShell extends StatelessWidget {
                             child: const Icon(
                               Icons.add_rounded,
                               color: Colors.white,
-                              size: 31,
+                              size: 27,
                             ),
                           ),
-                          const SizedBox(height: SanieSpace.xs),
+                          const SizedBox(height: 2),
                           Text(
                             'Add',
                             maxLines: 1,
@@ -163,20 +164,20 @@ class _NavItem extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             children: [
               SizedBox(
-                height: 52,
+                height: 42,
                 child: Center(
                   child: Container(
-                    width: double.infinity,
-                    height: 40,
+                    width: 60,
+                    height: 34,
                     decoration: BoxDecoration(
                       color: selected ? palette.mint : Colors.transparent,
-                      borderRadius: BorderRadius.circular(24),
+                      borderRadius: BorderRadius.circular(22),
                     ),
-                    child: Icon(icon, color: color, size: 26),
+                    child: Icon(icon, color: color, size: 24),
                   ),
                 ),
               ),
-              const SizedBox(height: SanieSpace.xs),
+              const SizedBox(height: 2),
               FittedBox(
                 fit: BoxFit.scaleDown,
                 child: Text(

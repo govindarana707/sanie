@@ -25,13 +25,19 @@ final homeIdentityProvider = Provider<HomeIdentity?>((ref) {
       metadata['full_name'] ?? metadata['name'] ?? metadata['first_name'];
   final name = rawName is String && rawName.trim().isNotEmpty
       ? rawName.trim()
-      : (user.email?.split('@').first ?? 'Friend');
+      : presentationNameFromEmail(user.email);
   return HomeIdentity(
     userId: user.id,
     email: user.email ?? '',
     displayName: name,
   );
 });
+
+String presentationNameFromEmail(String? email) {
+  final localPart = email?.split('@').first.trim() ?? '';
+  if (localPart.isEmpty) return 'Friend';
+  return '${localPart[0].toUpperCase()}${localPart.substring(1)}';
+}
 
 final homeRepositoryProvider = Provider<HomeRepository>(
   (ref) => HomeRepository(ref.watch(accountsRepositoryProvider).database),
