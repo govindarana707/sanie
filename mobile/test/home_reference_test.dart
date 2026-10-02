@@ -195,7 +195,7 @@ void main() {
       await mount(tester);
       expect(find.text('SanIE'), findsOneWidget);
       expect(find.text('Maya 👋'), findsOneWidget);
-      expect(find.text('person@example.test'), findsOneWidget);
+      expect(find.text('person@example.test'), findsNothing);
       expect(find.text('Total Balance'), findsOneWidget);
       expect(find.text('Rs 0.00'), findsNWidgets(3));
       expect(find.text('Budget Progress'), findsOneWidget);
@@ -219,6 +219,13 @@ void main() {
       await tester.ensureVisible(find.text('Recent Transactions'));
       expect(find.text('Salary'), findsOneWidget);
       expect(find.text('Groceries'), findsOneWidget);
+      await tester.drag(find.byType(ListView), const Offset(0, -1000));
+      await tester.pumpAndSettle();
+      final recent = tester.getRect(find.byKey(const Key('home-recent-card')));
+      final navigationBar = tester.getRect(
+        find.byKey(const Key('finance-bottom-navigation')),
+      );
+      expect(recent.bottom, lessThanOrEqualTo(navigationBar.top));
       expect(tester.takeException(), isNull);
       await finish(tester);
     },

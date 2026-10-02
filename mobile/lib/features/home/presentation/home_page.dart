@@ -112,11 +112,12 @@ class _HomePageState extends ConsumerState<HomePage> {
                                 signingOut: _signingOut,
                                 onSignOut: _signOut,
                               ),
-                              const SizedBox(height: SanieSpace.lg),
+                              const SizedBox(
+                                height: SanieSpace.md + SanieSpace.xs,
+                              ),
                               FutureBuilder<HomeSnapshot>(
                                 future: _snapshot,
                                 builder: (context, snapshot) => _Greeting(
-                                  identity: identity,
                                   displayName:
                                       snapshot.data?.profileName ??
                                       identity.displayName,
@@ -126,9 +127,7 @@ class _HomePageState extends ConsumerState<HomePage> {
                                       setState(() => _monthOffset = offset),
                                 ),
                               ),
-                              const SizedBox(
-                                height: SanieSpace.md + SanieSpace.xs,
-                              ),
+                              const SizedBox(height: SanieSpace.md),
                               FutureBuilder<HomeSnapshot>(
                                 future: _snapshot,
                                 builder: (context, snapshot) {
@@ -346,13 +345,11 @@ class _LeafLogo extends CustomPainter {
 
 class _Greeting extends StatelessWidget {
   const _Greeting({
-    required this.identity,
     required this.displayName,
     required this.today,
     required this.monthOffset,
     required this.onMonthChanged,
   });
-  final HomeIdentity identity;
   final String displayName;
   final DateTime today;
   final int monthOffset;
@@ -385,13 +382,6 @@ class _Greeting extends StatelessWidget {
                   fontWeight: FontWeight.w800,
                   color: palette.primaryText,
                 ),
-              ),
-              Text(
-                identity.email,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: Theme.of(context).textTheme.bodyMedium
-                    ?.copyWith(color: palette.mutedText),
               ),
             ],
           ),
