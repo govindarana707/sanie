@@ -22,6 +22,7 @@ class OutboxErrorClassifier {
     'BUDGET_SCOPE_OVERLAP',
     'RECURRING_REVIEW_REQUIRED',
     'INVALID_STATE',
+    'INSUFFICIENT_FUNDS',
   };
 
   static OutboxErrorDisposition classify(String? code) =>
