@@ -9559,6 +9559,914 @@ class SyncStatesCompanion extends UpdateCompanion<SyncState> {
   }
 }
 
+class $OutboxCommandsTable extends OutboxCommands
+    with TableInfo<$OutboxCommandsTable, OutboxCommand> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $OutboxCommandsTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _idMeta = const VerificationMeta('id');
+  @override
+  late final GeneratedColumn<String> id = GeneratedColumn<String>(
+    'id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _userIdMeta = const VerificationMeta('userId');
+  @override
+  late final GeneratedColumn<String> userId = GeneratedColumn<String>(
+    'user_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _clientRequestIdMeta = const VerificationMeta(
+    'clientRequestId',
+  );
+  @override
+  late final GeneratedColumn<String> clientRequestId = GeneratedColumn<String>(
+    'client_request_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+    defaultConstraints: GeneratedColumn.constraintIsAlways('UNIQUE'),
+  );
+  static const VerificationMeta _commandTypeMeta = const VerificationMeta(
+    'commandType',
+  );
+  @override
+  late final GeneratedColumn<String> commandType = GeneratedColumn<String>(
+    'command_type',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _payloadJsonMeta = const VerificationMeta(
+    'payloadJson',
+  );
+  @override
+  late final GeneratedColumn<String> payloadJson = GeneratedColumn<String>(
+    'payload_json',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _dataGenerationMeta = const VerificationMeta(
+    'dataGeneration',
+  );
+  @override
+  late final GeneratedColumn<int> dataGeneration = GeneratedColumn<int>(
+    'data_generation',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _expectedVersionMeta = const VerificationMeta(
+    'expectedVersion',
+  );
+  @override
+  late final GeneratedColumn<int> expectedVersion = GeneratedColumn<int>(
+    'expected_version',
+    aliasedName,
+    true,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _statusMeta = const VerificationMeta('status');
+  @override
+  late final GeneratedColumn<String> status = GeneratedColumn<String>(
+    'status',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant('pending'),
+  );
+  static const VerificationMeta _attemptCountMeta = const VerificationMeta(
+    'attemptCount',
+  );
+  @override
+  late final GeneratedColumn<int> attemptCount = GeneratedColumn<int>(
+    'attempt_count',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(0),
+  );
+  static const VerificationMeta _createdAtMeta = const VerificationMeta(
+    'createdAt',
+  );
+  @override
+  late final GeneratedColumn<DateTime> createdAt = GeneratedColumn<DateTime>(
+    'created_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.dateTime,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _updatedAtMeta = const VerificationMeta(
+    'updatedAt',
+  );
+  @override
+  late final GeneratedColumn<DateTime> updatedAt = GeneratedColumn<DateTime>(
+    'updated_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.dateTime,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _lastAttemptAtMeta = const VerificationMeta(
+    'lastAttemptAt',
+  );
+  @override
+  late final GeneratedColumn<DateTime> lastAttemptAt =
+      GeneratedColumn<DateTime>(
+        'last_attempt_at',
+        aliasedName,
+        true,
+        type: DriftSqlType.dateTime,
+        requiredDuringInsert: false,
+      );
+  static const VerificationMeta _nextAttemptAtMeta = const VerificationMeta(
+    'nextAttemptAt',
+  );
+  @override
+  late final GeneratedColumn<DateTime> nextAttemptAt =
+      GeneratedColumn<DateTime>(
+        'next_attempt_at',
+        aliasedName,
+        true,
+        type: DriftSqlType.dateTime,
+        requiredDuringInsert: false,
+      );
+  static const VerificationMeta _lastErrorCodeMeta = const VerificationMeta(
+    'lastErrorCode',
+  );
+  @override
+  late final GeneratedColumn<String> lastErrorCode = GeneratedColumn<String>(
+    'last_error_code',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _lastErrorMessageMeta = const VerificationMeta(
+    'lastErrorMessage',
+  );
+  @override
+  late final GeneratedColumn<String> lastErrorMessage = GeneratedColumn<String>(
+    'last_error_message',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    id,
+    userId,
+    clientRequestId,
+    commandType,
+    payloadJson,
+    dataGeneration,
+    expectedVersion,
+    status,
+    attemptCount,
+    createdAt,
+    updatedAt,
+    lastAttemptAt,
+    nextAttemptAt,
+    lastErrorCode,
+    lastErrorMessage,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'outbox_commands';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<OutboxCommand> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('id')) {
+      context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
+    } else if (isInserting) {
+      context.missing(_idMeta);
+    }
+    if (data.containsKey('user_id')) {
+      context.handle(
+        _userIdMeta,
+        userId.isAcceptableOrUnknown(data['user_id']!, _userIdMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_userIdMeta);
+    }
+    if (data.containsKey('client_request_id')) {
+      context.handle(
+        _clientRequestIdMeta,
+        clientRequestId.isAcceptableOrUnknown(
+          data['client_request_id']!,
+          _clientRequestIdMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_clientRequestIdMeta);
+    }
+    if (data.containsKey('command_type')) {
+      context.handle(
+        _commandTypeMeta,
+        commandType.isAcceptableOrUnknown(
+          data['command_type']!,
+          _commandTypeMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_commandTypeMeta);
+    }
+    if (data.containsKey('payload_json')) {
+      context.handle(
+        _payloadJsonMeta,
+        payloadJson.isAcceptableOrUnknown(
+          data['payload_json']!,
+          _payloadJsonMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_payloadJsonMeta);
+    }
+    if (data.containsKey('data_generation')) {
+      context.handle(
+        _dataGenerationMeta,
+        dataGeneration.isAcceptableOrUnknown(
+          data['data_generation']!,
+          _dataGenerationMeta,
+        ),
+      );
+    } else if (isInserting) {
+      context.missing(_dataGenerationMeta);
+    }
+    if (data.containsKey('expected_version')) {
+      context.handle(
+        _expectedVersionMeta,
+        expectedVersion.isAcceptableOrUnknown(
+          data['expected_version']!,
+          _expectedVersionMeta,
+        ),
+      );
+    }
+    if (data.containsKey('status')) {
+      context.handle(
+        _statusMeta,
+        status.isAcceptableOrUnknown(data['status']!, _statusMeta),
+      );
+    }
+    if (data.containsKey('attempt_count')) {
+      context.handle(
+        _attemptCountMeta,
+        attemptCount.isAcceptableOrUnknown(
+          data['attempt_count']!,
+          _attemptCountMeta,
+        ),
+      );
+    }
+    if (data.containsKey('created_at')) {
+      context.handle(
+        _createdAtMeta,
+        createdAt.isAcceptableOrUnknown(data['created_at']!, _createdAtMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_createdAtMeta);
+    }
+    if (data.containsKey('updated_at')) {
+      context.handle(
+        _updatedAtMeta,
+        updatedAt.isAcceptableOrUnknown(data['updated_at']!, _updatedAtMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_updatedAtMeta);
+    }
+    if (data.containsKey('last_attempt_at')) {
+      context.handle(
+        _lastAttemptAtMeta,
+        lastAttemptAt.isAcceptableOrUnknown(
+          data['last_attempt_at']!,
+          _lastAttemptAtMeta,
+        ),
+      );
+    }
+    if (data.containsKey('next_attempt_at')) {
+      context.handle(
+        _nextAttemptAtMeta,
+        nextAttemptAt.isAcceptableOrUnknown(
+          data['next_attempt_at']!,
+          _nextAttemptAtMeta,
+        ),
+      );
+    }
+    if (data.containsKey('last_error_code')) {
+      context.handle(
+        _lastErrorCodeMeta,
+        lastErrorCode.isAcceptableOrUnknown(
+          data['last_error_code']!,
+          _lastErrorCodeMeta,
+        ),
+      );
+    }
+    if (data.containsKey('last_error_message')) {
+      context.handle(
+        _lastErrorMessageMeta,
+        lastErrorMessage.isAcceptableOrUnknown(
+          data['last_error_message']!,
+          _lastErrorMessageMeta,
+        ),
+      );
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {id};
+  @override
+  OutboxCommand map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return OutboxCommand(
+      id: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}id'],
+      )!,
+      userId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}user_id'],
+      )!,
+      clientRequestId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}client_request_id'],
+      )!,
+      commandType: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}command_type'],
+      )!,
+      payloadJson: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}payload_json'],
+      )!,
+      dataGeneration: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}data_generation'],
+      )!,
+      expectedVersion: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}expected_version'],
+      ),
+      status: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}status'],
+      )!,
+      attemptCount: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}attempt_count'],
+      )!,
+      createdAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}created_at'],
+      )!,
+      updatedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}updated_at'],
+      )!,
+      lastAttemptAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}last_attempt_at'],
+      ),
+      nextAttemptAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.dateTime,
+        data['${effectivePrefix}next_attempt_at'],
+      ),
+      lastErrorCode: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}last_error_code'],
+      ),
+      lastErrorMessage: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}last_error_message'],
+      ),
+    );
+  }
+
+  @override
+  $OutboxCommandsTable createAlias(String alias) {
+    return $OutboxCommandsTable(attachedDatabase, alias);
+  }
+}
+
+class OutboxCommand extends DataClass implements Insertable<OutboxCommand> {
+  final String id;
+  final String userId;
+  final String clientRequestId;
+  final String commandType;
+  final String payloadJson;
+  final int dataGeneration;
+  final int? expectedVersion;
+  final String status;
+  final int attemptCount;
+  final DateTime createdAt;
+  final DateTime updatedAt;
+  final DateTime? lastAttemptAt;
+  final DateTime? nextAttemptAt;
+  final String? lastErrorCode;
+  final String? lastErrorMessage;
+  const OutboxCommand({
+    required this.id,
+    required this.userId,
+    required this.clientRequestId,
+    required this.commandType,
+    required this.payloadJson,
+    required this.dataGeneration,
+    this.expectedVersion,
+    required this.status,
+    required this.attemptCount,
+    required this.createdAt,
+    required this.updatedAt,
+    this.lastAttemptAt,
+    this.nextAttemptAt,
+    this.lastErrorCode,
+    this.lastErrorMessage,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['id'] = Variable<String>(id);
+    map['user_id'] = Variable<String>(userId);
+    map['client_request_id'] = Variable<String>(clientRequestId);
+    map['command_type'] = Variable<String>(commandType);
+    map['payload_json'] = Variable<String>(payloadJson);
+    map['data_generation'] = Variable<int>(dataGeneration);
+    if (!nullToAbsent || expectedVersion != null) {
+      map['expected_version'] = Variable<int>(expectedVersion);
+    }
+    map['status'] = Variable<String>(status);
+    map['attempt_count'] = Variable<int>(attemptCount);
+    map['created_at'] = Variable<DateTime>(createdAt);
+    map['updated_at'] = Variable<DateTime>(updatedAt);
+    if (!nullToAbsent || lastAttemptAt != null) {
+      map['last_attempt_at'] = Variable<DateTime>(lastAttemptAt);
+    }
+    if (!nullToAbsent || nextAttemptAt != null) {
+      map['next_attempt_at'] = Variable<DateTime>(nextAttemptAt);
+    }
+    if (!nullToAbsent || lastErrorCode != null) {
+      map['last_error_code'] = Variable<String>(lastErrorCode);
+    }
+    if (!nullToAbsent || lastErrorMessage != null) {
+      map['last_error_message'] = Variable<String>(lastErrorMessage);
+    }
+    return map;
+  }
+
+  OutboxCommandsCompanion toCompanion(bool nullToAbsent) {
+    return OutboxCommandsCompanion(
+      id: Value(id),
+      userId: Value(userId),
+      clientRequestId: Value(clientRequestId),
+      commandType: Value(commandType),
+      payloadJson: Value(payloadJson),
+      dataGeneration: Value(dataGeneration),
+      expectedVersion: expectedVersion == null && nullToAbsent
+          ? const Value.absent()
+          : Value(expectedVersion),
+      status: Value(status),
+      attemptCount: Value(attemptCount),
+      createdAt: Value(createdAt),
+      updatedAt: Value(updatedAt),
+      lastAttemptAt: lastAttemptAt == null && nullToAbsent
+          ? const Value.absent()
+          : Value(lastAttemptAt),
+      nextAttemptAt: nextAttemptAt == null && nullToAbsent
+          ? const Value.absent()
+          : Value(nextAttemptAt),
+      lastErrorCode: lastErrorCode == null && nullToAbsent
+          ? const Value.absent()
+          : Value(lastErrorCode),
+      lastErrorMessage: lastErrorMessage == null && nullToAbsent
+          ? const Value.absent()
+          : Value(lastErrorMessage),
+    );
+  }
+
+  factory OutboxCommand.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return OutboxCommand(
+      id: serializer.fromJson<String>(json['id']),
+      userId: serializer.fromJson<String>(json['userId']),
+      clientRequestId: serializer.fromJson<String>(json['clientRequestId']),
+      commandType: serializer.fromJson<String>(json['commandType']),
+      payloadJson: serializer.fromJson<String>(json['payloadJson']),
+      dataGeneration: serializer.fromJson<int>(json['dataGeneration']),
+      expectedVersion: serializer.fromJson<int?>(json['expectedVersion']),
+      status: serializer.fromJson<String>(json['status']),
+      attemptCount: serializer.fromJson<int>(json['attemptCount']),
+      createdAt: serializer.fromJson<DateTime>(json['createdAt']),
+      updatedAt: serializer.fromJson<DateTime>(json['updatedAt']),
+      lastAttemptAt: serializer.fromJson<DateTime?>(json['lastAttemptAt']),
+      nextAttemptAt: serializer.fromJson<DateTime?>(json['nextAttemptAt']),
+      lastErrorCode: serializer.fromJson<String?>(json['lastErrorCode']),
+      lastErrorMessage: serializer.fromJson<String?>(json['lastErrorMessage']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'id': serializer.toJson<String>(id),
+      'userId': serializer.toJson<String>(userId),
+      'clientRequestId': serializer.toJson<String>(clientRequestId),
+      'commandType': serializer.toJson<String>(commandType),
+      'payloadJson': serializer.toJson<String>(payloadJson),
+      'dataGeneration': serializer.toJson<int>(dataGeneration),
+      'expectedVersion': serializer.toJson<int?>(expectedVersion),
+      'status': serializer.toJson<String>(status),
+      'attemptCount': serializer.toJson<int>(attemptCount),
+      'createdAt': serializer.toJson<DateTime>(createdAt),
+      'updatedAt': serializer.toJson<DateTime>(updatedAt),
+      'lastAttemptAt': serializer.toJson<DateTime?>(lastAttemptAt),
+      'nextAttemptAt': serializer.toJson<DateTime?>(nextAttemptAt),
+      'lastErrorCode': serializer.toJson<String?>(lastErrorCode),
+      'lastErrorMessage': serializer.toJson<String?>(lastErrorMessage),
+    };
+  }
+
+  OutboxCommand copyWith({
+    String? id,
+    String? userId,
+    String? clientRequestId,
+    String? commandType,
+    String? payloadJson,
+    int? dataGeneration,
+    Value<int?> expectedVersion = const Value.absent(),
+    String? status,
+    int? attemptCount,
+    DateTime? createdAt,
+    DateTime? updatedAt,
+    Value<DateTime?> lastAttemptAt = const Value.absent(),
+    Value<DateTime?> nextAttemptAt = const Value.absent(),
+    Value<String?> lastErrorCode = const Value.absent(),
+    Value<String?> lastErrorMessage = const Value.absent(),
+  }) => OutboxCommand(
+    id: id ?? this.id,
+    userId: userId ?? this.userId,
+    clientRequestId: clientRequestId ?? this.clientRequestId,
+    commandType: commandType ?? this.commandType,
+    payloadJson: payloadJson ?? this.payloadJson,
+    dataGeneration: dataGeneration ?? this.dataGeneration,
+    expectedVersion: expectedVersion.present
+        ? expectedVersion.value
+        : this.expectedVersion,
+    status: status ?? this.status,
+    attemptCount: attemptCount ?? this.attemptCount,
+    createdAt: createdAt ?? this.createdAt,
+    updatedAt: updatedAt ?? this.updatedAt,
+    lastAttemptAt: lastAttemptAt.present
+        ? lastAttemptAt.value
+        : this.lastAttemptAt,
+    nextAttemptAt: nextAttemptAt.present
+        ? nextAttemptAt.value
+        : this.nextAttemptAt,
+    lastErrorCode: lastErrorCode.present
+        ? lastErrorCode.value
+        : this.lastErrorCode,
+    lastErrorMessage: lastErrorMessage.present
+        ? lastErrorMessage.value
+        : this.lastErrorMessage,
+  );
+  OutboxCommand copyWithCompanion(OutboxCommandsCompanion data) {
+    return OutboxCommand(
+      id: data.id.present ? data.id.value : this.id,
+      userId: data.userId.present ? data.userId.value : this.userId,
+      clientRequestId: data.clientRequestId.present
+          ? data.clientRequestId.value
+          : this.clientRequestId,
+      commandType: data.commandType.present
+          ? data.commandType.value
+          : this.commandType,
+      payloadJson: data.payloadJson.present
+          ? data.payloadJson.value
+          : this.payloadJson,
+      dataGeneration: data.dataGeneration.present
+          ? data.dataGeneration.value
+          : this.dataGeneration,
+      expectedVersion: data.expectedVersion.present
+          ? data.expectedVersion.value
+          : this.expectedVersion,
+      status: data.status.present ? data.status.value : this.status,
+      attemptCount: data.attemptCount.present
+          ? data.attemptCount.value
+          : this.attemptCount,
+      createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
+      updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
+      lastAttemptAt: data.lastAttemptAt.present
+          ? data.lastAttemptAt.value
+          : this.lastAttemptAt,
+      nextAttemptAt: data.nextAttemptAt.present
+          ? data.nextAttemptAt.value
+          : this.nextAttemptAt,
+      lastErrorCode: data.lastErrorCode.present
+          ? data.lastErrorCode.value
+          : this.lastErrorCode,
+      lastErrorMessage: data.lastErrorMessage.present
+          ? data.lastErrorMessage.value
+          : this.lastErrorMessage,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('OutboxCommand(')
+          ..write('id: $id, ')
+          ..write('userId: $userId, ')
+          ..write('clientRequestId: $clientRequestId, ')
+          ..write('commandType: $commandType, ')
+          ..write('payloadJson: $payloadJson, ')
+          ..write('dataGeneration: $dataGeneration, ')
+          ..write('expectedVersion: $expectedVersion, ')
+          ..write('status: $status, ')
+          ..write('attemptCount: $attemptCount, ')
+          ..write('createdAt: $createdAt, ')
+          ..write('updatedAt: $updatedAt, ')
+          ..write('lastAttemptAt: $lastAttemptAt, ')
+          ..write('nextAttemptAt: $nextAttemptAt, ')
+          ..write('lastErrorCode: $lastErrorCode, ')
+          ..write('lastErrorMessage: $lastErrorMessage')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(
+    id,
+    userId,
+    clientRequestId,
+    commandType,
+    payloadJson,
+    dataGeneration,
+    expectedVersion,
+    status,
+    attemptCount,
+    createdAt,
+    updatedAt,
+    lastAttemptAt,
+    nextAttemptAt,
+    lastErrorCode,
+    lastErrorMessage,
+  );
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is OutboxCommand &&
+          other.id == this.id &&
+          other.userId == this.userId &&
+          other.clientRequestId == this.clientRequestId &&
+          other.commandType == this.commandType &&
+          other.payloadJson == this.payloadJson &&
+          other.dataGeneration == this.dataGeneration &&
+          other.expectedVersion == this.expectedVersion &&
+          other.status == this.status &&
+          other.attemptCount == this.attemptCount &&
+          other.createdAt == this.createdAt &&
+          other.updatedAt == this.updatedAt &&
+          other.lastAttemptAt == this.lastAttemptAt &&
+          other.nextAttemptAt == this.nextAttemptAt &&
+          other.lastErrorCode == this.lastErrorCode &&
+          other.lastErrorMessage == this.lastErrorMessage);
+}
+
+class OutboxCommandsCompanion extends UpdateCompanion<OutboxCommand> {
+  final Value<String> id;
+  final Value<String> userId;
+  final Value<String> clientRequestId;
+  final Value<String> commandType;
+  final Value<String> payloadJson;
+  final Value<int> dataGeneration;
+  final Value<int?> expectedVersion;
+  final Value<String> status;
+  final Value<int> attemptCount;
+  final Value<DateTime> createdAt;
+  final Value<DateTime> updatedAt;
+  final Value<DateTime?> lastAttemptAt;
+  final Value<DateTime?> nextAttemptAt;
+  final Value<String?> lastErrorCode;
+  final Value<String?> lastErrorMessage;
+  final Value<int> rowid;
+  const OutboxCommandsCompanion({
+    this.id = const Value.absent(),
+    this.userId = const Value.absent(),
+    this.clientRequestId = const Value.absent(),
+    this.commandType = const Value.absent(),
+    this.payloadJson = const Value.absent(),
+    this.dataGeneration = const Value.absent(),
+    this.expectedVersion = const Value.absent(),
+    this.status = const Value.absent(),
+    this.attemptCount = const Value.absent(),
+    this.createdAt = const Value.absent(),
+    this.updatedAt = const Value.absent(),
+    this.lastAttemptAt = const Value.absent(),
+    this.nextAttemptAt = const Value.absent(),
+    this.lastErrorCode = const Value.absent(),
+    this.lastErrorMessage = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  OutboxCommandsCompanion.insert({
+    required String id,
+    required String userId,
+    required String clientRequestId,
+    required String commandType,
+    required String payloadJson,
+    required int dataGeneration,
+    this.expectedVersion = const Value.absent(),
+    this.status = const Value.absent(),
+    this.attemptCount = const Value.absent(),
+    required DateTime createdAt,
+    required DateTime updatedAt,
+    this.lastAttemptAt = const Value.absent(),
+    this.nextAttemptAt = const Value.absent(),
+    this.lastErrorCode = const Value.absent(),
+    this.lastErrorMessage = const Value.absent(),
+    this.rowid = const Value.absent(),
+  }) : id = Value(id),
+       userId = Value(userId),
+       clientRequestId = Value(clientRequestId),
+       commandType = Value(commandType),
+       payloadJson = Value(payloadJson),
+       dataGeneration = Value(dataGeneration),
+       createdAt = Value(createdAt),
+       updatedAt = Value(updatedAt);
+  static Insertable<OutboxCommand> custom({
+    Expression<String>? id,
+    Expression<String>? userId,
+    Expression<String>? clientRequestId,
+    Expression<String>? commandType,
+    Expression<String>? payloadJson,
+    Expression<int>? dataGeneration,
+    Expression<int>? expectedVersion,
+    Expression<String>? status,
+    Expression<int>? attemptCount,
+    Expression<DateTime>? createdAt,
+    Expression<DateTime>? updatedAt,
+    Expression<DateTime>? lastAttemptAt,
+    Expression<DateTime>? nextAttemptAt,
+    Expression<String>? lastErrorCode,
+    Expression<String>? lastErrorMessage,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (id != null) 'id': id,
+      if (userId != null) 'user_id': userId,
+      if (clientRequestId != null) 'client_request_id': clientRequestId,
+      if (commandType != null) 'command_type': commandType,
+      if (payloadJson != null) 'payload_json': payloadJson,
+      if (dataGeneration != null) 'data_generation': dataGeneration,
+      if (expectedVersion != null) 'expected_version': expectedVersion,
+      if (status != null) 'status': status,
+      if (attemptCount != null) 'attempt_count': attemptCount,
+      if (createdAt != null) 'created_at': createdAt,
+      if (updatedAt != null) 'updated_at': updatedAt,
+      if (lastAttemptAt != null) 'last_attempt_at': lastAttemptAt,
+      if (nextAttemptAt != null) 'next_attempt_at': nextAttemptAt,
+      if (lastErrorCode != null) 'last_error_code': lastErrorCode,
+      if (lastErrorMessage != null) 'last_error_message': lastErrorMessage,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  OutboxCommandsCompanion copyWith({
+    Value<String>? id,
+    Value<String>? userId,
+    Value<String>? clientRequestId,
+    Value<String>? commandType,
+    Value<String>? payloadJson,
+    Value<int>? dataGeneration,
+    Value<int?>? expectedVersion,
+    Value<String>? status,
+    Value<int>? attemptCount,
+    Value<DateTime>? createdAt,
+    Value<DateTime>? updatedAt,
+    Value<DateTime?>? lastAttemptAt,
+    Value<DateTime?>? nextAttemptAt,
+    Value<String?>? lastErrorCode,
+    Value<String?>? lastErrorMessage,
+    Value<int>? rowid,
+  }) {
+    return OutboxCommandsCompanion(
+      id: id ?? this.id,
+      userId: userId ?? this.userId,
+      clientRequestId: clientRequestId ?? this.clientRequestId,
+      commandType: commandType ?? this.commandType,
+      payloadJson: payloadJson ?? this.payloadJson,
+      dataGeneration: dataGeneration ?? this.dataGeneration,
+      expectedVersion: expectedVersion ?? this.expectedVersion,
+      status: status ?? this.status,
+      attemptCount: attemptCount ?? this.attemptCount,
+      createdAt: createdAt ?? this.createdAt,
+      updatedAt: updatedAt ?? this.updatedAt,
+      lastAttemptAt: lastAttemptAt ?? this.lastAttemptAt,
+      nextAttemptAt: nextAttemptAt ?? this.nextAttemptAt,
+      lastErrorCode: lastErrorCode ?? this.lastErrorCode,
+      lastErrorMessage: lastErrorMessage ?? this.lastErrorMessage,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (id.present) {
+      map['id'] = Variable<String>(id.value);
+    }
+    if (userId.present) {
+      map['user_id'] = Variable<String>(userId.value);
+    }
+    if (clientRequestId.present) {
+      map['client_request_id'] = Variable<String>(clientRequestId.value);
+    }
+    if (commandType.present) {
+      map['command_type'] = Variable<String>(commandType.value);
+    }
+    if (payloadJson.present) {
+      map['payload_json'] = Variable<String>(payloadJson.value);
+    }
+    if (dataGeneration.present) {
+      map['data_generation'] = Variable<int>(dataGeneration.value);
+    }
+    if (expectedVersion.present) {
+      map['expected_version'] = Variable<int>(expectedVersion.value);
+    }
+    if (status.present) {
+      map['status'] = Variable<String>(status.value);
+    }
+    if (attemptCount.present) {
+      map['attempt_count'] = Variable<int>(attemptCount.value);
+    }
+    if (createdAt.present) {
+      map['created_at'] = Variable<DateTime>(createdAt.value);
+    }
+    if (updatedAt.present) {
+      map['updated_at'] = Variable<DateTime>(updatedAt.value);
+    }
+    if (lastAttemptAt.present) {
+      map['last_attempt_at'] = Variable<DateTime>(lastAttemptAt.value);
+    }
+    if (nextAttemptAt.present) {
+      map['next_attempt_at'] = Variable<DateTime>(nextAttemptAt.value);
+    }
+    if (lastErrorCode.present) {
+      map['last_error_code'] = Variable<String>(lastErrorCode.value);
+    }
+    if (lastErrorMessage.present) {
+      map['last_error_message'] = Variable<String>(lastErrorMessage.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('OutboxCommandsCompanion(')
+          ..write('id: $id, ')
+          ..write('userId: $userId, ')
+          ..write('clientRequestId: $clientRequestId, ')
+          ..write('commandType: $commandType, ')
+          ..write('payloadJson: $payloadJson, ')
+          ..write('dataGeneration: $dataGeneration, ')
+          ..write('expectedVersion: $expectedVersion, ')
+          ..write('status: $status, ')
+          ..write('attemptCount: $attemptCount, ')
+          ..write('createdAt: $createdAt, ')
+          ..write('updatedAt: $updatedAt, ')
+          ..write('lastAttemptAt: $lastAttemptAt, ')
+          ..write('nextAttemptAt: $nextAttemptAt, ')
+          ..write('lastErrorCode: $lastErrorCode, ')
+          ..write('lastErrorMessage: $lastErrorMessage, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
 abstract class _$AppDatabase extends GeneratedDatabase {
   _$AppDatabase(QueryExecutor e) : super(e);
   $AppDatabaseManager get managers => $AppDatabaseManager(this);
@@ -9575,6 +10483,7 @@ abstract class _$AppDatabase extends GeneratedDatabase {
   late final $RecurringTransactionsTable recurringTransactions =
       $RecurringTransactionsTable(this);
   late final $SyncStatesTable syncStates = $SyncStatesTable(this);
+  late final $OutboxCommandsTable outboxCommands = $OutboxCommandsTable(this);
   @override
   Iterable<TableInfo<Table, Object?>> get allTables =>
       allSchemaEntities.whereType<TableInfo<Table, Object?>>();
@@ -9591,6 +10500,7 @@ abstract class _$AppDatabase extends GeneratedDatabase {
     karobarTransactions,
     recurringTransactions,
     syncStates,
+    outboxCommands,
   ];
 }
 
@@ -14067,6 +14977,427 @@ typedef $$SyncStatesTableProcessedTableManager =
       SyncState,
       PrefetchHooks Function()
     >;
+typedef $$OutboxCommandsTableCreateCompanionBuilder =
+    OutboxCommandsCompanion Function({
+      required String id,
+      required String userId,
+      required String clientRequestId,
+      required String commandType,
+      required String payloadJson,
+      required int dataGeneration,
+      Value<int?> expectedVersion,
+      Value<String> status,
+      Value<int> attemptCount,
+      required DateTime createdAt,
+      required DateTime updatedAt,
+      Value<DateTime?> lastAttemptAt,
+      Value<DateTime?> nextAttemptAt,
+      Value<String?> lastErrorCode,
+      Value<String?> lastErrorMessage,
+      Value<int> rowid,
+    });
+typedef $$OutboxCommandsTableUpdateCompanionBuilder =
+    OutboxCommandsCompanion Function({
+      Value<String> id,
+      Value<String> userId,
+      Value<String> clientRequestId,
+      Value<String> commandType,
+      Value<String> payloadJson,
+      Value<int> dataGeneration,
+      Value<int?> expectedVersion,
+      Value<String> status,
+      Value<int> attemptCount,
+      Value<DateTime> createdAt,
+      Value<DateTime> updatedAt,
+      Value<DateTime?> lastAttemptAt,
+      Value<DateTime?> nextAttemptAt,
+      Value<String?> lastErrorCode,
+      Value<String?> lastErrorMessage,
+      Value<int> rowid,
+    });
+
+class $$OutboxCommandsTableFilterComposer
+    extends Composer<_$AppDatabase, $OutboxCommandsTable> {
+  $$OutboxCommandsTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get userId => $composableBuilder(
+    column: $table.userId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get clientRequestId => $composableBuilder(
+    column: $table.clientRequestId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get commandType => $composableBuilder(
+    column: $table.commandType,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get payloadJson => $composableBuilder(
+    column: $table.payloadJson,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get dataGeneration => $composableBuilder(
+    column: $table.dataGeneration,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get expectedVersion => $composableBuilder(
+    column: $table.expectedVersion,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get status => $composableBuilder(
+    column: $table.status,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get attemptCount => $composableBuilder(
+    column: $table.attemptCount,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get createdAt => $composableBuilder(
+    column: $table.createdAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get updatedAt => $composableBuilder(
+    column: $table.updatedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get lastAttemptAt => $composableBuilder(
+    column: $table.lastAttemptAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<DateTime> get nextAttemptAt => $composableBuilder(
+    column: $table.nextAttemptAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get lastErrorCode => $composableBuilder(
+    column: $table.lastErrorCode,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get lastErrorMessage => $composableBuilder(
+    column: $table.lastErrorMessage,
+    builder: (column) => ColumnFilters(column),
+  );
+}
+
+class $$OutboxCommandsTableOrderingComposer
+    extends Composer<_$AppDatabase, $OutboxCommandsTable> {
+  $$OutboxCommandsTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get userId => $composableBuilder(
+    column: $table.userId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get clientRequestId => $composableBuilder(
+    column: $table.clientRequestId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get commandType => $composableBuilder(
+    column: $table.commandType,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get payloadJson => $composableBuilder(
+    column: $table.payloadJson,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get dataGeneration => $composableBuilder(
+    column: $table.dataGeneration,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get expectedVersion => $composableBuilder(
+    column: $table.expectedVersion,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get status => $composableBuilder(
+    column: $table.status,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get attemptCount => $composableBuilder(
+    column: $table.attemptCount,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<DateTime> get createdAt => $composableBuilder(
+    column: $table.createdAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<DateTime> get updatedAt => $composableBuilder(
+    column: $table.updatedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<DateTime> get lastAttemptAt => $composableBuilder(
+    column: $table.lastAttemptAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<DateTime> get nextAttemptAt => $composableBuilder(
+    column: $table.nextAttemptAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get lastErrorCode => $composableBuilder(
+    column: $table.lastErrorCode,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get lastErrorMessage => $composableBuilder(
+    column: $table.lastErrorMessage,
+    builder: (column) => ColumnOrderings(column),
+  );
+}
+
+class $$OutboxCommandsTableAnnotationComposer
+    extends Composer<_$AppDatabase, $OutboxCommandsTable> {
+  $$OutboxCommandsTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get id =>
+      $composableBuilder(column: $table.id, builder: (column) => column);
+
+  GeneratedColumn<String> get userId =>
+      $composableBuilder(column: $table.userId, builder: (column) => column);
+
+  GeneratedColumn<String> get clientRequestId => $composableBuilder(
+    column: $table.clientRequestId,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get commandType => $composableBuilder(
+    column: $table.commandType,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get payloadJson => $composableBuilder(
+    column: $table.payloadJson,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<int> get dataGeneration => $composableBuilder(
+    column: $table.dataGeneration,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<int> get expectedVersion => $composableBuilder(
+    column: $table.expectedVersion,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get status =>
+      $composableBuilder(column: $table.status, builder: (column) => column);
+
+  GeneratedColumn<int> get attemptCount => $composableBuilder(
+    column: $table.attemptCount,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<DateTime> get createdAt =>
+      $composableBuilder(column: $table.createdAt, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get updatedAt =>
+      $composableBuilder(column: $table.updatedAt, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get lastAttemptAt => $composableBuilder(
+    column: $table.lastAttemptAt,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<DateTime> get nextAttemptAt => $composableBuilder(
+    column: $table.nextAttemptAt,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get lastErrorCode => $composableBuilder(
+    column: $table.lastErrorCode,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get lastErrorMessage => $composableBuilder(
+    column: $table.lastErrorMessage,
+    builder: (column) => column,
+  );
+}
+
+class $$OutboxCommandsTableTableManager
+    extends
+        RootTableManager<
+          _$AppDatabase,
+          $OutboxCommandsTable,
+          OutboxCommand,
+          $$OutboxCommandsTableFilterComposer,
+          $$OutboxCommandsTableOrderingComposer,
+          $$OutboxCommandsTableAnnotationComposer,
+          $$OutboxCommandsTableCreateCompanionBuilder,
+          $$OutboxCommandsTableUpdateCompanionBuilder,
+          (
+            OutboxCommand,
+            BaseReferences<_$AppDatabase, $OutboxCommandsTable, OutboxCommand>,
+          ),
+          OutboxCommand,
+          PrefetchHooks Function()
+        > {
+  $$OutboxCommandsTableTableManager(
+    _$AppDatabase db,
+    $OutboxCommandsTable table,
+  ) : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$OutboxCommandsTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$OutboxCommandsTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$OutboxCommandsTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback:
+              ({
+                Value<String> id = const Value.absent(),
+                Value<String> userId = const Value.absent(),
+                Value<String> clientRequestId = const Value.absent(),
+                Value<String> commandType = const Value.absent(),
+                Value<String> payloadJson = const Value.absent(),
+                Value<int> dataGeneration = const Value.absent(),
+                Value<int?> expectedVersion = const Value.absent(),
+                Value<String> status = const Value.absent(),
+                Value<int> attemptCount = const Value.absent(),
+                Value<DateTime> createdAt = const Value.absent(),
+                Value<DateTime> updatedAt = const Value.absent(),
+                Value<DateTime?> lastAttemptAt = const Value.absent(),
+                Value<DateTime?> nextAttemptAt = const Value.absent(),
+                Value<String?> lastErrorCode = const Value.absent(),
+                Value<String?> lastErrorMessage = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => OutboxCommandsCompanion(
+                id: id,
+                userId: userId,
+                clientRequestId: clientRequestId,
+                commandType: commandType,
+                payloadJson: payloadJson,
+                dataGeneration: dataGeneration,
+                expectedVersion: expectedVersion,
+                status: status,
+                attemptCount: attemptCount,
+                createdAt: createdAt,
+                updatedAt: updatedAt,
+                lastAttemptAt: lastAttemptAt,
+                nextAttemptAt: nextAttemptAt,
+                lastErrorCode: lastErrorCode,
+                lastErrorMessage: lastErrorMessage,
+                rowid: rowid,
+              ),
+          createCompanionCallback:
+              ({
+                required String id,
+                required String userId,
+                required String clientRequestId,
+                required String commandType,
+                required String payloadJson,
+                required int dataGeneration,
+                Value<int?> expectedVersion = const Value.absent(),
+                Value<String> status = const Value.absent(),
+                Value<int> attemptCount = const Value.absent(),
+                required DateTime createdAt,
+                required DateTime updatedAt,
+                Value<DateTime?> lastAttemptAt = const Value.absent(),
+                Value<DateTime?> nextAttemptAt = const Value.absent(),
+                Value<String?> lastErrorCode = const Value.absent(),
+                Value<String?> lastErrorMessage = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => OutboxCommandsCompanion.insert(
+                id: id,
+                userId: userId,
+                clientRequestId: clientRequestId,
+                commandType: commandType,
+                payloadJson: payloadJson,
+                dataGeneration: dataGeneration,
+                expectedVersion: expectedVersion,
+                status: status,
+                attemptCount: attemptCount,
+                createdAt: createdAt,
+                updatedAt: updatedAt,
+                lastAttemptAt: lastAttemptAt,
+                nextAttemptAt: nextAttemptAt,
+                lastErrorCode: lastErrorCode,
+                lastErrorMessage: lastErrorMessage,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map(
+                (e) => (
+                  e.readTable<$OutboxCommandsTable, OutboxCommand>(table),
+                  BaseReferences<
+                    _$AppDatabase,
+                    $OutboxCommandsTable,
+                    OutboxCommand
+                  >(db, table, e),
+                ),
+              )
+              .toList(),
+          prefetchHooksCallback: null,
+        ),
+      );
+}
+
+typedef $$OutboxCommandsTableProcessedTableManager =
+    ProcessedTableManager<
+      _$AppDatabase,
+      $OutboxCommandsTable,
+      OutboxCommand,
+      $$OutboxCommandsTableFilterComposer,
+      $$OutboxCommandsTableOrderingComposer,
+      $$OutboxCommandsTableAnnotationComposer,
+      $$OutboxCommandsTableCreateCompanionBuilder,
+      $$OutboxCommandsTableUpdateCompanionBuilder,
+      (
+        OutboxCommand,
+        BaseReferences<_$AppDatabase, $OutboxCommandsTable, OutboxCommand>,
+      ),
+      OutboxCommand,
+      PrefetchHooks Function()
+    >;
 
 class $AppDatabaseManager {
   final _$AppDatabase _db;
@@ -14093,4 +15424,6 @@ class $AppDatabaseManager {
       $$RecurringTransactionsTableTableManager(_db, _db.recurringTransactions);
   $$SyncStatesTableTableManager get syncStates =>
       $$SyncStatesTableTableManager(_db, _db.syncStates);
+  $$OutboxCommandsTableTableManager get outboxCommands =>
+      $$OutboxCommandsTableTableManager(_db, _db.outboxCommands);
 }

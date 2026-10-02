@@ -233,3 +233,24 @@ class SyncStates extends Table {
   @override
   Set<Column<Object>> get primaryKey => {userId};
 }
+
+class OutboxCommands extends Table {
+  TextColumn get id => text()();
+  TextColumn get userId => text()();
+  TextColumn get clientRequestId => text().unique()();
+  TextColumn get commandType => text()();
+  TextColumn get payloadJson => text()();
+  IntColumn get dataGeneration => integer()();
+  IntColumn get expectedVersion => integer().nullable()();
+  TextColumn get status => text().withDefault(const Constant('pending'))();
+  IntColumn get attemptCount => integer().withDefault(const Constant(0))();
+  DateTimeColumn get createdAt => dateTime()();
+  DateTimeColumn get updatedAt => dateTime()();
+  DateTimeColumn get lastAttemptAt => dateTime().nullable()();
+  DateTimeColumn get nextAttemptAt => dateTime().nullable()();
+  TextColumn get lastErrorCode => text().nullable()();
+  TextColumn get lastErrorMessage => text().nullable()();
+
+  @override
+  Set<Column<Object>> get primaryKey => {id};
+}

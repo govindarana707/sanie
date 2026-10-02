@@ -23,6 +23,7 @@ part 'app_database.g.dart';
     KarobarTransactions,
     RecurringTransactions,
     SyncStates,
+    OutboxCommands,
   ],
 )
 class AppDatabase extends _$AppDatabase {
@@ -31,13 +32,14 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase.forTesting(super.executor);
 
   @override
-  int get schemaVersion => 1;
+  int get schemaVersion => 2;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
     onCreate: (migrator) => migrator.createAll(),
     onUpgrade: (migrator, from, to) async {
       if (from < 1) await migrator.createAll();
+      if (from < 2) await migrator.createTable(outboxCommands);
     },
   );
 
@@ -94,6 +96,15 @@ class AppDatabase extends _$AppDatabase {
   Future<SyncState?> syncStateForUser(String userId) => (select(
     syncStates,
   )..where((row) => row.userId.equals(userId))).getSingleOrNull();
+
+  Future<OutboxCommand?> outboxCommandById(String id) => (select(
+    outboxCommands,
+  )..where((row) => row.id.equals(id))).getSingleOrNull();
+
+  Future<OutboxCommand?> outboxCommandForUser(String userId, String id) =>
+      (select(outboxCommands)
+            ..where((row) => row.userId.equals(userId) & row.id.equals(id)))
+          .getSingleOrNull();
 
   Future<void> clearUserCache(String userId) async {
     await transaction(() async {
