@@ -18,6 +18,80 @@ abstract final class SanieShape {
 }
 
 @immutable
+class SaniePalette extends ThemeExtension<SaniePalette> {
+  const SaniePalette({
+    required this.background,
+    required this.surface,
+    required this.primaryText,
+    required this.mutedText,
+    required this.border,
+    required this.emerald,
+    required this.mint,
+    required this.heroStart,
+    required this.heroEnd,
+    required this.heroAccent,
+    required this.shadow,
+  });
+
+  final Color background;
+  final Color surface;
+  final Color primaryText;
+  final Color mutedText;
+  final Color border;
+  final Color emerald;
+  final Color mint;
+  final Color heroStart;
+  final Color heroEnd;
+  final Color heroAccent;
+  final Color shadow;
+
+  @override
+  SaniePalette copyWith({
+    Color? background,
+    Color? surface,
+    Color? primaryText,
+    Color? mutedText,
+    Color? border,
+    Color? emerald,
+    Color? mint,
+    Color? heroStart,
+    Color? heroEnd,
+    Color? heroAccent,
+    Color? shadow,
+  }) => SaniePalette(
+    background: background ?? this.background,
+    surface: surface ?? this.surface,
+    primaryText: primaryText ?? this.primaryText,
+    mutedText: mutedText ?? this.mutedText,
+    border: border ?? this.border,
+    emerald: emerald ?? this.emerald,
+    mint: mint ?? this.mint,
+    heroStart: heroStart ?? this.heroStart,
+    heroEnd: heroEnd ?? this.heroEnd,
+    heroAccent: heroAccent ?? this.heroAccent,
+    shadow: shadow ?? this.shadow,
+  );
+
+  @override
+  SaniePalette lerp(ThemeExtension<SaniePalette>? other, double t) {
+    if (other is! SaniePalette) return this;
+    return SaniePalette(
+      background: Color.lerp(background, other.background, t)!,
+      surface: Color.lerp(surface, other.surface, t)!,
+      primaryText: Color.lerp(primaryText, other.primaryText, t)!,
+      mutedText: Color.lerp(mutedText, other.mutedText, t)!,
+      border: Color.lerp(border, other.border, t)!,
+      emerald: Color.lerp(emerald, other.emerald, t)!,
+      mint: Color.lerp(mint, other.mint, t)!,
+      heroStart: Color.lerp(heroStart, other.heroStart, t)!,
+      heroEnd: Color.lerp(heroEnd, other.heroEnd, t)!,
+      heroAccent: Color.lerp(heroAccent, other.heroAccent, t)!,
+      shadow: Color.lerp(shadow, other.shadow, t)!,
+    );
+  }
+}
+
+@immutable
 class FinanceColors extends ThemeExtension<FinanceColors> {
   const FinanceColors({
     required this.income,
@@ -67,7 +141,33 @@ class FinanceColors extends ThemeExtension<FinanceColors> {
 }
 
 abstract final class SanieTheme {
-  static const _brand = Color(0xFF176B4D);
+  static const _brand = Color(0xFF079C61);
+  static const _lightPalette = SaniePalette(
+    background: Color(0xFFFAFCFB),
+    surface: Colors.white,
+    primaryText: Color(0xFF07111D),
+    mutedText: Color(0xFF758395),
+    border: Color(0xFFF0F3F2),
+    emerald: Color(0xFF079C61),
+    mint: Color(0xFFE7F8F0),
+    heroStart: Color(0xFF064B39),
+    heroEnd: Color(0xFF087F51),
+    heroAccent: Color(0xFF48D99A),
+    shadow: Color(0x120C2730),
+  );
+  static const _darkPalette = SaniePalette(
+    background: Color(0xFF111416),
+    surface: Color(0xFF1D2225),
+    primaryText: Color(0xFFF5F8F7),
+    mutedText: Color(0xFFACB9BE),
+    border: Color(0xFF30383A),
+    emerald: Color(0xFF53D99A),
+    mint: Color(0xFF19382C),
+    heroStart: Color(0xFF06392E),
+    heroEnd: Color(0xFF096647),
+    heroAccent: Color(0xFF64E7AD),
+    shadow: Color(0x30000000),
+  );
   static const _lightFinance = FinanceColors(
     income: Color(0xFF176B4D),
     incomeSurface: Color(0xFFE6F4EC),
@@ -90,43 +190,51 @@ abstract final class SanieTheme {
 
   static ThemeData _build(Brightness brightness) {
     final dark = brightness == Brightness.dark;
+    final palette = dark ? _darkPalette : _lightPalette;
     final scheme = ColorScheme.fromSeed(
       seedColor: _brand,
       brightness: brightness,
     );
     final base = ThemeData(useMaterial3: true, colorScheme: scheme);
-    final surface = dark ? const Color(0xFF151D1A) : const Color(0xFFF7FAF8);
-    final card = dark ? const Color(0xFF202B26) : Colors.white;
-    final border = dark ? const Color(0xFF3D4B43) : const Color(0xFFDDE7E0);
     return base.copyWith(
-      scaffoldBackgroundColor: surface,
-      textTheme: base.textTheme.copyWith(
-        headlineMedium: base.textTheme.headlineMedium?.copyWith(
-          fontWeight: FontWeight.w700,
-          letterSpacing: -0.7,
-        ),
-        titleLarge: base.textTheme.titleLarge?.copyWith(
-          fontWeight: FontWeight.w700,
-        ),
-        titleMedium: base.textTheme.titleMedium?.copyWith(
-          fontWeight: FontWeight.w600,
-        ),
-        labelLarge: base.textTheme.labelLarge?.copyWith(
-          fontWeight: FontWeight.w600,
-        ),
+      colorScheme: scheme.copyWith(
+        primary: palette.emerald,
+        surface: palette.surface,
+        onSurface: palette.primaryText,
       ),
-      extensions: [dark ? _darkFinance : _lightFinance],
+      scaffoldBackgroundColor: palette.background,
+      textTheme: base.textTheme
+          .apply(
+            bodyColor: palette.primaryText,
+            displayColor: palette.primaryText,
+          )
+          .copyWith(
+            headlineMedium: base.textTheme.headlineMedium?.copyWith(
+              fontWeight: FontWeight.w700,
+              letterSpacing: -0.7,
+            ),
+            titleLarge: base.textTheme.titleLarge?.copyWith(
+              fontWeight: FontWeight.w700,
+            ),
+            titleMedium: base.textTheme.titleMedium?.copyWith(
+              fontWeight: FontWeight.w600,
+            ),
+            labelLarge: base.textTheme.labelLarge?.copyWith(
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+      extensions: [dark ? _darkFinance : _lightFinance, palette],
       cardTheme: CardThemeData(
-        color: card,
+        color: palette.surface,
         elevation: 0,
         margin: EdgeInsets.zero,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(SanieShape.card),
-          side: BorderSide(color: border),
+          side: BorderSide(color: palette.border),
         ),
       ),
       appBarTheme: AppBarTheme(
-        backgroundColor: surface,
+        backgroundColor: palette.background,
         foregroundColor: scheme.onSurface,
         elevation: 0,
         scrolledUnderElevation: 0,
@@ -134,7 +242,7 @@ abstract final class SanieTheme {
       ),
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
-        fillColor: card,
+        fillColor: palette.surface,
         contentPadding: const EdgeInsets.symmetric(
           horizontal: SanieSpace.md,
           vertical: SanieSpace.md,
@@ -144,7 +252,7 @@ abstract final class SanieTheme {
         ),
         enabledBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(SanieShape.small),
-          borderSide: BorderSide(color: border),
+          borderSide: BorderSide(color: palette.border),
         ),
       ),
       filledButtonTheme: FilledButtonThemeData(
@@ -156,7 +264,7 @@ abstract final class SanieTheme {
         ),
       ),
       bottomSheetTheme: BottomSheetThemeData(
-        backgroundColor: card,
+        backgroundColor: palette.surface,
         showDragHandle: true,
         shape: const RoundedRectangleBorder(
           borderRadius: BorderRadius.vertical(
@@ -165,14 +273,14 @@ abstract final class SanieTheme {
         ),
       ),
       navigationBarTheme: NavigationBarThemeData(
-        backgroundColor: card,
+        backgroundColor: palette.surface,
         elevation: 0,
         height: 72,
         labelTextStyle: WidgetStatePropertyAll(
           base.textTheme.labelSmall?.copyWith(fontWeight: FontWeight.w600),
         ),
       ),
-      dividerColor: border,
+      dividerColor: palette.border,
     );
   }
 }
