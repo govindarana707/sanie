@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../../../app/design/finance_widgets.dart';
+import '../../../app/design/sanie_theme.dart';
+
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
 
@@ -24,26 +27,32 @@ class _HomePageState extends State<HomePage> {
   Widget build(BuildContext context) {
     final email = Supabase.instance.client.auth.currentUser?.email;
 
-    return Scaffold(
-      appBar: AppBar(title: const Text('SanIE')),
-      body: Center(
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text('SanIE', style: Theme.of(context).textTheme.displaySmall),
-              const SizedBox(height: 12),
-              Text(email ?? 'Authenticated user'),
-              const SizedBox(height: 24),
-              OutlinedButton(
-                onPressed: _isSigningOut ? null : _signOut,
-                child: Text(_isSigningOut ? 'Signing out…' : 'Logout'),
-              ),
-            ],
+    return FinanceScreen(
+      children: [
+        Text(
+          'Good to see you',
+          style: Theme.of(context).textTheme.headlineMedium,
+        ),
+        const SizedBox(height: SanieSpace.sm),
+        Text(
+          email ?? 'Authenticated user',
+          style: Theme.of(context).textTheme.bodyMedium,
+        ),
+        const SizedBox(height: SanieSpace.lg),
+        const FinanceStateView(
+          state: FinanceViewState.empty,
+          message: 'Your financial overview will appear here soon.',
+        ),
+        const SizedBox(height: SanieSpace.lg),
+        Align(
+          alignment: Alignment.centerLeft,
+          child: OutlinedButton.icon(
+            onPressed: _isSigningOut ? null : _signOut,
+            icon: const Icon(Icons.logout_rounded),
+            label: Text(_isSigningOut ? 'Signing out…' : 'Logout'),
           ),
         ),
-      ),
+      ],
     );
   }
 }

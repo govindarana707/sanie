@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'design/sanie_theme.dart';
 import 'router.dart';
 
 class SanieApp extends ConsumerWidget {
@@ -13,10 +14,9 @@ class SanieApp extends ConsumerWidget {
     return MaterialApp.router(
       title: 'SanIE',
       debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.teal),
-        useMaterial3: true,
-      ),
+      theme: SanieTheme.light(),
+      darkTheme: SanieTheme.dark(),
+      themeMode: ThemeMode.system,
       routerConfig: router,
     );
   }
