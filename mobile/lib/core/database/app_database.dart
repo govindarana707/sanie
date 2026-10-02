@@ -97,6 +97,10 @@ class AppDatabase extends _$AppDatabase {
     syncStates,
   )..where((row) => row.userId.equals(userId))).getSingleOrNull();
 
+  Stream<SyncState?> watchSyncStateForUser(String userId) => (select(
+    syncStates,
+  )..where((row) => row.userId.equals(userId))).watchSingleOrNull();
+
   Future<OutboxCommand?> outboxCommandById(String id) => (select(
     outboxCommands,
   )..where((row) => row.id.equals(id))).getSingleOrNull();

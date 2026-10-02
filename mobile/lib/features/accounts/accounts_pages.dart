@@ -6,6 +6,7 @@ import 'package:go_router/go_router.dart';
 import '../../app/design/finance_widgets.dart';
 import '../../app/design/sanie_theme.dart';
 import '../../core/database/app_database.dart';
+import '../../core/sync/sync_providers.dart';
 import 'accounts_repository.dart';
 
 const _accountTypes = [
@@ -69,6 +70,7 @@ class AccountsPage extends ConsumerWidget {
         ],
       );
     }
+    ref.watch(syncInitializerProvider(userId));
     return StreamBuilder<List<Account>>(
       key: ValueKey(userId),
       stream: repository.watchAccounts(userId),
@@ -410,51 +412,126 @@ class AccountFormPage extends ConsumerWidget {
             ],
           );
         }
-        if (id == null) {
-          return _AccountEditor(repository: repository, userId: userId);
-        }
-        return StreamBuilder<Account?>(
-          key: ValueKey('$userId:$id'),
-          stream: repository.watchAccount(userId, id!),
-          builder: (context, snapshot) {
-            if (snapshot.hasError) {
-              return const FinanceScreen(
-                children: [
-                  FinanceStateView(
-                    state: FinanceViewState.error,
-                    message: 'Account could not be loaded.',
-                  ),
-                ],
+        final syncStateAsync = ref.watch(userSyncStateProvider(userId));
+        return syncStateAsync.when(
+          data: (syncState) {
+            if (syncState == null) {
+              final syncInitAsync = ref.watch(syncInitializerProvider(userId));
+              return syncInitAsync.when(
+                data: (_) => const FinanceScreen(
+                  children: [
+                    FinanceStateView(
+                      state: FinanceViewState.loading,
+                      message: 'Preparing sync state…',
+                    ),
+                  ],
+                ),
+                loading: () => const FinanceScreen(
+                  children: [
+                    FinanceStateView(
+                      state: FinanceViewState.loading,
+                      message: 'Preparing sync state…',
+                    ),
+                  ],
+                ),
+                error: (error, _) => FinanceScreen(
+                  children: [
+                    _AccountHeading(
+                      title: id == null ? 'Add account' : 'Edit account',
+                      backTo: '/accounts',
+                    ),
+                    const SizedBox(height: SanieSpace.lg),
+                    const FinanceStateView(
+                      state: FinanceViewState.error,
+                      message: 'Could not initialize sync state. Please check your connection and try again.',
+                    ),
+                    const SizedBox(height: SanieSpace.md),
+                    FinancePrimaryButton(
+                      label: 'Retry',
+                      onPressed: () =>
+                          ref.invalidate(syncInitializerProvider(userId)),
+                    ),
+                  ],
+                ),
               );
             }
-            if (snapshot.connectionState == ConnectionState.waiting) {
-              return const FinanceScreen(
-                children: [
-                  FinanceStateView(
-                    state: FinanceViewState.loading,
-                    message: 'Loading account…',
-                  ),
-                ],
-              );
+            if (id == null) {
+              return _AccountEditor(repository: repository, userId: userId);
             }
-            final account = snapshot.data;
-            if (account == null) {
-              return const FinanceScreen(
-                children: [
-                  FinanceStateView(
-                    state: FinanceViewState.empty,
-                    message: 'Account unavailable.',
-                  ),
-                ],
-              );
-            }
-            return _AccountEditor(
-              key: ValueKey('$userId:${account.id}'),
-              repository: repository,
-              userId: userId,
-              account: account,
+            return StreamBuilder<Account?>(
+              key: ValueKey('$userId:$id'),
+              stream: repository.watchAccount(userId, id!),
+              builder: (context, snapshot) {
+                if (snapshot.hasError) {
+                  return const FinanceScreen(
+                    children: [
+                      FinanceStateView(
+                        state: FinanceViewState.error,
+                        message: 'Account could not be loaded.',
+                      ),
+                    ],
+                  );
+                }
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return const FinanceScreen(
+                    children: [
+                      FinanceStateView(
+                        state: FinanceViewState.loading,
+                        message: 'Loading account…',
+                      ),
+                    ],
+                  );
+                }
+                final account = snapshot.data;
+                if (account == null) {
+                  return const FinanceScreen(
+                    children: [
+                      FinanceStateView(
+                        state: FinanceViewState.empty,
+                        message: 'Account unavailable.',
+                      ),
+                    ],
+                  );
+                }
+                return _AccountEditor(
+                  key: ValueKey('$userId:${account.id}'),
+                  repository: repository,
+                  userId: userId,
+                  account: account,
+                );
+              },
             );
           },
+          loading: () {
+            ref.watch(syncInitializerProvider(userId));
+            return const FinanceScreen(
+              children: [
+                FinanceStateView(
+                  state: FinanceViewState.loading,
+                  message: 'Preparing sync state…',
+                ),
+              ],
+            );
+          },
+          error: (error, _) => FinanceScreen(
+            children: [
+              _AccountHeading(
+                title: id == null ? 'Add account' : 'Edit account',
+                backTo: '/accounts',
+              ),
+              const SizedBox(height: SanieSpace.lg),
+              const FinanceStateView(
+                state: FinanceViewState.error,
+                message: 'Could not initialize sync state. Please check your connection and try again.',
+              ),
+              const SizedBox(height: SanieSpace.md),
+              FinancePrimaryButton(
+                label: 'Retry',
+                onPressed: () =>
+                    ref.invalidate(syncInitializerProvider(userId)),
+              ),
+            ],
+          ),
         );
       });
 }

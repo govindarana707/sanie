@@ -242,6 +242,9 @@ void main() {
   testWidgets('User B cannot read User A account or total', (tester) async {
     final id = await seed(name: 'Private savings', balance: 500000);
     currentUser = userB;
+    await database.upsertSyncState(
+      SyncStatesCompanion.insert(userId: userB, dataGeneration: const Value(1)),
+    );
     await mount(tester, '/accounts', userId: userB);
     expect(find.text('Private savings'), findsNothing);
     expect(find.textContaining('No accounts yet'), findsOneWidget);
