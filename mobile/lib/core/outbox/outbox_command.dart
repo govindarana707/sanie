@@ -6,7 +6,10 @@ import 'package:uuid/uuid.dart';
 enum OutboxCommandType {
   createIncome('create_income'),
   createExpense('create_expense'),
-  createTransfer('create_transfer');
+  createTransfer('create_transfer'),
+  createAccount('create_account'),
+  updateAccount('update_account'),
+  archiveAccount('archive_account');
 
   const OutboxCommandType(this.rpcName);
 
@@ -88,11 +91,81 @@ class OutboxCommandEnvelope {
     createdAt: createdAt,
   );
 
+  factory OutboxCommandEnvelope.createAccount({
+    required String userId,
+    required String name,
+    required String accountType,
+    required double openingBalance,
+    required int dataGeneration,
+    String? id,
+    String? clientRequestId,
+    DateTime? createdAt,
+  }) => OutboxCommandEnvelope._new(
+    type: OutboxCommandType.createAccount,
+    userId: userId,
+    payload: {
+      'p_name': name,
+      'p_type': accountType,
+      'p_opening': openingBalance,
+    },
+    dataGeneration: dataGeneration,
+    id: id,
+    clientRequestId: clientRequestId,
+    createdAt: createdAt,
+  );
+
+  factory OutboxCommandEnvelope.updateAccount({
+    required String userId,
+    required String accountId,
+    required String name,
+    required String accountType,
+    required int baseVersion,
+    required int dataGeneration,
+    String? accountNumber,
+    String? id,
+    String? clientRequestId,
+    DateTime? createdAt,
+  }) => OutboxCommandEnvelope._new(
+    type: OutboxCommandType.updateAccount,
+    userId: userId,
+    payload: {
+      'p_id': accountId,
+      'p_name': name,
+      'p_type': accountType,
+      'p_account_number': accountNumber,
+    },
+    dataGeneration: dataGeneration,
+    expectedVersion: baseVersion,
+    id: id,
+    clientRequestId: clientRequestId,
+    createdAt: createdAt,
+  );
+
+  factory OutboxCommandEnvelope.archiveAccount({
+    required String userId,
+    required String accountId,
+    required int baseVersion,
+    required int dataGeneration,
+    String? id,
+    String? clientRequestId,
+    DateTime? createdAt,
+  }) => OutboxCommandEnvelope._new(
+    type: OutboxCommandType.archiveAccount,
+    userId: userId,
+    payload: {'p_id': accountId},
+    dataGeneration: dataGeneration,
+    expectedVersion: baseVersion,
+    id: id,
+    clientRequestId: clientRequestId,
+    createdAt: createdAt,
+  );
+
   factory OutboxCommandEnvelope._new({
     required OutboxCommandType type,
     required String userId,
     required Map<String, dynamic> payload,
     required int dataGeneration,
+    int? expectedVersion,
     String? id,
     String? clientRequestId,
     DateTime? createdAt,
@@ -105,7 +178,7 @@ class OutboxCommandEnvelope {
       type: type,
       payload: payload,
       dataGeneration: dataGeneration,
-      expectedVersion: null,
+      expectedVersion: expectedVersion,
       createdAt: createdAt ?? DateTime.now().toUtc(),
     );
   }

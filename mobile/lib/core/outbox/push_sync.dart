@@ -125,6 +125,38 @@ class PushSyncRpcMapper {
           'p_generation': command.dataGeneration,
         },
       ),
+      'create_account' => PushSyncRpcCall(
+        name: 'create_account',
+        parameters: {
+          'p_id': command.id,
+          'p_name': _required(payload, 'p_name'),
+          'p_type': _required(payload, 'p_type'),
+          'p_opening': _required(payload, 'p_opening'),
+          'p_request': command.clientRequestId,
+          'p_generation': command.dataGeneration,
+        },
+      ),
+      'update_account' => PushSyncRpcCall(
+        name: 'update_account',
+        parameters: {
+          'p_id': _required(payload, 'p_id'),
+          'p_name': _required(payload, 'p_name'),
+          'p_type': _required(payload, 'p_type'),
+          'p_account_number': payload['p_account_number'],
+          'p_base_version': _version(command),
+          'p_request': command.clientRequestId,
+          'p_generation': command.dataGeneration,
+        },
+      ),
+      'archive_account' => PushSyncRpcCall(
+        name: 'archive_account',
+        parameters: {
+          'p_id': _required(payload, 'p_id'),
+          'p_base_version': _version(command),
+          'p_request': command.clientRequestId,
+          'p_generation': command.dataGeneration,
+        },
+      ),
       _ => throw const FormatException('Unsupported outbox command type.'),
     };
   }
@@ -143,6 +175,12 @@ class PushSyncRpcMapper {
     }
     return payload[key];
   }
+
+  static int _version(OutboxCommand command) =>
+      command.expectedVersion ??
+      (throw const FormatException(
+        'Outbox command is missing a base version.',
+      ));
 }
 
 class PushSyncResult {
