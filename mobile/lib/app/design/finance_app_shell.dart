@@ -15,7 +15,7 @@ class FinanceAppShell extends StatelessWidget {
   final String location;
 
   int get _selectedIndex => switch (location) {
-    '/transactions' => 1,
+    _ when location.startsWith('/transactions') => 1,
     '/budget' => 3,
     '/more' || '/design-preview' => 4,
     _ when location.startsWith('/accounts') => 4,

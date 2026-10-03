@@ -9,6 +9,7 @@ import '../features/auth/presentation/login_page.dart';
 import '../features/accounts/accounts_pages.dart';
 import '../features/categories/categories_pages.dart';
 import '../features/transactions/transaction_form_page.dart';
+import '../features/transactions/transaction_history_pages.dart';
 import '../features/transactions/transfer_form_page.dart';
 import '../features/design_preview/design_preview_page.dart';
 import '../features/home/presentation/home_page.dart';
@@ -48,10 +49,12 @@ GoRouter buildSanieRouter(
         GoRoute(path: '/', builder: (context, state) => const HomePage()),
         GoRoute(
           path: '/transactions',
-          builder: (context, state) => const _PlaceholderPage(
-            title: 'Transactions',
-            message: 'Your transactions will appear here in a later phase.',
-          ),
+          builder: (context, state) => const TransactionHistoryPage(),
+        ),
+        GoRoute(
+          path: '/transactions/:id',
+          builder: (context, state) =>
+              TransactionDetailsPage(id: state.pathParameters['id']!),
         ),
         GoRoute(
           path: '/budget',
