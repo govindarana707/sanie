@@ -9,7 +9,13 @@ enum OutboxCommandType {
   createTransfer('create_transfer'),
   createAccount('create_account'),
   updateAccount('update_account'),
-  archiveAccount('archive_account');
+  archiveAccount('archive_account'),
+  createCategory('create_category'),
+  updateCategory('update_category'),
+  archiveCategory('archive_category'),
+  createSubcategory('create_subcategory'),
+  updateSubcategory('update_subcategory'),
+  archiveSubcategory('archive_subcategory');
 
   const OutboxCommandType(this.rpcName);
 
@@ -159,6 +165,55 @@ class OutboxCommandEnvelope {
     clientRequestId: clientRequestId,
     createdAt: createdAt,
   );
+
+  factory OutboxCommandEnvelope.categoryMutation({
+    required OutboxCommandType type,
+    required String userId,
+    required String entityId,
+    required int dataGeneration,
+    String? categoryId,
+    String? name,
+    String? categoryType,
+    String? icon,
+    String? description,
+    int? baseVersion,
+    String? clientRequestId,
+    DateTime? createdAt,
+  }) {
+    if (!const {
+      OutboxCommandType.createCategory,
+      OutboxCommandType.updateCategory,
+      OutboxCommandType.archiveCategory,
+      OutboxCommandType.createSubcategory,
+      OutboxCommandType.updateSubcategory,
+      OutboxCommandType.archiveSubcategory,
+    }.contains(type)) {
+      throw ArgumentError.value(type, 'type');
+    }
+    return OutboxCommandEnvelope._new(
+      type: type,
+      userId: userId,
+      payload: {
+        'p_id': entityId,
+        if (type.name.endsWith('Subcategory')) 'p_category': categoryId,
+        if (!type.name.startsWith('archive')) 'p_name': name,
+        if (type == OutboxCommandType.createCategory ||
+            type == OutboxCommandType.updateCategory)
+          'p_type': categoryType,
+        if (!type.name.startsWith('archive')) 'p_icon': icon,
+        if (!type.name.startsWith('archive')) 'p_description': description,
+      },
+      expectedVersion: baseVersion,
+      dataGeneration: dataGeneration,
+      id:
+          type == OutboxCommandType.createCategory ||
+              type == OutboxCommandType.createSubcategory
+          ? entityId
+          : null,
+      clientRequestId: clientRequestId,
+      createdAt: createdAt,
+    );
+  }
 
   factory OutboxCommandEnvelope._new({
     required OutboxCommandType type,

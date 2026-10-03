@@ -2639,9 +2639,9 @@ class $SubcategoriesTable extends Subcategories
   late final GeneratedColumn<String> userId = GeneratedColumn<String>(
     'user_id',
     aliasedName,
-    false,
+    true,
     type: DriftSqlType.string,
-    requiredDuringInsert: true,
+    requiredDuringInsert: false,
   );
   static const VerificationMeta _categoryIdMeta = const VerificationMeta(
     'categoryId',
@@ -2787,8 +2787,6 @@ class $SubcategoriesTable extends Subcategories
         _userIdMeta,
         userId.isAcceptableOrUnknown(data['user_id']!, _userIdMeta),
       );
-    } else if (isInserting) {
-      context.missing(_userIdMeta);
     }
     if (data.containsKey('category_id')) {
       context.handle(
@@ -2877,7 +2875,7 @@ class $SubcategoriesTable extends Subcategories
       userId: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
         data['${effectivePrefix}user_id'],
-      )!,
+      ),
       categoryId: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
         data['${effectivePrefix}category_id'],
@@ -2929,7 +2927,7 @@ class $SubcategoriesTable extends Subcategories
 
 class Subcategory extends DataClass implements Insertable<Subcategory> {
   final String id;
-  final String userId;
+  final String? userId;
   final String categoryId;
   final String name;
   final String? icon;
@@ -2942,7 +2940,7 @@ class Subcategory extends DataClass implements Insertable<Subcategory> {
   final DateTime? deletedAt;
   const Subcategory({
     required this.id,
-    required this.userId,
+    this.userId,
     required this.categoryId,
     required this.name,
     this.icon,
@@ -2958,7 +2956,9 @@ class Subcategory extends DataClass implements Insertable<Subcategory> {
   Map<String, Expression> toColumns(bool nullToAbsent) {
     final map = <String, Expression>{};
     map['id'] = Variable<String>(id);
-    map['user_id'] = Variable<String>(userId);
+    if (!nullToAbsent || userId != null) {
+      map['user_id'] = Variable<String>(userId);
+    }
     map['category_id'] = Variable<String>(categoryId);
     map['name'] = Variable<String>(name);
     if (!nullToAbsent || icon != null) {
@@ -2981,7 +2981,9 @@ class Subcategory extends DataClass implements Insertable<Subcategory> {
   SubcategoriesCompanion toCompanion(bool nullToAbsent) {
     return SubcategoriesCompanion(
       id: Value(id),
-      userId: Value(userId),
+      userId: userId == null && nullToAbsent
+          ? const Value.absent()
+          : Value(userId),
       categoryId: Value(categoryId),
       name: Value(name),
       icon: icon == null && nullToAbsent ? const Value.absent() : Value(icon),
@@ -3006,7 +3008,7 @@ class Subcategory extends DataClass implements Insertable<Subcategory> {
     serializer ??= driftRuntimeOptions.defaultSerializer;
     return Subcategory(
       id: serializer.fromJson<String>(json['id']),
-      userId: serializer.fromJson<String>(json['userId']),
+      userId: serializer.fromJson<String?>(json['userId']),
       categoryId: serializer.fromJson<String>(json['categoryId']),
       name: serializer.fromJson<String>(json['name']),
       icon: serializer.fromJson<String?>(json['icon']),
@@ -3024,7 +3026,7 @@ class Subcategory extends DataClass implements Insertable<Subcategory> {
     serializer ??= driftRuntimeOptions.defaultSerializer;
     return <String, dynamic>{
       'id': serializer.toJson<String>(id),
-      'userId': serializer.toJson<String>(userId),
+      'userId': serializer.toJson<String?>(userId),
       'categoryId': serializer.toJson<String>(categoryId),
       'name': serializer.toJson<String>(name),
       'icon': serializer.toJson<String?>(icon),
@@ -3040,7 +3042,7 @@ class Subcategory extends DataClass implements Insertable<Subcategory> {
 
   Subcategory copyWith({
     String? id,
-    String? userId,
+    Value<String?> userId = const Value.absent(),
     String? categoryId,
     String? name,
     Value<String?> icon = const Value.absent(),
@@ -3053,7 +3055,7 @@ class Subcategory extends DataClass implements Insertable<Subcategory> {
     Value<DateTime?> deletedAt = const Value.absent(),
   }) => Subcategory(
     id: id ?? this.id,
-    userId: userId ?? this.userId,
+    userId: userId.present ? userId.value : this.userId,
     categoryId: categoryId ?? this.categoryId,
     name: name ?? this.name,
     icon: icon.present ? icon.value : this.icon,
@@ -3140,7 +3142,7 @@ class Subcategory extends DataClass implements Insertable<Subcategory> {
 
 class SubcategoriesCompanion extends UpdateCompanion<Subcategory> {
   final Value<String> id;
-  final Value<String> userId;
+  final Value<String?> userId;
   final Value<String> categoryId;
   final Value<String> name;
   final Value<String?> icon;
@@ -3169,7 +3171,7 @@ class SubcategoriesCompanion extends UpdateCompanion<Subcategory> {
   });
   SubcategoriesCompanion.insert({
     required String id,
-    required String userId,
+    this.userId = const Value.absent(),
     required String categoryId,
     required String name,
     this.icon = const Value.absent(),
@@ -3182,7 +3184,6 @@ class SubcategoriesCompanion extends UpdateCompanion<Subcategory> {
     this.deletedAt = const Value.absent(),
     this.rowid = const Value.absent(),
   }) : id = Value(id),
-       userId = Value(userId),
        categoryId = Value(categoryId),
        name = Value(name),
        createdAt = Value(createdAt),
@@ -3221,7 +3222,7 @@ class SubcategoriesCompanion extends UpdateCompanion<Subcategory> {
 
   SubcategoriesCompanion copyWith({
     Value<String>? id,
-    Value<String>? userId,
+    Value<String?>? userId,
     Value<String>? categoryId,
     Value<String>? name,
     Value<String?>? icon,
@@ -11719,7 +11720,7 @@ typedef $$CategoriesTableProcessedTableManager =
 typedef $$SubcategoriesTableCreateCompanionBuilder =
     SubcategoriesCompanion Function({
       required String id,
-      required String userId,
+      Value<String?> userId,
       required String categoryId,
       required String name,
       Value<String?> icon,
@@ -11735,7 +11736,7 @@ typedef $$SubcategoriesTableCreateCompanionBuilder =
 typedef $$SubcategoriesTableUpdateCompanionBuilder =
     SubcategoriesCompanion Function({
       Value<String> id,
-      Value<String> userId,
+      Value<String?> userId,
       Value<String> categoryId,
       Value<String> name,
       Value<String?> icon,
@@ -11971,7 +11972,7 @@ class $$SubcategoriesTableTableManager
           updateCompanionCallback:
               ({
                 Value<String> id = const Value.absent(),
-                Value<String> userId = const Value.absent(),
+                Value<String?> userId = const Value.absent(),
                 Value<String> categoryId = const Value.absent(),
                 Value<String> name = const Value.absent(),
                 Value<String?> icon = const Value.absent(),
@@ -12001,7 +12002,7 @@ class $$SubcategoriesTableTableManager
           createCompanionCallback:
               ({
                 required String id,
-                required String userId,
+                Value<String?> userId = const Value.absent(),
                 required String categoryId,
                 required String name,
                 Value<String?> icon = const Value.absent(),

@@ -69,7 +69,7 @@ class Categories extends Table {
 
 class Subcategories extends Table {
   TextColumn get id => text()();
-  TextColumn get userId => text()();
+  TextColumn get userId => text().nullable()();
   TextColumn get categoryId => text()();
   TextColumn get name => text()();
   TextColumn get icon => text().nullable()();

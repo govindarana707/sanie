@@ -157,8 +157,38 @@ class PushSyncRpcMapper {
           'p_generation': command.dataGeneration,
         },
       ),
+      'create_category' ||
+      'update_category' ||
+      'archive_category' ||
+      'create_subcategory' ||
+      'update_subcategory' ||
+      'archive_subcategory' => _categoryCall(command, payload),
       _ => throw const FormatException('Unsupported outbox command type.'),
     };
+  }
+
+  static PushSyncRpcCall _categoryCall(
+    OutboxCommand command,
+    Map<String, dynamic> payload,
+  ) {
+    final name = command.commandType;
+    final create = name.startsWith('create_');
+    final archive = name.startsWith('archive_');
+    final subcategory = name.endsWith('subcategory');
+    return PushSyncRpcCall(
+      name: name,
+      parameters: {
+        'p_id': _required(payload, 'p_id'),
+        if (subcategory) 'p_category': _required(payload, 'p_category'),
+        if (!archive) 'p_name': _required(payload, 'p_name'),
+        if (!archive && !subcategory) 'p_type': _required(payload, 'p_type'),
+        if (!archive) 'p_icon': payload['p_icon'],
+        if (!archive) 'p_description': payload['p_description'],
+        if (!create) 'p_base_version': _version(command),
+        'p_request': command.clientRequestId,
+        'p_generation': command.dataGeneration,
+      },
+    );
   }
 
   static Map<String, dynamic> _payload(OutboxCommand command) {
@@ -189,6 +219,7 @@ class PushSyncResult {
     this.retried = 0,
     this.failed = 0,
     this.recovered = 0,
+    this.deferred = 0,
     this.unauthenticated = false,
     this.skippedConcurrentRun = false,
   });
@@ -197,6 +228,7 @@ class PushSyncResult {
   final int retried;
   final int failed;
   final int recovered;
+  final int deferred;
   final bool unauthenticated;
   final bool skippedConcurrentRun;
 }
@@ -241,8 +273,30 @@ class PushSyncService {
       var completed = 0;
       var retried = 0;
       var failed = 0;
+      var deferred = 0;
       for (final command in due) {
         try {
+          final parentStatus = await _parentCreateStatus(command, userId);
+          if (parentStatus == 'failed') {
+            await outbox.markProcessing(
+              userId: userId,
+              commandId: command.id,
+              now: _clock(),
+            );
+            await outbox.markPermanentFailure(
+              userId: userId,
+              commandId: command.id,
+              now: _clock(),
+              errorCode: 'INVALID_STATE',
+              errorMessage: 'Parent category creation failed.',
+            );
+            failed++;
+            continue;
+          }
+          if (parentStatus != null && parentStatus != 'completed') {
+            deferred++;
+            continue;
+          }
           final processing = await outbox.markProcessing(
             userId: userId,
             commandId: command.id,
@@ -285,10 +339,23 @@ class PushSyncService {
         retried: retried,
         failed: failed,
         recovered: recovered,
+        deferred: deferred,
       );
     } finally {
       _isPushing = false;
     }
+  }
+
+  Future<String?> _parentCreateStatus(
+    OutboxCommand command,
+    String userId,
+  ) async {
+    if (command.commandType != 'create_subcategory') return null;
+    final payload = PushSyncRpcMapper._payload(command);
+    final parentId = payload['p_category'];
+    if (parentId is! String) return null;
+    final parent = await outbox.commandForUser(userId, parentId);
+    return parent?.commandType == 'create_category' ? parent!.status : null;
   }
 
   PushSyncRpcException _failureFrom(Object error) {

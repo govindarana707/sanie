@@ -79,11 +79,12 @@ class SyncOrchestrator {
           return SyncNowResult(
             status: SyncNowStatus.reconciliationRequired,
             pushed: pushed.completed,
-            retrying: pushed.retried,
+            retrying: pushed.retried + pushed.deferred,
             failedCommands: pushed.failed,
           );
         }
-        final status = pushed.retried > 0 || pushed.failed > 0
+        final status =
+            pushed.retried > 0 || pushed.failed > 0 || pushed.deferred > 0
             ? SyncNowStatus.partial
             : SyncNowStatus.success;
         if (status == SyncNowStatus.success) {
@@ -95,7 +96,7 @@ class SyncOrchestrator {
           status: status,
           pushed: pushed.completed,
           pulled: pulled.changes,
-          retrying: pushed.retried,
+          retrying: pushed.retried + pushed.deferred,
           failedCommands: pushed.failed,
         );
       } catch (_) {
@@ -103,7 +104,7 @@ class SyncOrchestrator {
         return SyncNowResult(
           status: SyncNowStatus.partial,
           pushed: pushed.completed,
-          retrying: pushed.retried,
+          retrying: pushed.retried + pushed.deferred,
           failedCommands: pushed.failed,
         );
       }

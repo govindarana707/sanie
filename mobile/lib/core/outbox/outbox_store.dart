@@ -50,6 +50,9 @@ class OutboxStore {
 
   final AppDatabase _database;
 
+  Future<OutboxCommand?> commandForUser(String userId, String id) =>
+      _database.outboxCommandForUser(userId, id);
+
   Future<OutboxCommand> enqueue(OutboxCommandEnvelope command) async {
     return _database.transaction(() async {
       final duplicate =

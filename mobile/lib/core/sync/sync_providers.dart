@@ -19,7 +19,13 @@ final pushSyncTransportProvider = Provider<PushSyncTransport>((ref) {
 final pullSyncServiceProvider = Provider<PullSyncService>((ref) {
   final db = ref.watch(accountsRepositoryProvider).database;
   final transport = ref.watch(pullSyncTransportProvider);
-  return PullSyncService(database: db, transport: transport);
+  return PullSyncService(
+    database: db,
+    transport: transport,
+    systemTransport: transport is SupabasePullSyncTransport
+        ? SupabaseSystemCategoryTransport(Supabase.instance.client)
+        : null,
+  );
 });
 
 final pushSyncServiceProvider = Provider<PushSyncService>((ref) {

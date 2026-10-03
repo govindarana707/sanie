@@ -47,6 +47,50 @@ abstract interface class PullSyncTransport {
   Future<Map<String, dynamic>?> entity(String table, String id);
 }
 
+abstract interface class SystemCategoryTransport {
+  String? get authenticatedUserId;
+  Future<List<Map<String, dynamic>>> systemCategories();
+  Future<List<Map<String, dynamic>>> systemSubcategories();
+}
+
+class SupabaseSystemCategoryTransport implements SystemCategoryTransport {
+  SupabaseSystemCategoryTransport(this._client);
+  final SupabaseClient _client;
+
+  @override
+  String? get authenticatedUserId => _client.auth.currentSession?.user.id;
+
+  @override
+  Future<List<Map<String, dynamic>>> systemCategories() async {
+    final rows = <Map<String, dynamic>>[];
+    for (var offset = 0; ; offset += 500) {
+      final page = await _client
+          .from('categories')
+          .select()
+          .eq('is_system', true)
+          .order('id')
+          .range(offset, offset + 499);
+      rows.addAll(page.map((row) => Map<String, dynamic>.from(row)));
+      if (page.length < 500) return rows;
+    }
+  }
+
+  @override
+  Future<List<Map<String, dynamic>>> systemSubcategories() async {
+    final rows = <Map<String, dynamic>>[];
+    for (var offset = 0; ; offset += 500) {
+      final page = await _client
+          .from('subcategories')
+          .select()
+          .isFilter('user_id', null)
+          .order('id')
+          .range(offset, offset + 499);
+      rows.addAll(page.map((row) => Map<String, dynamic>.from(row)));
+      if (page.length < 500) return rows;
+    }
+  }
+}
+
 class SupabasePullSyncTransport implements PullSyncTransport {
   SupabasePullSyncTransport(this._client);
   final SupabaseClient _client;
@@ -106,6 +150,7 @@ class PullSyncService {
   PullSyncService({
     required this.database,
     required this.transport,
+    this.systemTransport,
     this.pageSize = 100,
     this.maxPages = 10,
     DateTime Function()? clock,
@@ -113,6 +158,7 @@ class PullSyncService {
 
   final AppDatabase database;
   final PullSyncTransport transport;
+  final SystemCategoryTransport? systemTransport;
   final int pageSize;
   final int maxPages;
   final DateTime Function() _clock;
@@ -194,10 +240,52 @@ class PullSyncService {
         pages++;
         changes += page.length;
       }
+      if (systemTransport != null) await bootstrapSystemRows(userId);
       return PullSyncResult(pages: pages, changes: changes);
     } finally {
       _running = false;
     }
+  }
+
+  Future<void> bootstrapSystemRows(String userId) async {
+    final reader = systemTransport;
+    if (reader == null ||
+        reader.authenticatedUserId != userId ||
+        transport.authenticatedUserId != userId) {
+      throw StateError(
+        'System category read requires the same authenticated user.',
+      );
+    }
+    final categories = await reader.systemCategories();
+    final subcategories = await reader.systemSubcategories();
+    if (reader.authenticatedUserId != userId ||
+        transport.authenticatedUserId != userId ||
+        categories.any(
+          (row) => row['is_system'] != true || row['user_id'] != null,
+        ) ||
+        subcategories.any((row) => row['user_id'] != null)) {
+      throw StateError('Invalid system category snapshot.');
+    }
+    final categoryIds = categories.map((row) => row['id']).toSet();
+    if (subcategories.any((row) => !categoryIds.contains(row['category_id']))) {
+      throw StateError('System subcategory has an unknown parent.');
+    }
+    await database.transaction(() async {
+      for (final row in categories) {
+        await _applyRow('categories', row, userId);
+      }
+      for (final row in subcategories) {
+        await _applyRow('subcategories', row, userId);
+      }
+      final ids = categories.map((row) => row['id'] as String).toList();
+      final subIds = subcategories.map((row) => row['id'] as String).toList();
+      await (database.delete(
+        database.categories,
+      )..where((row) => row.isSystem.equals(true) & row.id.isNotIn(ids))).go();
+      await (database.delete(
+        database.subcategories,
+      )..where((row) => row.userId.isNull() & row.id.isNotIn(subIds))).go();
+    });
   }
 
   bool _validate(

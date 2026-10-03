@@ -32,7 +32,7 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase.forTesting(super.executor);
 
   @override
-  int get schemaVersion => 2;
+  int get schemaVersion => 3;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -40,6 +40,14 @@ class AppDatabase extends _$AppDatabase {
     onUpgrade: (migrator, from, to) async {
       if (from < 1) await migrator.createAll();
       if (from < 2) await migrator.createTable(outboxCommands);
+      if (from < 3) {
+        final existing = await customSelect(
+          "select name from sqlite_master where type='table' and name='subcategories'",
+        ).getSingleOrNull();
+        if (existing != null) {
+          await migrator.alterTable(TableMigration(subcategories));
+        }
+      }
     },
   );
 
