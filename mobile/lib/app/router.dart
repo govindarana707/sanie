@@ -7,6 +7,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../features/auth/presentation/login_page.dart';
 import '../features/accounts/accounts_pages.dart';
+import '../features/categories/categories_pages.dart';
 import '../features/design_preview/design_preview_page.dart';
 import '../features/home/presentation/home_page.dart';
 import 'design/finance_app_shell.dart';
@@ -77,6 +78,36 @@ GoRouter buildSanieRouter(
               AccountFormPage(id: state.pathParameters['id']!),
         ),
         GoRoute(
+          path: '/categories',
+          builder: (context, state) => const CategoriesPage(),
+        ),
+        GoRoute(
+          path: '/categories/add',
+          builder: (context, state) => const CategoryFormPage(),
+        ),
+        GoRoute(
+          path: '/categories/:id',
+          builder: (context, state) =>
+              CategoryDetailsPage(id: state.pathParameters['id']!),
+        ),
+        GoRoute(
+          path: '/categories/:id/edit',
+          builder: (context, state) =>
+              CategoryFormPage(id: state.pathParameters['id']!),
+        ),
+        GoRoute(
+          path: '/categories/:id/subcategories/add',
+          builder: (context, state) =>
+              SubcategoryFormPage(parentId: state.pathParameters['id']!),
+        ),
+        GoRoute(
+          path: '/categories/:id/subcategories/:subId/edit',
+          builder: (context, state) => SubcategoryFormPage(
+            parentId: state.pathParameters['id']!,
+            id: state.pathParameters['subId']!,
+          ),
+        ),
+        GoRoute(
           path: '/design-preview',
           builder: (context, state) => const DesignPreviewPage(),
         ),
@@ -132,6 +163,16 @@ class MorePage extends StatelessWidget {
           subtitle: const Text('Balances and account settings'),
           trailing: const Icon(Icons.chevron_right_rounded),
           onTap: () => context.go('/accounts'),
+        ),
+      ),
+      const SizedBox(height: SanieSpace.sm),
+      FinanceCard(
+        padding: EdgeInsets.zero,
+        child: ListTile(
+          title: const Text('Categories'),
+          subtitle: const Text('Income, expenses and subcategories'),
+          trailing: const Icon(Icons.chevron_right_rounded),
+          onTap: () => context.go('/categories'),
         ),
       ),
       const SizedBox(height: SanieSpace.sm),

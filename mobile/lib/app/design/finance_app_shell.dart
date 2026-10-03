@@ -19,6 +19,7 @@ class FinanceAppShell extends StatelessWidget {
     '/budget' => 3,
     '/more' || '/design-preview' => 4,
     _ when location.startsWith('/accounts') => 4,
+    _ when location.startsWith('/categories') => 4,
     _ => 0,
   };
 
