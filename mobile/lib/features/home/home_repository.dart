@@ -6,6 +6,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../core/database/app_database.dart';
 import '../accounts/accounts_repository.dart';
+import '../transactions/local_balance_projection.dart';
 
 class HomeIdentity {
   const HomeIdentity({
@@ -55,6 +56,7 @@ class HomeSnapshot {
     required this.budgetTotal,
     required this.recent,
     this.failedExpense,
+    this.failedTransfer,
     this.profileName,
   });
 
@@ -66,6 +68,7 @@ class HomeSnapshot {
   final double budgetTotal;
   final List<HomeTransaction> recent;
   final FailedExpense? failedExpense;
+  final FailedTransfer? failedTransfer;
   final String? profileName;
 }
 
@@ -82,6 +85,25 @@ class FailedExpense {
   final String amount;
   final String categoryId;
   final String? subcategoryId;
+  final String date;
+  final String description;
+}
+
+class FailedTransfer {
+  const FailedTransfer({
+    required this.id,
+    required this.toAccountId,
+    required this.amount,
+    required this.fee,
+    required this.date,
+    required this.description,
+    this.feeCategoryId,
+  });
+  final String id;
+  final String toAccountId;
+  final String amount;
+  final String fee;
+  final String? feeCategoryId;
   final String date;
   final String description;
 }
@@ -111,12 +133,34 @@ class HomeRepository {
                   row.commandType.isIn(const [
                     'create_income',
                     'create_expense',
+                    'create_transfer',
                   ]),
             ))
             .get();
     FailedExpense? failedExpense;
+    FailedTransfer? failedTransfer;
     for (final command in financeCommands.reversed) {
-      if (command.commandType != 'create_expense' ||
+      if (failedTransfer == null &&
+          command.commandType == 'create_transfer' &&
+          command.status == 'failed' &&
+          command.lastErrorCode == 'INSUFFICIENT_FUNDS') {
+        final payload = jsonDecode(command.payloadJson) as Map<String, dynamic>;
+        final to = payload['p_to'];
+        final date = payload['p_date'];
+        if (to is String && date is String) {
+          failedTransfer = FailedTransfer(
+            id: command.id,
+            toAccountId: to,
+            amount: '${payload['p_amount']}',
+            fee: '${payload['p_fee'] ?? 0}',
+            feeCategoryId: payload['p_fee_category'] as String?,
+            date: date,
+            description: '${payload['p_description'] ?? ''}',
+          );
+        }
+      }
+      if (failedExpense != null ||
+          command.commandType != 'create_expense' ||
           command.status != 'failed' ||
           command.lastErrorCode != 'INSUFFICIENT_FUNDS') {
         continue;
@@ -135,16 +179,10 @@ class HomeRepository {
         date: date,
         description: '${payload['p_description'] ?? ''}',
       );
-      break;
     }
     final failedIds = {
       for (final command in financeCommands)
         if (command.status == 'failed') command.id,
-    };
-    final pendingIds = {
-      for (final command in financeCommands)
-        if (command.status != 'failed' && command.status != 'completed')
-          command.id,
     };
     final transactions = allTransactions
         .where((row) => !failedIds.contains(row.id))
@@ -160,19 +198,18 @@ class HomeRepository {
           ? byCreated
           : sourceOrder[b.id]!.compareTo(sourceOrder[a.id]!);
     });
-    final pendingByAccount = <String, double>{};
-    for (final row in transactions) {
-      if (!pendingIds.contains(row.id) || row.accountId == null) continue;
-      final delta = row.transactionType == 'income'
-          ? row.amount
-          : row.transactionType == 'expense'
-          ? -row.amount
-          : 0.0;
-      pendingByAccount.update(
-        row.accountId!,
-        (sum) => sum + delta,
-        ifAbsent: () => delta,
-      );
+    final pendingByAccount = pendingAccountDeltas(financeCommands);
+    var pendingTransferFees = 0.0;
+    for (final command in financeCommands) {
+      if (command.commandType != 'create_transfer' ||
+          command.status == 'failed' ||
+          command.status == 'completed') {
+        continue;
+      }
+      final payload = jsonDecode(command.payloadJson) as Map<String, dynamic>;
+      if ('${payload['p_date']}'.startsWith(monthPrefix)) {
+        pendingTransferFees += (payload['p_fee'] as num?)?.toDouble() ?? 0;
+      }
     }
     final budgets =
         await (database.select(database.budgets)..where(
@@ -246,7 +283,9 @@ class HomeRepository {
       income: monthRows
           .where((row) => row.transactionType == 'income')
           .fold<double>(0, (sum, row) => sum + row.amount),
-      expense: expenses.fold<double>(0, (sum, row) => sum + row.amount),
+      expense:
+          expenses.fold<double>(0, (sum, row) => sum + row.amount) +
+          pendingTransferFees,
       budgetSpent: budgetSpent,
       budgetTotal: activeBudgets.fold<double>(
         0,
@@ -255,7 +294,9 @@ class HomeRepository {
       recent: [
         for (final row in transactions.take(4))
           HomeTransaction(
-            title: row.description?.trim().isNotEmpty == true
+            title: row.transactionType == 'transfer'
+                ? 'Transfer${row.description?.trim().isNotEmpty == true ? ' · ${row.description!.trim()}' : ''}'
+                : row.description?.trim().isNotEmpty == true
                 ? row.description!.trim()
                 : categoryNames[row.categoryId] ??
                       _typeTitle(row.transactionType),
@@ -263,6 +304,7 @@ class HomeRepository {
           ),
       ],
       failedExpense: failedExpense,
+      failedTransfer: failedTransfer,
       profileName: profile?.firstName.trim().isNotEmpty == true
           ? profile!.firstName.trim()
           : null,

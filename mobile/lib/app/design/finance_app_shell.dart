@@ -234,7 +234,7 @@ Future<void> showFinanceActionSheet(BuildContext context) =>
                 for (final (label, kind, path) in [
                   ('Income', FinanceKind.income, '/add/income'),
                   ('Expense', FinanceKind.expense, '/add/expense'),
-                  ('Transfer', FinanceKind.transfer, '/transactions'),
+                  ('Transfer', FinanceKind.transfer, '/add/transfer'),
                 ])
                   ListTile(
                     key: Key('add-$label'),
@@ -244,9 +244,6 @@ Future<void> showFinanceActionSheet(BuildContext context) =>
                     },
                     leading: Icon(kind.icon, color: kind.color(sheetContext)),
                     title: Text(label),
-                    subtitle: label == 'Transfer'
-                        ? const Text('Coming in the next phase')
-                        : null,
                   ),
               ],
             ),

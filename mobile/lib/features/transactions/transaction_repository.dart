@@ -1,5 +1,3 @@
-import 'dart:convert';
-
 import 'package:drift/drift.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -7,6 +5,7 @@ import '../../core/database/app_database.dart';
 import '../../core/outbox/outbox_command.dart';
 import '../../core/outbox/outbox_store.dart';
 import '../accounts/accounts_repository.dart';
+import 'local_balance_projection.dart';
 
 final transactionRepositoryProvider = Provider<TransactionRepository>((ref) {
   final accounts = ref.watch(accountsRepositoryProvider);
@@ -29,18 +28,8 @@ class TransactionRepository {
   final AppDatabase database;
   final String? Function() authenticatedUserId;
   final OutboxStore outbox;
-
   Stream<List<Account>> watchAccounts(String userId) =>
-      (database.select(database.accounts)
-            ..where(
-              (row) =>
-                  row.userId.equals(userId) &
-                  row.isActive.equals(true) &
-                  row.deletedAt.isNull() &
-                  row.currency.equals('NPR'),
-            )
-            ..orderBy([(row) => OrderingTerm.asc(row.name)]))
-          .watch();
+      watchProjectedAccounts(database, userId, activeOnly: true, nprOnly: true);
 
   Stream<List<Category>> watchCategories(String userId, String type) =>
       (database.select(database.categories)
@@ -165,17 +154,13 @@ class TransactionRepository {
                     row.commandType.isIn(const [
                       'create_income',
                       'create_expense',
+                      'create_transfer',
                     ]) &
                     row.status.isNotIn(const ['completed', 'failed']),
               ))
               .get();
-      var available = account.balance;
-      for (final command in commands) {
-        final payload = jsonDecode(command.payloadJson) as Map<String, dynamic>;
-        if (payload['p_account'] != accountId) continue;
-        final delta = (payload['p_amount'] as num).toDouble();
-        available += command.commandType == 'create_income' ? delta : -delta;
-      }
+      final available =
+          account.balance + (pendingAccountDeltas(commands)[accountId] ?? 0);
       if (type == 'expense' && available < amount) {
         throw const InsufficientFundsException();
       }

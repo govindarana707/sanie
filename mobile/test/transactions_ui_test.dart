@@ -181,31 +181,28 @@ void main() {
     await tester.pump(const Duration(milliseconds: 1));
   }
 
-  testWidgets(
-    'Center Add chooser routes Income and Expense; Transfer keeps placeholder',
-    (tester) async {
-      await seedAccount();
-      await seedCategory('income');
-      await seedCategory('expense');
-      final router = await mount(tester, '/');
-      await tester.tap(find.text('Add'));
-      await tester.pumpAndSettle();
-      expect(find.text('Income'), findsOneWidget);
-      expect(find.text('Expense'), findsOneWidget);
-      expect(find.text('Transfer'), findsOneWidget);
-      await tester.tap(find.byKey(const Key('add-Income')));
-      await tester.pumpAndSettle();
-      expect(router.routeInformationProvider.value.uri.path, '/add/income');
-      router.go('/');
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('Add'));
-      await tester.pumpAndSettle();
-      await tester.tap(find.byKey(const Key('add-Expense')));
-      await tester.pumpAndSettle();
-      expect(router.routeInformationProvider.value.uri.path, '/add/expense');
-      await finish(tester);
-    },
-  );
+  testWidgets('Center Add chooser routes Income and Expense', (tester) async {
+    await seedAccount();
+    await seedCategory('income');
+    await seedCategory('expense');
+    final router = await mount(tester, '/');
+    await tester.tap(find.text('Add'));
+    await tester.pumpAndSettle();
+    expect(find.text('Income'), findsOneWidget);
+    expect(find.text('Expense'), findsOneWidget);
+    expect(find.text('Transfer'), findsOneWidget);
+    await tester.tap(find.byKey(const Key('add-Income')));
+    await tester.pumpAndSettle();
+    expect(router.routeInformationProvider.value.uri.path, '/add/income');
+    router.go('/');
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Add'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('add-Expense')));
+    await tester.pumpAndSettle();
+    expect(router.routeInformationProvider.value.uri.path, '/add/expense');
+    await finish(tester);
+  });
 
   testWidgets('Forms validate positive amount, account and category', (
     tester,

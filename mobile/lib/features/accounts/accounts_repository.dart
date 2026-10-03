@@ -7,6 +7,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../core/database/app_database.dart';
 import '../../core/outbox/account_mutations.dart';
 import '../../core/outbox/outbox_store.dart';
+import '../transactions/local_balance_projection.dart';
 
 final accountUserProvider = StreamProvider<String?>((ref) async* {
   final auth = Supabase.instance.client.auth;
@@ -37,21 +38,16 @@ class AccountsRepository {
   final AppDatabase database;
   final String? Function() authenticatedUserId;
   final AccountMutationService mutations;
-
   Stream<List<Account>> watchAccounts(String userId) =>
-      (database.select(database.accounts)
-            ..where((row) => row.userId.equals(userId) & row.deletedAt.isNull())
-            ..orderBy([(row) => OrderingTerm.asc(row.name)]))
-          .watch();
+      watchProjectedAccounts(database, userId);
 
   Stream<Account?> watchAccount(String userId, String id) =>
-      (database.select(database.accounts)..where(
-            (row) =>
-                row.userId.equals(userId) &
-                row.id.equals(id) &
-                row.deletedAt.isNull(),
-          ))
-          .watchSingleOrNull();
+      watchProjectedAccounts(database, userId).map((rows) {
+        for (final row in rows) {
+          if (row.id == id) return row;
+        }
+        return null;
+      });
 
   Stream<List<OutboxCommand>> watchAccountCommands(String userId) =>
       (database.select(database.outboxCommands)..where(
