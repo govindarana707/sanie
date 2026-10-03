@@ -83,6 +83,7 @@ class SyncOrchestrator {
             failedCommands: pushed.failed,
           );
         }
+        await push.outbox.reconcileTransactionMutations(pushUser);
         final status =
             pushed.retried > 0 || pushed.failed > 0 || pushed.deferred > 0
             ? SyncNowStatus.partial

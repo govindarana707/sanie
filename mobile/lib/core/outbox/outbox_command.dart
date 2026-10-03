@@ -7,6 +7,8 @@ enum OutboxCommandType {
   createIncome('create_income'),
   createExpense('create_expense'),
   createTransfer('create_transfer'),
+  updateTransaction('update_transaction'),
+  deleteTransaction('delete_transaction'),
   createAccount('create_account'),
   updateAccount('update_account'),
   archiveAccount('archive_account'),
@@ -96,6 +98,29 @@ class OutboxCommandEnvelope {
     clientRequestId: clientRequestId,
     createdAt: createdAt,
   );
+
+  factory OutboxCommandEnvelope.transactionMutation({
+    required OutboxCommandType type,
+    required String userId,
+    required String transactionId,
+    required int baseVersion,
+    required int dataGeneration,
+    required Map<String, dynamic> payload,
+    DateTime? createdAt,
+  }) {
+    if (type != OutboxCommandType.updateTransaction &&
+        type != OutboxCommandType.deleteTransaction) {
+      throw ArgumentError.value(type, 'type');
+    }
+    return OutboxCommandEnvelope._new(
+      type: type,
+      userId: userId,
+      payload: {'p_id': transactionId, ...payload},
+      expectedVersion: baseVersion,
+      dataGeneration: dataGeneration,
+      createdAt: createdAt,
+    );
+  }
 
   factory OutboxCommandEnvelope.createAccount({
     required String userId,

@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:math';
 
 import 'package:drift/drift.dart';
@@ -135,15 +136,112 @@ class OutboxStore {
     required DateTime now,
     required String errorCode,
     String? errorMessage,
-  }) => _transition(
-    userId: userId,
-    commandId: commandId,
-    allowed: {OutboxStatus.processing},
-    nextStatus: OutboxStatus.failed,
-    now: now,
-    errorCode: errorCode,
-    errorMessage: errorMessage,
-  );
+  }) => _database.transaction(() async {
+    final command = await _transition(
+      userId: userId,
+      commandId: commandId,
+      allowed: {OutboxStatus.processing},
+      nextStatus: OutboxStatus.failed,
+      now: now,
+      errorCode: errorCode,
+      errorMessage: errorMessage,
+    );
+    await _rollbackTransactionWorkingCopy(command);
+    return command;
+  });
+
+  /// A version increase in the pulled authoritative row resolves an ambiguous
+  /// RPC outcome. Matching values mean the command took effect exactly once.
+  Future<void> reconcileTransactionMutations(String userId) async {
+    final commands =
+        await (_database.select(_database.outboxCommands)..where(
+              (c) =>
+                  c.userId.equals(userId) &
+                  c.commandType.isIn(const [
+                    'update_transaction',
+                    'delete_transaction',
+                  ]) &
+                  c.status.isIn(const ['retry', 'failed']),
+            ))
+            .get();
+    for (final command in commands) {
+      final payload = jsonDecode(command.payloadJson) as Map<String, dynamic>;
+      final id = payload['p_id'] as String;
+      final row =
+          await (_database.select(_database.transactions)
+                ..where((t) => t.id.equals(id) & t.userId.equals(userId)))
+              .getSingleOrNull();
+      if (row == null || row.version <= (command.expectedVersion ?? 0)) {
+        continue;
+      }
+      final matched = command.commandType == 'delete_transaction'
+          ? row.deletedAt != null
+          : row.deletedAt == null &&
+                row.accountId == payload['p_account'] &&
+                row.categoryId == payload['p_category'] &&
+                row.subcategoryId == payload['p_subcategory'] &&
+                row.amount == (payload['p_amount'] as num).toDouble() &&
+                row.transactionDate == payload['p_date'] &&
+                row.description == payload['p_description'];
+      await (_database.update(
+        _database.outboxCommands,
+      )..where((c) => c.id.equals(command.id))).write(
+        OutboxCommandsCompanion(
+          status: Value(matched ? 'completed' : 'failed'),
+          updatedAt: Value(DateTime.now().toUtc()),
+          lastErrorCode: Value(matched ? null : 'CONFLICT'),
+          lastErrorMessage: Value(
+            matched ? null : 'Transaction changed on the server.',
+          ),
+        ),
+      );
+    }
+  }
+
+  Future<void> _rollbackTransactionWorkingCopy(OutboxCommand command) async {
+    if (command.commandType != 'update_transaction' &&
+        command.commandType != 'delete_transaction') {
+      return;
+    }
+    final payload = jsonDecode(command.payloadJson) as Map<String, dynamic>;
+    final before = payload['local_before'] as Map<String, dynamic>?;
+    if (before == null) return;
+    final id = payload['p_id'] as String;
+    final row =
+        await (_database.select(_database.transactions)
+              ..where((t) => t.id.equals(id) & t.userId.equals(command.userId)))
+            .getSingleOrNull();
+    if (row == null || row.version != command.expectedVersion) return;
+    final stillOptimistic = command.commandType == 'delete_transaction'
+        ? row.deletedAt != null
+        : row.accountId == payload['p_account'] &&
+              row.categoryId == payload['p_category'] &&
+              row.subcategoryId == payload['p_subcategory'] &&
+              row.amount == (payload['p_amount'] as num).toDouble() &&
+              row.transactionDate == payload['p_date'] &&
+              row.description == payload['p_description'];
+    if (!stillOptimistic) return;
+    await (_database.update(
+      _database.transactions,
+    )..where((t) => t.id.equals(id) & t.userId.equals(command.userId))).write(
+      TransactionsCompanion(
+        accountId: Value(before['account_id'] as String?),
+        fromAccountId: Value(before['from_account_id'] as String?),
+        toAccountId: Value(before['to_account_id'] as String?),
+        categoryId: Value(before['category_id'] as String?),
+        subcategoryId: Value(before['subcategory_id'] as String?),
+        amount: Value((before['amount'] as num).toDouble()),
+        transactionDate: Value(before['transaction_date'] as String),
+        description: Value(before['description'] as String?),
+        updatedAt: Value(DateTime.parse(before['updated_at'] as String)),
+        deletedAt: Value(
+          before['deleted_at'] == null
+              ? null
+              : DateTime.parse(before['deleted_at'] as String),
+        ),
+      ),
+    );
+  }
 
   Future<OutboxCommand> markCompleted({
     required String userId,

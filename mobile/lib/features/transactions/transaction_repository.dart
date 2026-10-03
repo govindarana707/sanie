@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/database/app_database.dart';
 import '../../core/outbox/outbox_command.dart';
 import '../../core/outbox/outbox_store.dart';
+import '../../core/outbox/transaction_mutations.dart';
 import '../accounts/accounts_repository.dart';
 import 'local_balance_projection.dart';
 
@@ -23,11 +24,17 @@ class TransactionRepository {
   TransactionRepository({
     required this.database,
     required this.authenticatedUserId,
-  }) : outbox = OutboxStore(database);
+  }) : outbox = OutboxStore(database),
+       mutations = TransactionMutationService(
+         database: database,
+         outbox: OutboxStore(database),
+         authenticatedUserId: authenticatedUserId,
+       );
 
   final AppDatabase database;
   final String? Function() authenticatedUserId;
   final OutboxStore outbox;
+  final TransactionMutationService mutations;
   Stream<List<Account>> watchAccounts(String userId) =>
       watchProjectedAccounts(database, userId, activeOnly: true, nprOnly: true);
 

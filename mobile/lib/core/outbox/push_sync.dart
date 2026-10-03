@@ -125,6 +125,28 @@ class PushSyncRpcMapper {
           'p_generation': command.dataGeneration,
         },
       ),
+      'update_transaction' => PushSyncRpcCall(
+        name: 'update_transaction',
+        parameters: {
+          'p_id': _required(payload, 'p_id'),
+          'p_base_version': _version(command),
+          'p_account': _required(payload, 'p_account'),
+          'p_category': _required(payload, 'p_category'),
+          'p_subcategory': payload['p_subcategory'],
+          'p_amount': _required(payload, 'p_amount'),
+          'p_date': _required(payload, 'p_date'),
+          'p_description': _required(payload, 'p_description'),
+          'p_generation': command.dataGeneration,
+        },
+      ),
+      'delete_transaction' => PushSyncRpcCall(
+        name: 'delete_transaction',
+        parameters: {
+          'p_id': _required(payload, 'p_id'),
+          'p_base_version': _version(command),
+          'p_generation': command.dataGeneration,
+        },
+      ),
       'create_account' => PushSyncRpcCall(
         name: 'create_account',
         parameters: {
