@@ -33,6 +33,20 @@ String _recordedTime(DateTime value) {
   return '${local.hour.toString().padLeft(2, '0')}:${local.minute.toString().padLeft(2, '0')}';
 }
 
+String _historyAmount(Transaction row) {
+  final fixed = row.amount.abs().toStringAsFixed(2).split('.');
+  final grouped = fixed[0].replaceAllMapped(
+    RegExp(r'\B(?=(\d{3})+(?!\d))'),
+    (_) => ',',
+  );
+  final amount = 'Rs $grouped.${fixed[1]}';
+  return switch (row.transactionType) {
+    'income' => '+ $amount',
+    'expense' => '- $amount',
+    _ => amount,
+  };
+}
+
 Widget _historyState(
   FinanceViewState state,
   String message, {
@@ -121,30 +135,29 @@ class _TransactionHistoryPageState
           'Your activity, newest first',
           style: Theme.of(context).textTheme.bodyMedium,
         ),
-        const SizedBox(height: SanieSpace.lg),
-        TextField(
-          key: const Key('history-search'),
-          decoration: const InputDecoration(
-            labelText: 'Search transactions',
-            prefixIcon: Icon(Icons.search_rounded),
+        const SizedBox(height: SanieSpace.md),
+        SizedBox(
+          height: SanieShape.controlHeight,
+          child: TextField(
+            key: const Key('history-search'),
+            maxLines: 1,
+            textAlignVertical: TextAlignVertical.center,
+            textInputAction: TextInputAction.search,
+            decoration: const InputDecoration(
+              hintText: 'Search transactions',
+              prefixIcon: Icon(Icons.search_rounded, size: 22),
+              prefixIconConstraints: BoxConstraints(minWidth: 48),
+              isDense: true,
+            ),
+            onChanged: (value) => setState(() => search = value),
           ),
-          onChanged: (value) => setState(() => search = value),
+        ),
+        const SizedBox(height: SanieSpace.sm),
+        _HistoryFilters(
+          selected: filter,
+          onSelected: (value) => setState(() => filter = value),
         ),
         const SizedBox(height: SanieSpace.md),
-        Wrap(
-          spacing: SanieSpace.sm,
-          runSpacing: SanieSpace.sm,
-          children: [
-            for (final value in const ['All', 'Income', 'Expense', 'Transfer'])
-              ChoiceChip(
-                key: Key('history-filter-${value.toLowerCase()}'),
-                label: Text(value),
-                selected: filter == value,
-                onSelected: (_) => setState(() => filter = value),
-              ),
-          ],
-        ),
-        const SizedBox(height: SanieSpace.lg),
         if (visible.isEmpty)
           FinanceStateView(
             state: FinanceViewState.empty,
@@ -157,9 +170,75 @@ class _TransactionHistoryPageState
             _HistoryTile(row: row, data: data),
             const SizedBox(height: SanieSpace.sm),
           ],
+        const SizedBox(height: SanieSpace.md),
       ],
     );
   });
+}
+
+class _HistoryFilters extends StatelessWidget {
+  const _HistoryFilters({required this.selected, required this.onSelected});
+
+  final String selected;
+  final ValueChanged<String> onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = Theme.of(context).extension<SaniePalette>()!;
+    const values = ['All', 'Income', 'Expense', 'Transfer'];
+    const gap = 6.0;
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final available =
+            (constraints.maxWidth - gap * (values.length - 1)) / values.length;
+        final chipWidth = available.clamp(70.0, 96.0).toDouble();
+        return SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: Row(
+            children: [
+              for (var index = 0; index < values.length; index++) ...[
+                if (index > 0) const SizedBox(width: gap),
+                SizedBox(
+                  width: chipWidth,
+                  child: ChoiceChip(
+                    key: Key('history-filter-${values[index].toLowerCase()}'),
+                    label: Center(child: Text(values[index], maxLines: 1)),
+                    labelPadding: EdgeInsets.zero,
+                    selected: selected == values[index],
+                    showCheckmark: false,
+                    backgroundColor: palette.surface,
+                    selectedColor: palette.mint,
+                    side: BorderSide(
+                      color: selected == values[index]
+                          ? palette.emerald.withValues(alpha: .24)
+                          : palette.border,
+                    ),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(SanieShape.small),
+                    ),
+                    visualDensity: const VisualDensity(
+                      horizontal: -2,
+                      vertical: -2,
+                    ),
+                    labelStyle: Theme.of(context).textTheme.labelMedium
+                        ?.copyWith(
+                          color: selected == values[index]
+                              ? palette.emerald
+                              : palette.primaryText,
+                          fontWeight: selected == values[index]
+                              ? FontWeight.w700
+                              : FontWeight.w500,
+                        ),
+                    onSelected: (_) => onSelected(values[index]),
+                  ),
+                ),
+              ],
+            ],
+          ),
+        );
+      },
+    );
+  }
 }
 
 class _HistoryTile extends StatelessWidget {
@@ -171,37 +250,113 @@ class _HistoryTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final state = data.syncState(row);
+    final kind = _kind(row);
+    final palette = Theme.of(context).extension<SaniePalette>()!;
     return FinanceCard(
       padding: EdgeInsets.zero,
-      child: ListTile(
+      child: InkWell(
         key: Key('history-row-${row.id}'),
-        minVerticalPadding: SanieSpace.md,
-        contentPadding: const EdgeInsets.symmetric(horizontal: SanieSpace.md),
+        borderRadius: BorderRadius.circular(SanieShape.card),
         onTap: () => context.go('/transactions/${Uri.encodeComponent(row.id)}'),
-        leading: CircleAvatar(
-          backgroundColor: _kind(row).surface(context),
-          foregroundColor: _kind(row).color(context),
-          child: Icon(_kind(row).icon),
-        ),
-        title: Text(
-          data.title(row),
-          maxLines: 2,
-          overflow: TextOverflow.ellipsis,
-        ),
-        subtitle: Text(
-          '${typeLabel(row)} · ${data.accountContext(row)}\n${_date(row.transactionDate)} · Recorded ${_recordedTime(row.createdAt)}${state == null ? '' : ' · $state'}',
-          maxLines: 3,
-          overflow: TextOverflow.ellipsis,
-        ),
-        trailing: SizedBox(
-          width: 120,
-          child: Text(
-            formatNpr(row.amount),
-            textAlign: TextAlign.end,
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
-            style: Theme.of(context).textTheme.titleSmall
-                ?.copyWith(color: _kind(row).color(context)),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(
+            horizontal: SanieSpace.md,
+            vertical: 12,
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: kind.surface(context),
+                ),
+                child: Icon(kind.icon, color: kind.color(context), size: 21),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    LayoutBuilder(
+                      builder: (context, constraints) => Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              data.title(row),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: Theme.of(context).textTheme.titleMedium,
+                            ),
+                          ),
+                          const SizedBox(width: SanieSpace.sm),
+                          ConstrainedBox(
+                            constraints: BoxConstraints(
+                              maxWidth: constraints.maxWidth * .48,
+                            ),
+                            child: FittedBox(
+                              fit: BoxFit.scaleDown,
+                              alignment: Alignment.centerRight,
+                              child: Text(
+                                _historyAmount(row),
+                                maxLines: 1,
+                                softWrap: false,
+                                style: Theme.of(context).textTheme.titleSmall
+                                    ?.copyWith(
+                                      color: kind.color(context),
+                                      fontWeight: FontWeight.w700,
+                                      fontFeatures: const [
+                                        FontFeature.tabularFigures(),
+                                      ],
+                                    ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: SanieSpace.xs),
+                    Text(
+                      '${typeLabel(row)} · ${data.accountContext(row)}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.bodySmall
+                          ?.copyWith(color: palette.mutedText),
+                    ),
+                    const SizedBox(height: 2),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            '${_date(row.transactionDate)} · ${_recordedTime(row.createdAt)}',
+                            maxLines: 1,
+                            softWrap: false,
+                            style: Theme.of(context).textTheme.bodySmall
+                                ?.copyWith(color: palette.mutedText),
+                          ),
+                        ),
+                        if (state != null) ...[
+                          const SizedBox(width: SanieSpace.sm),
+                          Text(
+                            state,
+                            maxLines: 1,
+                            softWrap: false,
+                            style: Theme.of(context).textTheme.labelSmall
+                                ?.copyWith(
+                                  color: state == 'Needs attention'
+                                      ? Theme.of(context).colorScheme.error
+                                      : palette.emerald,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ),
         ),
       ),
@@ -323,7 +478,7 @@ class _TransactionDetailsPageState
               ),
               const SizedBox(height: SanieSpace.md),
               FinanceAmountText(
-                amount: formatNpr(item.amount),
+                amount: _historyAmount(item),
                 kind: _kind(item),
               ),
             ],
