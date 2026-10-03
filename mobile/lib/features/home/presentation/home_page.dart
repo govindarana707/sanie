@@ -38,7 +38,9 @@ class _HomePageState extends ConsumerState<HomePage> {
 
   Future<void> _refresh(HomeRepository repository, String userId) async {
     final next = repository.load(userId, _month);
-    setState(() => _snapshot = next);
+    setState(() {
+      _snapshot = next;
+    });
     try {
       await next;
     } catch (_) {
@@ -57,6 +59,11 @@ class _HomePageState extends ConsumerState<HomePage> {
         if (userId == null || identity == null || identity.userId != userId) {
           return const Center(child: Text('Sign in to view your home.'));
         }
+        ref.listen(homeAccountChangesProvider(userId), (previous, next) {
+          if (previous?.hasValue == true && next.hasValue && mounted) {
+            _refresh(repository, userId);
+          }
+        });
         final key = '$userId:${_month.year}-${_month.month}';
         if (_loadKey != key) {
           _loadKey = key;
@@ -622,7 +629,7 @@ class _BalanceHero extends StatelessWidget {
                     const SizedBox(height: SanieSpace.xs),
                     Text(
                       hasAccounts
-                          ? 'Across your active accounts'
+                          ? 'Across included active accounts'
                           : 'Your balance will appear here',
                       style: TextStyle(
                         color: palette.heroAccent,

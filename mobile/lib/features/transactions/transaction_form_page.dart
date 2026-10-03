@@ -43,8 +43,10 @@ class _TransactionFormPageState extends ConsumerState<TransactionFormPage> {
   final _form = GlobalKey<FormState>();
   final _amount = TextEditingController();
   final _note = TextEditingController();
-  final _accountKey = GlobalKey<FormFieldState<String>>();
+  GlobalKey<FormFieldState<String>> _accountKey =
+      GlobalKey<FormFieldState<String>>();
   String? _accountId;
+  bool _accountChoiceTouched = false;
   String? _categoryId;
   String? _subcategoryId;
   late DateTime _date;
@@ -104,6 +106,7 @@ class _TransactionFormPageState extends ConsumerState<TransactionFormPage> {
     if (choice == true && mounted) {
       setState(() {
         _accountId = null;
+        _accountChoiceTouched = true;
         _error = null;
       });
       _accountKey.currentState?.reset();
@@ -248,9 +251,23 @@ class _TransactionFormPageState extends ConsumerState<TransactionFormPage> {
                   ],
                 );
               }
-              final accountId = accounts.any((row) => row.id == _accountId)
-                  ? _accountId
-                  : null;
+              if (_accountId != null &&
+                  !accounts.any((row) => row.id == _accountId)) {
+                _accountId = null;
+                _accountChoiceTouched = true;
+                _accountKey = GlobalKey<FormFieldState<String>>();
+              }
+              if (_accountId == null &&
+                  !_accountChoiceTouched &&
+                  widget.editId == null) {
+                for (final account in accounts) {
+                  if (account.isDefault) {
+                    _accountId = account.id;
+                    break;
+                  }
+                }
+              }
+              final accountId = _accountId;
               final categoryId = categories.any((row) => row.id == _categoryId)
                   ? _categoryId
                   : null;
@@ -316,7 +333,10 @@ class _TransactionFormPageState extends ConsumerState<TransactionFormPage> {
                           ],
                           onChanged: _submitting
                               ? null
-                              : (value) => setState(() => _accountId = value),
+                              : (value) => setState(() {
+                                  _accountId = value;
+                                  _accountChoiceTouched = true;
+                                }),
                           validator: (value) =>
                               value == null ? 'Choose an account.' : null,
                         ),

@@ -7,6 +7,7 @@ import '../../app/design/finance_widgets.dart';
 import '../../app/design/sanie_theme.dart';
 import '../../core/database/app_database.dart';
 import '../../core/sync/sync_providers.dart';
+import 'account_settings_controls.dart';
 import 'accounts_repository.dart';
 
 const _accountTypes = [
@@ -189,7 +190,7 @@ class _AccountCard extends StatelessWidget {
           ),
           const SizedBox(height: SanieSpace.xs),
           Text(
-            '${accountTypeLabel(account.accountType)} · ${account.isActive ? 'Active' : 'Inactive'}${queue == AccountQueueState.pending
+            '${accountTypeLabel(account.accountType)} · ${account.isDefault ? 'Default · ' : ''}${account.isActive ? 'Active' : 'Inactive'}${queue == AccountQueueState.pending
                 ? ' · Pending sync'
                 : queue == AccountQueueState.failed
                 ? ' · Needs attention'
@@ -353,6 +354,17 @@ class _AccountDetailsPageState extends ConsumerState<AccountDetailsPage> {
                               ),
                             ],
                           ],
+                        ),
+                      ),
+                      const SizedBox(height: SanieSpace.md),
+                      AccountSettingsControls(
+                        value: AccountSettingsDraft.fromAccount(account),
+                      ),
+                      Padding(
+                        padding: const EdgeInsets.only(top: SanieSpace.xs),
+                        child: Text(
+                          'Use Edit account to change these settings.',
+                          style: Theme.of(context).textTheme.bodySmall,
                         ),
                       ),
                       if (_error != null) ...[
@@ -556,8 +568,11 @@ class _AccountEditorState extends State<_AccountEditor> {
   late final TextEditingController _name;
   late final TextEditingController _opening;
   late final TextEditingController _number;
+  late final Stream<List<Account>> _accounts;
   late String _type;
+  late AccountSettingsDraft _settings;
   bool _submitting = false;
+  bool _savingSettings = false;
   String? _error;
 
   @override
@@ -567,6 +582,10 @@ class _AccountEditorState extends State<_AccountEditor> {
     _opening = TextEditingController(text: '0.00');
     _number = TextEditingController(text: widget.account?.accountNumber);
     _type = widget.account?.accountType ?? 'cash';
+    _settings = widget.account == null
+        ? const AccountSettingsDraft.initial()
+        : AccountSettingsDraft.fromAccount(widget.account!);
+    _accounts = widget.repository.watchAccounts(widget.userId);
   }
 
   @override
@@ -595,6 +614,10 @@ class _AccountEditorState extends State<_AccountEditor> {
           name: _name.text.trim(),
           type: _type,
           openingBalance: double.parse(_opening.text.trim()),
+          isDefault: _settings.isDefault,
+          includeInNetBalance: _settings.includeInNetBalance,
+          includeInSavings: _settings.includeInSavings,
+          isActive: _settings.isActive,
         );
       } else {
         id = widget.account!.id;
@@ -612,6 +635,39 @@ class _AccountEditorState extends State<_AccountEditor> {
       if (mounted) setState(() => _error = _accountError(error));
     } finally {
       if (mounted) setState(() => _submitting = false);
+    }
+  }
+
+  Future<void> _saveSettings() async {
+    final account = widget.account;
+    if (account == null ||
+        _savingSettings ||
+        _submitting ||
+        _settings.matches(account)) {
+      return;
+    }
+    setState(() {
+      _savingSettings = true;
+      _error = null;
+    });
+    try {
+      if (widget.repository.authenticatedUserId() != widget.userId) {
+        throw StateError(
+          'Your account session changed. Please reopen this form.',
+        );
+      }
+      await widget.repository.updateSettings(
+        id: account.id,
+        isDefault: _settings.isDefault,
+        includeInNetBalance: _settings.includeInNetBalance,
+        includeInSavings: _settings.includeInSavings,
+        isActive: _settings.isActive,
+      );
+      if (mounted) context.go('/accounts/${Uri.encodeComponent(account.id)}');
+    } catch (error) {
+      if (mounted) setState(() => _error = _accountError(error));
+    } finally {
+      if (mounted) setState(() => _savingSettings = false);
     }
   }
 
@@ -707,6 +763,48 @@ class _AccountEditorState extends State<_AccountEditor> {
                   child: Text(
                     'Current balance: ${formatNpr(widget.account!.balance)}\nBalance changes only through financial transactions.',
                   ),
+                ),
+              ],
+              const SizedBox(height: SanieSpace.md),
+              StreamBuilder<List<Account>>(
+                stream: _accounts,
+                builder: (context, snapshot) {
+                  final otherActive =
+                      snapshot.data?.any(
+                        (a) => a.id != widget.account?.id && a.isActive,
+                      ) ??
+                      false;
+                  final shown = _settings.isActive && !otherActive
+                      ? _settings.copyWith(isDefault: true)
+                      : _settings;
+                  return AccountSettingsControls(
+                    value: shown,
+                    canUnsetDefault: otherActive,
+                    onChanged: _submitting || _savingSettings
+                        ? null
+                        : (next) => setState(() => _settings = next),
+                  );
+                },
+              ),
+              if (editing) ...[
+                const SizedBox(height: SanieSpace.sm),
+                OutlinedButton(
+                  key: const Key('account-save-settings'),
+                  onPressed:
+                      _submitting ||
+                          _savingSettings ||
+                          _settings.matches(widget.account!)
+                      ? null
+                      : _saveSettings,
+                  child: Text(
+                    _savingSettings
+                        ? 'Saving settings…'
+                        : 'Save account settings',
+                  ),
+                ),
+                Text(
+                  'Account details and settings save separately.',
+                  style: Theme.of(context).textTheme.bodySmall,
                 ),
               ],
               if (_error != null) ...[

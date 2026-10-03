@@ -37,7 +37,14 @@ class AccountMutationService {
     required String name,
     required String accountType,
     required double openingBalance,
+    bool? isDefault,
+    bool includeInNetBalance = true,
+    bool includeInSavings = false,
+    bool isActive = true,
   }) async {
+    if (isDefault == true && !isActive) {
+      throw const FormatException('An inactive account cannot be default.');
+    }
     final userId = _userId();
     final generation = await _generation(userId);
     final cleanName = _name(name);
@@ -87,6 +94,24 @@ class AccountMutationService {
             ),
           );
       await outbox.enqueue(command);
+      final wantedDefault =
+          isActive && (isDefault == true || activeDefault == null);
+      if (wantedDefault != (activeDefault == null) ||
+          !includeInNetBalance ||
+          includeInSavings ||
+          !isActive) {
+        await _queueSettings(
+          userId: userId,
+          account: (await database.accountById(command.id))!,
+          isDefault: wantedDefault,
+          includeInNetBalance: includeInNetBalance,
+          includeInSavings: includeInSavings,
+          isActive: isActive,
+          generation: generation,
+          now: now.add(const Duration(microseconds: 1)),
+          pendingCreateId: command.id,
+        );
+      }
     });
     return command.id;
   }
@@ -156,70 +181,98 @@ class AccountMutationService {
       final account = await _ownedAccount(userId, accountId);
       await _ensureNoPendingMutation(userId, accountId);
       final generation = await _generation(userId);
-      final all =
-          await (database.select(database.accounts)
-                ..where((a) => a.userId.equals(userId) & a.deletedAt.isNull())
-                ..orderBy([
-                  (a) => OrderingTerm.asc(a.createdAt),
-                  (a) => OrderingTerm.asc(a.id),
-                ]))
-              .get();
-      final effectiveDefault =
-          isDefault ||
-          (isActive &&
-              !account.isDefault &&
-              !all.any((a) => a.id != accountId && a.isDefault && a.isActive));
-      final handoff =
-          effectiveDefault != account.isDefault ||
-          (account.isDefault && !isActive);
-      if (handoff) await _ensureNoPendingAccountCommand(userId);
-      final changed = <Account>[account];
-      if (effectiveDefault) {
-        changed.addAll(all.where((a) => a.id != accountId && a.isDefault));
-      } else if (account.isDefault) {
-        final alternatives = all.where((a) => a.id != accountId && a.isActive);
-        if (alternatives.isEmpty && isActive) {
-          throw StateError('The only active account must remain default.');
-        }
-        if (alternatives.isNotEmpty) changed.add(alternatives.first);
-      }
-      final now = _clock();
-      final command = OutboxCommandEnvelope.accountSettings(
+      return _queueSettings(
         userId: userId,
-        accountId: accountId,
-        isDefault: effectiveDefault,
+        account: account,
+        isDefault: isDefault,
         includeInNetBalance: includeInNetBalance,
         includeInSavings: includeInSavings,
         isActive: isActive,
-        baseVersion: account.version,
-        dataGeneration: generation,
-        localBefore: [for (final row in changed) _settingsBefore(row)],
-        createdAt: now,
+        generation: generation,
+        now: _clock(),
       );
-      for (final row in changed.skip(1)) {
-        await (database.update(
-          database.accounts,
-        )..where((a) => a.id.equals(row.id) & a.userId.equals(userId))).write(
-          AccountsCompanion(
-            isDefault: Value(!effectiveDefault),
-            updatedAt: Value(now),
-          ),
-        );
+    });
+  }
+
+  Future<String> _queueSettings({
+    required String userId,
+    required Account account,
+    required bool isDefault,
+    required bool includeInNetBalance,
+    required bool includeInSavings,
+    required bool isActive,
+    required int generation,
+    required DateTime now,
+    String? pendingCreateId,
+  }) async {
+    final accountId = account.id;
+    final all =
+        await (database.select(database.accounts)
+              ..where((a) => a.userId.equals(userId) & a.deletedAt.isNull())
+              ..orderBy([
+                (a) => OrderingTerm.asc(a.createdAt),
+                (a) => OrderingTerm.asc(a.id),
+              ]))
+            .get();
+    final effectiveDefault =
+        isDefault ||
+        (isActive &&
+            !account.isDefault &&
+            !all.any((a) => a.id != accountId && a.isDefault && a.isActive));
+    final handoff =
+        effectiveDefault != account.isDefault ||
+        (account.isDefault && !isActive);
+    if (handoff) {
+      await _ensureNoPendingAccountCommand(
+        userId,
+        excludingCommandId: pendingCreateId,
+      );
+    }
+    final changed = <Account>[account];
+    if (effectiveDefault) {
+      changed.addAll(all.where((a) => a.id != accountId && a.isDefault));
+    } else if (account.isDefault) {
+      final alternatives = all.where((a) => a.id != accountId && a.isActive);
+      if (alternatives.isEmpty && isActive) {
+        throw StateError('The only active account must remain default.');
       }
+      if (alternatives.isNotEmpty) changed.add(alternatives.first);
+    }
+    final command = OutboxCommandEnvelope.accountSettings(
+      userId: userId,
+      accountId: accountId,
+      isDefault: effectiveDefault,
+      includeInNetBalance: includeInNetBalance,
+      includeInSavings: includeInSavings,
+      isActive: isActive,
+      baseVersion: account.version,
+      dataGeneration: generation,
+      localBefore: [for (final row in changed) _settingsBefore(row)],
+      createdAt: now,
+    );
+    for (final row in changed.skip(1)) {
       await (database.update(
         database.accounts,
-      )..where((a) => a.id.equals(accountId) & a.userId.equals(userId))).write(
+      )..where((a) => a.id.equals(row.id) & a.userId.equals(userId))).write(
         AccountsCompanion(
-          isDefault: Value(effectiveDefault),
-          includeInNetBalance: Value(includeInNetBalance),
-          includeInSavings: Value(includeInSavings),
-          isActive: Value(isActive),
+          isDefault: Value(!effectiveDefault),
           updatedAt: Value(now),
         ),
       );
-      await outbox.enqueue(command);
-      return command.id;
-    });
+    }
+    await (database.update(
+      database.accounts,
+    )..where((a) => a.id.equals(accountId) & a.userId.equals(userId))).write(
+      AccountsCompanion(
+        isDefault: Value(effectiveDefault),
+        includeInNetBalance: Value(includeInNetBalance),
+        includeInSavings: Value(includeInSavings),
+        isActive: Value(isActive),
+        updatedAt: Value(now),
+      ),
+    );
+    await outbox.enqueue(command);
+    return command.id;
   }
 
   Map<String, dynamic> _settingsBefore(Account row) => {
@@ -232,11 +285,17 @@ class AccountMutationService {
     'updated_at': row.updatedAt.toUtc().toIso8601String(),
   };
 
-  Future<void> _ensureNoPendingAccountCommand(String userId) async {
+  Future<void> _ensureNoPendingAccountCommand(
+    String userId, {
+    String? excludingCommandId,
+  }) async {
     final pending =
         await (database.select(database.outboxCommands)..where(
               (c) =>
                   c.userId.equals(userId) &
+                  (excludingCommandId == null
+                      ? const Constant(true)
+                      : c.id.equals(excludingCommandId).not()) &
                   c.commandType.isIn(const [
                     'create_account',
                     'update_account',

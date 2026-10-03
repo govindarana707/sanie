@@ -66,10 +66,18 @@ class AccountsRepository {
     required String name,
     required String type,
     required double openingBalance,
+    bool? isDefault,
+    bool includeInNetBalance = true,
+    bool includeInSavings = false,
+    bool isActive = true,
   }) => mutations.createAccount(
     name: name,
     accountType: type,
     openingBalance: openingBalance,
+    isDefault: isDefault,
+    includeInNetBalance: includeInNetBalance,
+    includeInSavings: includeInSavings,
+    isActive: isActive,
   );
 
   Future<String> update({

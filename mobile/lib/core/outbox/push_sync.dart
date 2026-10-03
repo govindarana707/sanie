@@ -326,7 +326,9 @@ class PushSyncService {
               commandId: command.id,
               now: _clock(),
               errorCode: 'INVALID_STATE',
-              errorMessage: 'Parent category creation failed.',
+              errorMessage: command.commandType == 'update_account_settings'
+                  ? 'Account creation failed.'
+                  : 'Parent category creation failed.',
             );
             failed++;
             continue;
@@ -388,6 +390,13 @@ class PushSyncService {
     OutboxCommand command,
     String userId,
   ) async {
+    if (command.commandType == 'update_account_settings') {
+      final payload = PushSyncRpcMapper._payload(command);
+      final accountId = payload['p_id'];
+      if (accountId is! String) return null;
+      final parent = await outbox.commandForUser(userId, accountId);
+      return parent?.commandType == 'create_account' ? parent!.status : null;
+    }
     if (command.commandType != 'create_subcategory') return null;
     final payload = PushSyncRpcMapper._payload(command);
     final parentId = payload['p_category'];

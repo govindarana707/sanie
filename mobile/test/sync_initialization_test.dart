@@ -206,8 +206,16 @@ void main() {
         '500.00',
       );
 
-      await tester.ensureVisible(find.text('Add account').last);
-      await tester.tap(find.text('Add account').last);
+      final save = find.text('Add account').last;
+      for (
+        var attempt = 0;
+        attempt < 8 && tester.getCenter(save).dy > 300;
+        attempt++
+      ) {
+        await tester.drag(find.byType(ListView).first, const Offset(0, -230));
+        await tester.pumpAndSettle();
+      }
+      await tester.tap(save);
       await tester.pumpAndSettle();
 
       final accounts = await database.accountsForUser(userA);

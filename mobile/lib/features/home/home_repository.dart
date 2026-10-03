@@ -46,6 +46,15 @@ final homeRepositoryProvider = Provider<HomeRepository>(
   (ref) => HomeRepository(ref.watch(accountsRepositoryProvider).database),
 );
 
+final homeAccountChangesProvider = StreamProvider.family<List<Account>, String>(
+  (ref, userId) {
+    final database = ref.watch(homeRepositoryProvider).database;
+    return (database.select(
+      database.accounts,
+    )..where((row) => row.userId.equals(userId))).watch();
+  },
+);
+
 class HomeSnapshot {
   const HomeSnapshot({
     required this.balance,

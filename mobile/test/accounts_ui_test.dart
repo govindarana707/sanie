@@ -113,6 +113,19 @@ void main() {
     await tester.pump(const Duration(milliseconds: 1));
   }
 
+  Future<void> tapVisible(WidgetTester tester, Finder finder) async {
+    for (var attempt = 0; attempt < 8; attempt++) {
+      final y = tester.getCenter(finder).dy;
+      if (y >= 100 && y <= 300) break;
+      await tester.drag(
+        find.byType(ListView).first,
+        Offset(0, y > 300 ? -230 : 230),
+      );
+      await tester.pumpAndSettle();
+    }
+    await tester.tap(finder);
+  }
+
   testWidgets('More leads to empty Accounts and Add', (tester) async {
     final router = await mount(tester, '/more');
     await tester.tap(find.text('Accounts'));
@@ -147,7 +160,7 @@ void main() {
     'Add validates, trims, queues offline and prevents double submit',
     (tester) async {
       final router = await mount(tester, '/accounts/add');
-      await tester.tap(find.text('Add account').last);
+      await tapVisible(tester, find.text('Add account').last);
       await tester.pumpAndSettle();
       expect(find.text('Enter an account name.'), findsOneWidget);
       await tester.enterText(
@@ -158,15 +171,14 @@ void main() {
         find.byKey(const Key('account-opening')),
         '12.345',
       );
-      await tester.tap(find.text('Add account').last);
+      await tapVisible(tester, find.text('Add account').last);
       await tester.pumpAndSettle();
       expect(
         find.text('Enter an amount with up to two decimals.'),
         findsOneWidget,
       );
       await tester.enterText(find.byKey(const Key('account-opening')), '42.50');
-      await tester.ensureVisible(find.text('Add account').last);
-      await tester.tap(find.text('Add account').last);
+      await tapVisible(tester, find.text('Add account').last);
       await tester.tap(find.text('Add account').last);
       await tester.pumpAndSettle();
       final accounts = await database.accountsForUser(userA);
@@ -195,7 +207,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(router.routeInformationProvider.value.uri.path, '/accounts/$id');
     expect(find.text('NPR 1,234.50'), findsOneWidget);
-    await tester.tap(find.text('Edit account'));
+    await tapVisible(tester, find.text('Edit account'));
     await tester.pumpAndSettle();
     expect(find.byKey(const Key('account-opening')), findsNothing);
     expect(find.textContaining('Balance changes only'), findsOneWidget);
@@ -203,8 +215,7 @@ void main() {
       find.byKey(const Key('account-name')),
       '  Updated cash  ',
     );
-    await tester.ensureVisible(find.text('Save changes'));
-    await tester.tap(find.text('Save changes'));
+    await tapVisible(tester, find.text('Save changes'));
     await tester.pumpAndSettle();
     expect((await database.accountById(id))?.balance, 1234.5);
     expect((await database.accountById(id))?.name, 'Daily cash');
@@ -221,14 +232,12 @@ void main() {
   ) async {
     final id = await seed();
     await mount(tester, '/accounts/$id');
-    await tester.drag(find.byType(ListView), const Offset(0, -240));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Archive account'));
+    await tapVisible(tester, find.text('Archive account'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Cancel'));
     await tester.pumpAndSettle();
     expect(await database.select(database.outboxCommands).get(), isEmpty);
-    await tester.tap(find.text('Archive account'));
+    await tapVisible(tester, find.text('Archive account'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Archive').last);
     await tester.pumpAndSettle();
