@@ -147,8 +147,84 @@ class OutboxStore {
       errorMessage: errorMessage,
     );
     await _rollbackTransactionWorkingCopy(command);
+    await _rollbackAccountSettings(command);
     return command;
   });
+
+  Future<void> reconcileAccountSettings(String userId) async {
+    final commands =
+        await (_database.select(_database.outboxCommands)..where(
+              (c) =>
+                  c.userId.equals(userId) &
+                  c.commandType.equals('update_account_settings') &
+                  c.status.isIn(const ['retry', 'failed']),
+            ))
+            .get();
+    for (final command in commands) {
+      final payload = jsonDecode(command.payloadJson) as Map<String, dynamic>;
+      final id = payload['p_id'] as String;
+      final row =
+          await (_database.select(_database.accounts)
+                ..where((a) => a.id.equals(id) & a.userId.equals(userId)))
+              .getSingleOrNull();
+      if (row == null || row.version <= (command.expectedVersion ?? 0)) {
+        continue;
+      }
+      final matched =
+          row.isDefault == payload['p_is_default'] &&
+          row.includeInNetBalance == payload['p_include_in_net_balance'] &&
+          row.includeInSavings == payload['p_include_in_savings'] &&
+          row.isActive == payload['p_is_active'];
+      await (_database.update(
+        _database.outboxCommands,
+      )..where((c) => c.id.equals(command.id))).write(
+        OutboxCommandsCompanion(
+          status: Value(matched ? 'completed' : 'failed'),
+          updatedAt: Value(DateTime.now().toUtc()),
+          lastErrorCode: Value(matched ? null : 'CONFLICT'),
+          lastErrorMessage: Value(
+            matched ? null : 'Account settings changed on the server.',
+          ),
+        ),
+      );
+    }
+  }
+
+  Future<void> _rollbackAccountSettings(OutboxCommand command) async {
+    if (command.commandType != 'update_account_settings') return;
+    final payload = jsonDecode(command.payloadJson) as Map<String, dynamic>;
+    final snapshots = payload['local_before'] as List<dynamic>?;
+    if (snapshots == null) return;
+    for (var index = 0; index < snapshots.length; index++) {
+      final before = snapshots[index] as Map<String, dynamic>;
+      final id = before['id'] as String;
+      final row =
+          await (_database.select(_database.accounts)..where(
+                (a) => a.id.equals(id) & a.userId.equals(command.userId),
+              ))
+              .getSingleOrNull();
+      if (row == null || row.version != before['version']) continue;
+      final stillOptimistic = index == 0
+          ? row.isDefault == payload['p_is_default'] &&
+                row.includeInNetBalance ==
+                    payload['p_include_in_net_balance'] &&
+                row.includeInSavings == payload['p_include_in_savings'] &&
+                row.isActive == payload['p_is_active']
+          : row.isDefault == !(payload['p_is_default'] as bool);
+      if (!stillOptimistic) continue;
+      await (_database.update(
+        _database.accounts,
+      )..where((a) => a.id.equals(id) & a.userId.equals(command.userId))).write(
+        AccountsCompanion(
+          isDefault: Value(before['is_default'] as bool),
+          includeInNetBalance: Value(before['include_in_net_balance'] as bool),
+          includeInSavings: Value(before['include_in_savings'] as bool),
+          isActive: Value(before['is_active'] as bool),
+          updatedAt: Value(DateTime.parse(before['updated_at'] as String)),
+        ),
+      );
+    }
+  }
 
   /// A version increase in the pulled authoritative row resolves an ambiguous
   /// RPC outcome. Matching values mean the command took effect exactly once.

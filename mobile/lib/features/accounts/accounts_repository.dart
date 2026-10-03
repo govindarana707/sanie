@@ -57,6 +57,7 @@ class AccountsRepository {
                   'create_account',
                   'update_account',
                   'archive_account',
+                  'update_account_settings',
                 ]),
           ))
           .watch();
@@ -84,6 +85,20 @@ class AccountsRepository {
   );
 
   Future<String> archive(String id) => mutations.archiveAccount(id);
+
+  Future<String> updateSettings({
+    required String id,
+    required bool isDefault,
+    required bool includeInNetBalance,
+    required bool includeInSavings,
+    required bool isActive,
+  }) => mutations.updateSettings(
+    accountId: id,
+    isDefault: isDefault,
+    includeInNetBalance: includeInNetBalance,
+    includeInSavings: includeInSavings,
+    isActive: isActive,
+  );
 }
 
 enum AccountQueueState { none, pending, failed }

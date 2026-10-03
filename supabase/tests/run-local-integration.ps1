@@ -1,4 +1,4 @@
-param([string[]]$TestFiles = @('security-and-rebuild.sql', 'category-mutations.sql', 'change-feed-scale.sql', 'recurring-calendar.sql', 'karobar-parity.sql', 'budget-ranges.sql', 'integration.sql'))
+param([string[]]$TestFiles = @('security-and-rebuild.sql', 'category-mutations.sql', 'account-settings.sql', 'change-feed-scale.sql', 'recurring-calendar.sql', 'karobar-parity.sql', 'budget-ranges.sql', 'integration.sql'))
 $docker = 'C:\Users\govin\AppData\Local\Programs\DockerDesktop\resources\bin\docker.exe'
 if (-not (Test-Path -LiteralPath $docker)) { throw 'Docker CLI not found.' }
 foreach ($testFile in $TestFiles) {

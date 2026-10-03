@@ -179,6 +179,22 @@ class PushSyncRpcMapper {
           'p_generation': command.dataGeneration,
         },
       ),
+      'update_account_settings' => PushSyncRpcCall(
+        name: 'update_account_settings',
+        parameters: {
+          'p_id': _required(payload, 'p_id'),
+          'p_is_default': _required(payload, 'p_is_default'),
+          'p_include_in_net_balance': _required(
+            payload,
+            'p_include_in_net_balance',
+          ),
+          'p_include_in_savings': _required(payload, 'p_include_in_savings'),
+          'p_is_active': _required(payload, 'p_is_active'),
+          'p_base_version': _version(command),
+          'p_request': command.clientRequestId,
+          'p_generation': command.dataGeneration,
+        },
+      ),
       'create_category' ||
       'update_category' ||
       'archive_category' ||

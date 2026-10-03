@@ -84,6 +84,7 @@ class SyncOrchestrator {
           );
         }
         await push.outbox.reconcileTransactionMutations(pushUser);
+        await push.outbox.reconcileAccountSettings(pushUser);
         final status =
             pushed.retried > 0 || pushed.failed > 0 || pushed.deferred > 0
             ? SyncNowStatus.partial

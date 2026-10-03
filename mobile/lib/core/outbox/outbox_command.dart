@@ -12,6 +12,7 @@ enum OutboxCommandType {
   createAccount('create_account'),
   updateAccount('update_account'),
   archiveAccount('archive_account'),
+  updateAccountSettings('update_account_settings'),
   createCategory('create_category'),
   updateCategory('update_category'),
   archiveCategory('archive_category'),
@@ -188,6 +189,33 @@ class OutboxCommandEnvelope {
     expectedVersion: baseVersion,
     id: id,
     clientRequestId: clientRequestId,
+    createdAt: createdAt,
+  );
+
+  factory OutboxCommandEnvelope.accountSettings({
+    required String userId,
+    required String accountId,
+    required bool isDefault,
+    required bool includeInNetBalance,
+    required bool includeInSavings,
+    required bool isActive,
+    required int baseVersion,
+    required int dataGeneration,
+    required List<Map<String, dynamic>> localBefore,
+    DateTime? createdAt,
+  }) => OutboxCommandEnvelope._new(
+    type: OutboxCommandType.updateAccountSettings,
+    userId: userId,
+    payload: {
+      'p_id': accountId,
+      'p_is_default': isDefault,
+      'p_include_in_net_balance': includeInNetBalance,
+      'p_include_in_savings': includeInSavings,
+      'p_is_active': isActive,
+      'local_before': localBefore,
+    },
+    expectedVersion: baseVersion,
+    dataGeneration: dataGeneration,
     createdAt: createdAt,
   );
 
