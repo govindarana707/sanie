@@ -4,6 +4,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'app/app.dart';
 import 'core/config/env.dart';
+import 'core/sync/automatic_sync_coordinator.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -19,7 +20,9 @@ Future<void> main() async {
     publishableKey: environment.supabasePublishableKey,
   );
 
-  runApp(const ProviderScope(child: SanieApp()));
+  runApp(
+    const ProviderScope(child: AutomaticSyncCoordinator(child: SanieApp())),
+  );
 }
 
 class ConfigurationErrorApp extends StatelessWidget {
