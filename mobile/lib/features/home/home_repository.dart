@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:drift/drift.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -52,6 +54,7 @@ class HomeSnapshot {
     required this.budgetSpent,
     required this.budgetTotal,
     required this.recent,
+    this.failedExpense,
     this.profileName,
   });
 
@@ -62,7 +65,25 @@ class HomeSnapshot {
   final double budgetSpent;
   final double budgetTotal;
   final List<HomeTransaction> recent;
+  final FailedExpense? failedExpense;
   final String? profileName;
+}
+
+class FailedExpense {
+  const FailedExpense({
+    required this.id,
+    required this.amount,
+    required this.categoryId,
+    required this.date,
+    required this.description,
+    this.subcategoryId,
+  });
+  final String id;
+  final String amount;
+  final String categoryId;
+  final String? subcategoryId;
+  final String date;
+  final String description;
 }
 
 class HomeTransaction {
@@ -82,7 +103,77 @@ class HomeRepository {
     final lastDay = DateTime(month.year, month.month + 1, 0);
     final lastDate = '$monthPrefix-${lastDay.day.toString().padLeft(2, '0')}';
     final accounts = await database.accountsForUser(userId);
-    final transactions = await database.transactionsForUser(userId);
+    final allTransactions = await database.transactionsForUser(userId);
+    final financeCommands =
+        await (database.select(database.outboxCommands)..where(
+              (row) =>
+                  row.userId.equals(userId) &
+                  row.commandType.isIn(const [
+                    'create_income',
+                    'create_expense',
+                  ]),
+            ))
+            .get();
+    FailedExpense? failedExpense;
+    for (final command in financeCommands.reversed) {
+      if (command.commandType != 'create_expense' ||
+          command.status != 'failed' ||
+          command.lastErrorCode != 'INSUFFICIENT_FUNDS') {
+        continue;
+      }
+      final payload = jsonDecode(command.payloadJson) as Map<String, dynamic>;
+      final categoryId = payload['p_category'];
+      final date = payload['p_date'];
+      if (categoryId is! String || date is! String) {
+        continue;
+      }
+      failedExpense = FailedExpense(
+        id: command.id,
+        amount: '${payload['p_amount']}',
+        categoryId: categoryId,
+        subcategoryId: payload['p_subcategory'] as String?,
+        date: date,
+        description: '${payload['p_description'] ?? ''}',
+      );
+      break;
+    }
+    final failedIds = {
+      for (final command in financeCommands)
+        if (command.status == 'failed') command.id,
+    };
+    final pendingIds = {
+      for (final command in financeCommands)
+        if (command.status != 'failed' && command.status != 'completed')
+          command.id,
+    };
+    final transactions = allTransactions
+        .where((row) => !failedIds.contains(row.id))
+        .toList();
+    final sourceOrder = {
+      for (final (index, row) in allTransactions.indexed) row.id: index,
+    };
+    transactions.sort((a, b) {
+      final byDate = b.transactionDate.compareTo(a.transactionDate);
+      if (byDate != 0) return byDate;
+      final byCreated = b.createdAt.compareTo(a.createdAt);
+      return byCreated != 0
+          ? byCreated
+          : sourceOrder[b.id]!.compareTo(sourceOrder[a.id]!);
+    });
+    final pendingByAccount = <String, double>{};
+    for (final row in transactions) {
+      if (!pendingIds.contains(row.id) || row.accountId == null) continue;
+      final delta = row.transactionType == 'income'
+          ? row.amount
+          : row.transactionType == 'expense'
+          ? -row.amount
+          : 0.0;
+      pendingByAccount.update(
+        row.accountId!,
+        (sum) => sum + delta,
+        ifAbsent: () => delta,
+      );
+    }
     final budgets =
         await (database.select(database.budgets)..where(
               (row) =>
@@ -148,7 +239,10 @@ class HomeRepository {
                 row.isActive &&
                 row.includeInNetBalance,
           )
-          .fold<double>(0, (sum, row) => sum + row.balance),
+          .fold<double>(
+            0,
+            (sum, row) => sum + row.balance + (pendingByAccount[row.id] ?? 0),
+          ),
       income: monthRows
           .where((row) => row.transactionType == 'income')
           .fold<double>(0, (sum, row) => sum + row.amount),
@@ -168,6 +262,7 @@ class HomeRepository {
             row: row,
           ),
       ],
+      failedExpense: failedExpense,
       profileName: profile?.firstName.trim().isNotEmpty == true
           ? profile!.firstName.trim()
           : null,

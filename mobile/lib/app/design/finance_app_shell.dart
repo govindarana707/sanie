@@ -20,6 +20,7 @@ class FinanceAppShell extends StatelessWidget {
     '/more' || '/design-preview' => 4,
     _ when location.startsWith('/accounts') => 4,
     _ when location.startsWith('/categories') => 4,
+    _ when location.startsWith('/add/') => 0,
     _ => 0,
   };
 
@@ -200,48 +201,56 @@ class _NavItem extends StatelessWidget {
   }
 }
 
-Future<void> showFinanceActionSheet(
-  BuildContext context,
-) => showModalBottomSheet<void>(
-  context: context,
-  isScrollControlled: true,
-  builder: (sheetContext) => SafeArea(
-    child: Padding(
-      padding: EdgeInsets.fromLTRB(
-        SanieSpace.lg,
-        SanieSpace.sm,
-        SanieSpace.lg,
-        MediaQuery.viewInsetsOf(sheetContext).bottom + SanieSpace.lg,
-      ),
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: SanieShape.contentWidth),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Add transaction',
-              style: Theme.of(sheetContext).textTheme.titleLarge,
+Future<void> showFinanceActionSheet(BuildContext context) =>
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      builder: (sheetContext) => SafeArea(
+        child: Padding(
+          padding: EdgeInsets.fromLTRB(
+            SanieSpace.lg,
+            SanieSpace.sm,
+            SanieSpace.lg,
+            MediaQuery.viewInsetsOf(sheetContext).bottom + SanieSpace.lg,
+          ),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(
+              maxWidth: SanieShape.contentWidth,
             ),
-            const SizedBox(height: SanieSpace.sm),
-            Text(
-              'Preview only · transaction forms will arrive in a later phase.',
-              style: Theme.of(sheetContext).textTheme.bodySmall,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Add transaction',
+                  style: Theme.of(sheetContext).textTheme.titleLarge,
+                ),
+                const SizedBox(height: SanieSpace.sm),
+                Text(
+                  'Choose what to add.',
+                  style: Theme.of(sheetContext).textTheme.bodySmall,
+                ),
+                const SizedBox(height: SanieSpace.md),
+                for (final (label, kind, path) in [
+                  ('Income', FinanceKind.income, '/add/income'),
+                  ('Expense', FinanceKind.expense, '/add/expense'),
+                  ('Transfer', FinanceKind.transfer, '/transactions'),
+                ])
+                  ListTile(
+                    key: Key('add-$label'),
+                    onTap: () {
+                      Navigator.pop(sheetContext);
+                      context.go(path);
+                    },
+                    leading: Icon(kind.icon, color: kind.color(sheetContext)),
+                    title: Text(label),
+                    subtitle: label == 'Transfer'
+                        ? const Text('Coming in the next phase')
+                        : null,
+                  ),
+              ],
             ),
-            const SizedBox(height: SanieSpace.md),
-            for (final (label, kind) in [
-              ('Income', FinanceKind.income),
-              ('Expense', FinanceKind.expense),
-              ('Transfer', FinanceKind.transfer),
-            ])
-              ListTile(
-                enabled: false,
-                leading: Icon(kind.icon, color: kind.color(sheetContext)),
-                title: Text(label),
-              ),
-          ],
+          ),
         ),
       ),
-    ),
-  ),
-);
+    );

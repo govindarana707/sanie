@@ -180,6 +180,12 @@ class _HomePageState extends ConsumerState<HomePage> {
                                         ],
                                       ),
                                       const SizedBox(height: SanieSpace.md),
+                                      if (data?.failedExpense != null) ...[
+                                        _FailedExpenseCard(
+                                          expense: data!.failedExpense!,
+                                        ),
+                                        const SizedBox(height: SanieSpace.md),
+                                      ],
                                       _BudgetCard(
                                         spent: data?.budgetSpent ?? 0,
                                         total: data?.budgetTotal ?? 0,
@@ -627,6 +633,47 @@ class _BalanceHero extends StatelessWidget {
       ),
     );
   }
+}
+
+class _FailedExpenseCard extends StatelessWidget {
+  const _FailedExpenseCard({required this.expense});
+  final FailedExpense expense;
+
+  @override
+  Widget build(BuildContext context) => _HomeCard(
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Expense could not sync: insufficient funds',
+          style: Theme.of(context).textTheme.titleSmall,
+        ),
+        const SizedBox(height: SanieSpace.xs),
+        Text(
+          'Choose a different payment account to save this expense.',
+          style: Theme.of(context).textTheme.bodySmall,
+        ),
+        const SizedBox(height: SanieSpace.sm),
+        TextButton(
+          onPressed: () => context.go(
+            Uri(
+              path: '/add/expense',
+              queryParameters: {
+                'amount': expense.amount,
+                'category': expense.categoryId,
+                if (expense.subcategoryId != null)
+                  'subcategory': expense.subcategoryId!,
+                'date': expense.date,
+                'note': expense.description,
+                'replace': expense.id,
+              },
+            ).toString(),
+          ),
+          child: const Text('Replace payment account'),
+        ),
+      ],
+    ),
+  );
 }
 
 class _MetricCard extends StatelessWidget {

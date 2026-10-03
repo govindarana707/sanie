@@ -8,6 +8,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../features/auth/presentation/login_page.dart';
 import '../features/accounts/accounts_pages.dart';
 import '../features/categories/categories_pages.dart';
+import '../features/transactions/transaction_form_page.dart';
 import '../features/design_preview/design_preview_page.dart';
 import '../features/home/presentation/home_page.dart';
 import 'design/finance_app_shell.dart';
@@ -80,6 +81,23 @@ GoRouter buildSanieRouter(
         GoRoute(
           path: '/categories',
           builder: (context, state) => const CategoriesPage(),
+        ),
+        GoRoute(
+          path: '/add/income',
+          builder: (context, state) =>
+              const TransactionFormPage(type: 'income'),
+        ),
+        GoRoute(
+          path: '/add/expense',
+          builder: (context, state) => TransactionFormPage(
+            type: 'expense',
+            initialAmount: state.uri.queryParameters['amount'],
+            initialCategoryId: state.uri.queryParameters['category'],
+            initialSubcategoryId: state.uri.queryParameters['subcategory'],
+            initialDate: state.uri.queryParameters['date'],
+            initialNote: state.uri.queryParameters['note'],
+            replacingFailedId: state.uri.queryParameters['replace'],
+          ),
         ),
         GoRoute(
           path: '/categories/add',
