@@ -21,6 +21,8 @@ class TransactionFormPage extends ConsumerStatefulWidget {
     this.initialDate,
     this.initialNote,
     this.replacingFailedId,
+    this.initialAccountId,
+    this.editId,
   });
   final String type;
   final String? initialAmount;
@@ -29,6 +31,8 @@ class TransactionFormPage extends ConsumerStatefulWidget {
   final String? initialDate;
   final String? initialNote;
   final String? replacingFailedId;
+  final String? initialAccountId;
+  final String? editId;
 
   @override
   ConsumerState<TransactionFormPage> createState() =>
@@ -57,6 +61,7 @@ class _TransactionFormPageState extends ConsumerState<TransactionFormPage> {
     _note.text = widget.initialNote ?? '';
     _categoryId = widget.initialCategoryId;
     _subcategoryId = widget.initialSubcategoryId;
+    _accountId = widget.initialAccountId;
   }
 
   @override
@@ -124,21 +129,33 @@ class _TransactionFormPageState extends ConsumerState<TransactionFormPage> {
         throw StateError('Your session changed. Reopen the form.');
       }
       final amount = double.parse(_amount.text.trim());
-      await repository.create(
-        type: widget.type,
-        accountId: _accountId!,
-        categoryId: _categoryId!,
-        subcategoryId: _subcategoryId,
-        amount: amount,
-        date: _date,
-        description: _note.text,
-        replacingFailedId: widget.replacingFailedId,
-      );
+      if (widget.editId case final editId?) {
+        await repository.mutations.edit(
+          id: editId,
+          accountId: _accountId!,
+          categoryId: _categoryId!,
+          subcategoryId: _subcategoryId,
+          amount: amount,
+          date: _date,
+          description: _note.text,
+        );
+      } else {
+        await repository.create(
+          type: widget.type,
+          accountId: _accountId!,
+          categoryId: _categoryId!,
+          subcategoryId: _subcategoryId,
+          amount: amount,
+          date: _date,
+          description: _note.text,
+          replacingFailedId: widget.replacingFailedId,
+        );
+      }
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('$_label saved on this device. Pending sync.')),
       );
-      context.go('/');
+      context.go(widget.editId == null ? '/' : '/transactions');
     } on InsufficientFundsException {
       if (mounted) await _replaceAccount();
     } catch (error) {
@@ -429,7 +446,9 @@ class _TransactionFormPageState extends ConsumerState<TransactionFormPage> {
                         ],
                         const SizedBox(height: SanieSpace.lg),
                         FinancePrimaryButton(
-                          label: 'Save $_label',
+                          label: widget.editId == null
+                              ? 'Save $_label'
+                              : 'Save changes',
                           onPressed: _submitting
                               ? null
                               : () => _submit(repository, userId),
@@ -466,13 +485,17 @@ class _TransactionFormPageState extends ConsumerState<TransactionFormPage> {
     children: [
       IconButton(
         tooltip: 'Back',
-        onPressed: () => context.go('/'),
+        onPressed: () => context.go(
+          widget.editId == null
+              ? '/'
+              : '/transactions/${Uri.encodeComponent(widget.editId!)}',
+        ),
         icon: const Icon(Icons.arrow_back_rounded),
       ),
       const SizedBox(width: SanieSpace.xs),
       Expanded(
         child: Text(
-          'Add $_label',
+          '${widget.editId == null ? 'Add' : 'Edit'} $_label',
           style: Theme.of(context).textTheme.headlineMedium,
         ),
       ),

@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:drift/drift.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -24,6 +26,7 @@ class HistorySnapshot {
     required this.categories,
     required this.subcategories,
     required this.commands,
+    required this.mutations,
   });
 
   final List<Transaction> transactions;
@@ -31,6 +34,7 @@ class HistorySnapshot {
   final Map<String, Category> categories;
   final Map<String, Subcategory> subcategories;
   final Map<String, OutboxCommand> commands;
+  final Map<String, OutboxCommand> mutations;
 
   String title(Transaction row) {
     final category = categories[row.categoryId]?.name;
@@ -51,10 +55,25 @@ class HistorySnapshot {
   }
 
   String? syncState(Transaction row) {
-    final status = commands[row.id]?.status;
+    final status = mutations[row.id]?.status == 'completed'
+        ? commands[row.id]?.status
+        : mutations[row.id]?.status ?? commands[row.id]?.status;
     if (status == 'failed') return 'Needs attention';
     if (status != null && status != 'completed') return 'Pending sync';
     return null;
+  }
+
+  bool canMutate(Transaction row) {
+    if (!const {'income', 'expense'}.contains(row.transactionType) ||
+        row.karobarTransactionId != null ||
+        row.recurringDefinitionId != null) {
+      return false;
+    }
+    final create = commands[row.id];
+    if (create != null && create.status != 'completed') return false;
+    final mutation = mutations[row.id];
+    return mutation == null ||
+        !const {'pending', 'processing', 'retry'}.contains(mutation.status);
   }
 }
 
@@ -108,12 +127,26 @@ class TransactionHistoryRepository {
         final commands = await (database.select(
           database.outboxCommands,
         )..where((c) => c.userId.equals(userId))).get();
+        commands.sort((a, b) => a.createdAt.compareTo(b.createdAt));
+        final mutations = <String, OutboxCommand>{};
+        for (final command in commands) {
+          if (command.commandType != 'update_transaction' &&
+              command.commandType != 'delete_transaction') {
+            continue;
+          }
+          final payload =
+              jsonDecode(command.payloadJson) as Map<String, dynamic>;
+          if (payload['p_id'] case final String targetId) {
+            mutations[targetId] = command;
+          }
+        }
         return HistorySnapshot(
           transactions: rows,
           accounts: {for (final row in accounts) row.id: row},
           categories: {for (final row in categories) row.id: row},
           subcategories: {for (final row in subcategories) row.id: row},
           commands: {for (final row in commands) row.id: row},
+          mutations: mutations,
         );
       });
 }

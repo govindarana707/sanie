@@ -8,6 +8,8 @@ import '../../core/database/app_database.dart';
 import '../../core/sync/sync_providers.dart';
 import '../accounts/accounts_repository.dart';
 import 'transaction_history_repository.dart';
+import 'transaction_form_page.dart';
+import 'transaction_repository.dart';
 
 FinanceKind _kind(Transaction row) => switch (row.transactionType) {
   'income' => FinanceKind.income,
@@ -207,19 +209,79 @@ class _HistoryTile extends StatelessWidget {
   }
 }
 
-class TransactionDetailsPage extends ConsumerWidget {
+class TransactionDetailsPage extends ConsumerStatefulWidget {
   const TransactionDetailsPage({super.key, required this.id});
 
   final String id;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) => _withHistory(ref, (
-    userId,
-    data,
-  ) {
+  ConsumerState<TransactionDetailsPage> createState() =>
+      _TransactionDetailsPageState();
+}
+
+class _TransactionDetailsPageState
+    extends ConsumerState<TransactionDetailsPage> {
+  bool _deleting = false;
+  String? _error;
+
+  Future<void> _delete(String userId) async {
+    if (_deleting) return;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Delete transaction?'),
+        content: const Text(
+          'This transaction will leave your active history now. The change will sync when available.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            key: const Key('confirm-transaction-delete'),
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    setState(() {
+      _deleting = true;
+      _error = null;
+    });
+    try {
+      final repository = ref.read(transactionRepositoryProvider);
+      if (repository.authenticatedUserId() != userId) {
+        throw StateError('Your session changed. Reopen the transaction.');
+      }
+      await repository.mutations.delete(widget.id);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Transaction deleted on this device. Pending sync.'),
+        ),
+      );
+      context.go('/transactions');
+    } catch (error) {
+      if (mounted) {
+        setState(
+          () => _error = error is StateError
+              ? error.message
+              : 'Could not delete on this device. Please try again.',
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _deleting = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => _withHistory(ref, (userId, data) {
     Transaction? row;
     for (final transaction in data.transactions) {
-      if (transaction.id == id) {
+      if (transaction.id == widget.id) {
         row = transaction;
         break;
       }
@@ -287,7 +349,89 @@ class TransactionDetailsPage extends ConsumerWidget {
             ],
           ),
         ),
+        if (data.canMutate(item)) ...[
+          const SizedBox(height: SanieSpace.lg),
+          Wrap(
+            spacing: SanieSpace.sm,
+            runSpacing: SanieSpace.sm,
+            children: [
+              OutlinedButton.icon(
+                key: const Key('transaction-edit-action'),
+                onPressed: _deleting
+                    ? null
+                    : () => context.go(
+                        '/transactions/${Uri.encodeComponent(widget.id)}/edit',
+                      ),
+                icon: const Icon(Icons.edit_outlined),
+                label: const Text('Edit'),
+              ),
+              TextButton.icon(
+                key: const Key('transaction-delete-action'),
+                onPressed: _deleting ? null : () => _delete(userId),
+                icon: const Icon(Icons.delete_outline_rounded),
+                label: Text(_deleting ? 'Deleting…' : 'Delete'),
+              ),
+            ],
+          ),
+        ],
+        if (_error != null) ...[
+          const SizedBox(height: SanieSpace.sm),
+          Text(
+            _error!,
+            key: const Key('transaction-delete-error'),
+            style: TextStyle(color: Theme.of(context).colorScheme.error),
+          ),
+        ],
       ],
+    );
+  });
+}
+
+class TransactionEditPage extends ConsumerStatefulWidget {
+  const TransactionEditPage({super.key, required this.id});
+
+  final String id;
+
+  @override
+  ConsumerState<TransactionEditPage> createState() =>
+      _TransactionEditPageState();
+}
+
+class _TransactionEditPageState extends ConsumerState<TransactionEditPage> {
+  Transaction? _initial;
+  String? _initialUser;
+
+  @override
+  Widget build(BuildContext context) => _withHistory(ref, (userId, data) {
+    if (_initialUser != userId) {
+      _initial = null;
+      _initialUser = userId;
+    }
+    if (_initial == null) {
+      for (final row in data.transactions) {
+        if (row.id == widget.id && data.canMutate(row)) {
+          _initial = row;
+          break;
+        }
+      }
+    }
+    final item = _initial;
+    if (item == null) {
+      return _historyState(
+        FinanceViewState.empty,
+        'Transaction unavailable for editing.',
+      );
+    }
+    return TransactionFormPage(
+      key: ValueKey('edit:${widget.id}'),
+      type: item.transactionType,
+      editId: widget.id,
+      initialAccountId: item.accountId,
+      initialCategoryId: item.categoryId,
+      initialSubcategoryId: item.subcategoryId,
+      initialAmount: item.amount.toStringAsFixed(2),
+      initialDate: item.transactionDate,
+      initialNote: item.description,
     );
   });
 }

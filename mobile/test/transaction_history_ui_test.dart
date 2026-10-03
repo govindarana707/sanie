@@ -8,6 +8,7 @@ import 'package:sanie/app/design/finance_app_shell.dart';
 import 'package:sanie/app/design/sanie_theme.dart';
 import 'package:sanie/core/database/app_database.dart';
 import 'package:sanie/features/accounts/accounts_repository.dart';
+import 'package:sanie/features/categories/categories_repository.dart';
 import 'package:sanie/features/transactions/transaction_history_pages.dart';
 
 const userId = '11111111-1111-4111-8111-111111111111';
@@ -75,6 +76,37 @@ void main() {
     ),
   );
 
+  Future<void> seedEditable(String id, String type) async {
+    final categoryId = '$type-category';
+    final recorded = DateTime.utc(2026, 10, 2, 12);
+    await database
+        .into(database.categories)
+        .insert(
+          CategoriesCompanion.insert(
+            id: categoryId,
+            userId: const Value(userId),
+            name: '${type == 'income' ? 'Income' : 'Expense'} category',
+            categoryType: type,
+            createdAt: recorded,
+            updatedAt: recorded,
+          ),
+        );
+    await database.upsertTransaction(
+      TransactionsCompanion.insert(
+        id: id,
+        userId: userId,
+        accountId: const Value('cash'),
+        categoryId: Value(categoryId),
+        amount: 125.5,
+        transactionType: type,
+        transactionDate: '2026-10-02',
+        description: const Value('Original note'),
+        createdAt: recorded,
+        updatedAt: recorded,
+      ),
+    );
+  }
+
   Future<void> mount(
     WidgetTester tester, {
     String location = '/transactions',
@@ -99,6 +131,11 @@ void main() {
               builder: (_, state) =>
                   TransactionDetailsPage(id: state.pathParameters['id']!),
             ),
+            GoRoute(
+              path: '/transactions/:id/edit',
+              builder: (_, state) =>
+                  TransactionEditPage(id: state.pathParameters['id']!),
+            ),
           ],
         ),
       ],
@@ -109,6 +146,7 @@ void main() {
         overrides: [
           accountUserProvider.overrideWith((ref) => Stream.value(userId)),
           accountsRepositoryProvider.overrideWithValue(accounts),
+          categoriesBootstrapProvider(userId).overrideWith((ref) async {}),
         ],
         child: MaterialApp.router(
           theme: SanieTheme.light(),
@@ -207,6 +245,105 @@ void main() {
     await finish(tester);
     await mount(tester, location: '/transactions/missing');
     expect(find.text('Transaction not found.'), findsOneWidget);
+    await finish(tester);
+  });
+
+  for (final type in ['income', 'expense']) {
+    testWidgets('$type edit pre-fills and refreshes History', (tester) async {
+      final id = '$type-edit';
+      await seedEditable(id, type);
+      final beforeBalance = (await database.accountById('cash'))!.balance;
+      await mount(tester, location: '/transactions/$id');
+      await tester.drag(find.byType(ListView).first, const Offset(0, -300));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('transaction-edit-action')));
+      await tester.pumpAndSettle();
+      expect(
+        find.text('Edit ${type == 'income' ? 'Income' : 'Expense'}'),
+        findsOneWidget,
+      );
+      expect(
+        tester
+            .widget<TextFormField>(find.byKey(const Key('transaction-amount')))
+            .controller
+            ?.text,
+        '125.50',
+      );
+      expect(
+        tester
+            .widget<TextFormField>(find.byKey(const Key('transaction-note')))
+            .controller
+            ?.text,
+        'Original note',
+      );
+      expect(find.textContaining('Date: 2026-10-02'), findsOneWidget);
+      expect(find.textContaining('Cash wallet'), findsWidgets);
+      expect(
+        find.text('${type == 'income' ? 'Income' : 'Expense'} category'),
+        findsWidgets,
+      );
+      await tester.enterText(
+        find.byKey(const Key('transaction-amount')),
+        '150.25',
+      );
+      await tester.enterText(
+        find.byKey(const Key('transaction-note')),
+        'Edited note',
+      );
+      tester.testTextInput.hide();
+      await tester.pumpAndSettle();
+      await tester.drag(find.byType(ListView).first, const Offset(0, -450));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Save changes'));
+      await tester.pumpAndSettle();
+      expect(find.byKey(Key('history-row-$id')), findsOneWidget);
+      expect((await database.transactionById(id))?.amount, 150.25);
+      expect((await database.accountById('cash'))?.balance, beforeBalance);
+      await tester.tap(find.byKey(Key('history-row-$id')));
+      await tester.pumpAndSettle();
+      expect(find.text('NPR 150.25'), findsOneWidget);
+      expect(find.text('Edited note'), findsOneWidget);
+      expect(find.text('Pending sync'), findsOneWidget);
+      expect(find.byKey(const Key('transaction-edit-action')), findsNothing);
+      await finish(tester);
+    });
+  }
+
+  testWidgets(
+    'delete confirmation tombstones and removes active history item',
+    (tester) async {
+      await seedEditable('delete-me', 'expense');
+      final beforeBalance = (await database.accountById('cash'))!.balance;
+      await mount(tester, location: '/transactions/delete-me');
+      await tester.drag(find.byType(ListView).first, const Offset(0, -300));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('transaction-delete-action')));
+      await tester.pumpAndSettle();
+      expect(find.text('Delete transaction?'), findsOneWidget);
+      await tester.tap(find.text('Cancel'));
+      await tester.pumpAndSettle();
+      expect((await database.transactionById('delete-me'))?.deletedAt, isNull);
+      await tester.tap(find.byKey(const Key('transaction-delete-action')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('confirm-transaction-delete')));
+      await tester.pumpAndSettle();
+      expect(
+        (await database.transactionById('delete-me'))?.deletedAt,
+        isNotNull,
+      );
+      expect((await database.accountById('cash'))?.balance, beforeBalance);
+      expect(find.byKey(const Key('history-row-delete-me')), findsNothing);
+      expect(find.textContaining('No transactions yet'), findsOneWidget);
+      await finish(tester);
+    },
+  );
+
+  testWidgets('Transfer details have no mutation actions', (tester) async {
+    await seed('transfer-only', 'transfer', '2026-10-02', 'Move', 1);
+    await mount(tester, location: '/transactions/transfer-only');
+    expect(find.text('Transfer'), findsWidgets);
+    expect(find.byKey(const Key('transaction-edit-action')), findsNothing);
+    expect(find.byKey(const Key('transaction-delete-action')), findsNothing);
     await finish(tester);
   });
 }

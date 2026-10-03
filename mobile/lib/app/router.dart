@@ -57,6 +57,11 @@ GoRouter buildSanieRouter(
               TransactionDetailsPage(id: state.pathParameters['id']!),
         ),
         GoRoute(
+          path: '/transactions/:id/edit',
+          builder: (context, state) =>
+              TransactionEditPage(id: state.pathParameters['id']!),
+        ),
+        GoRoute(
           path: '/budget',
           builder: (context, state) => const _PlaceholderPage(
             title: 'Budget',
