@@ -257,7 +257,8 @@ class _HistoryTile extends StatelessWidget {
       child: InkWell(
         key: Key('history-row-${row.id}'),
         borderRadius: BorderRadius.circular(SanieShape.card),
-        onTap: () => context.go('/transactions/${Uri.encodeComponent(row.id)}'),
+        onTap: () =>
+            context.push('/transactions/${Uri.encodeComponent(row.id)}'),
         child: Padding(
           padding: const EdgeInsets.symmetric(
             horizontal: SanieSpace.md,
@@ -418,7 +419,11 @@ class _TransactionDetailsPageState
           content: Text('Transaction deleted on this device. Pending sync.'),
         ),
       );
-      context.go('/transactions');
+      if (context.canPop()) {
+        context.pop();
+      } else {
+        context.go('/transactions');
+      }
     } catch (error) {
       if (mounted) {
         setState(
@@ -450,7 +455,9 @@ class _TransactionDetailsPageState
         Align(
           alignment: Alignment.centerLeft,
           child: TextButton.icon(
-            onPressed: () => context.go('/transactions'),
+            onPressed: () => context.canPop()
+                ? context.pop()
+                : context.go('/transactions'),
             icon: const Icon(Icons.arrow_back_rounded),
             label: const Text('Transactions'),
           ),
@@ -514,7 +521,7 @@ class _TransactionDetailsPageState
                 key: const Key('transaction-edit-action'),
                 onPressed: _deleting
                     ? null
-                    : () => context.go(
+                    : () => context.push(
                         '/transactions/${Uri.encodeComponent(widget.id)}/edit',
                       ),
                 icon: const Icon(Icons.edit_outlined),

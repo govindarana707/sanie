@@ -90,7 +90,7 @@ class _Heading extends StatelessWidget {
       IconButton(
         key: const Key('category-back'),
         tooltip: 'Back',
-        onPressed: () => context.go(backTo),
+        onPressed: () => context.canPop() ? context.pop() : context.go(backTo),
         icon: const Icon(Icons.arrow_back_rounded),
       ),
       const SizedBox(width: SanieSpace.xs),
@@ -197,7 +197,7 @@ class CategoriesPage extends ConsumerWidget {
                 FinancePrimaryButton(
                   label: 'Add category',
                   icon: Icons.add_rounded,
-                  onPressed: () => context.go('/categories/add'),
+                  onPressed: () => context.push('/categories/add'),
                 ),
               ],
             ],
@@ -234,7 +234,7 @@ class _CategoryTile extends StatelessWidget {
         overflow: TextOverflow.ellipsis,
       ),
       trailing: const Icon(Icons.chevron_right_rounded),
-      onTap: () => context.go(_categoryPath(category.id)),
+      onTap: () => context.push(_categoryPath(category.id)),
     ),
   );
 }
@@ -389,7 +389,7 @@ class _CategoryDetailsPageState extends ConsumerState<CategoryDetailsPage> {
                         OutlinedButton(
                           key: const Key('edit-category'),
                           onPressed: canEdit
-                              ? () => context.go(
+                              ? () => context.push(
                                   '${_categoryPath(widget.id)}/edit',
                                 )
                               : null,
@@ -416,7 +416,7 @@ class _CategoryDetailsPageState extends ConsumerState<CategoryDetailsPage> {
                             ? TextButton.icon(
                                 key: const Key('add-subcategory'),
                                 onPressed: _busyId == null
-                                    ? () => context.go(
+                                    ? () => context.push(
                                         '${_categoryPath(widget.id)}/subcategories/add',
                                       )
                                     : null,
@@ -462,7 +462,7 @@ class _CategoryDetailsPageState extends ConsumerState<CategoryDetailsPage> {
                                       sub.status == 'active' &&
                                       category.status == 'active' &&
                                       _busyId == null,
-                                  onEdit: () => context.go(
+                                  onEdit: () => context.push(
                                     '${_subcategoryPath(category.id, sub.id)}/edit',
                                   ),
                                   onArchive: () => _archive(
@@ -715,7 +715,11 @@ class _CategoryEditorState extends State<_CategoryEditor> {
               return widget.category!.id;
             }();
       if (mounted && widget.repository.authenticatedUserId() == widget.userId) {
-        context.go(_categoryPath(id));
+        if (widget.id == null) {
+          context.replace(_categoryPath(id));
+        } else {
+          context.pop();
+        }
       }
     } catch (error) {
       if (mounted) setState(() => _error = _categoryError(error));
@@ -985,7 +989,7 @@ class _SubcategoryEditorState extends State<_SubcategoryEditor> {
         );
       }
       if (mounted && widget.repository.authenticatedUserId() == widget.userId) {
-        context.go(_categoryPath(widget.parent.id));
+        context.pop();
       }
     } catch (error) {
       if (mounted) setState(() => _error = _categoryError(error));

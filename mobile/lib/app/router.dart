@@ -50,16 +50,20 @@ GoRouter buildSanieRouter(
         GoRoute(
           path: '/transactions',
           builder: (context, state) => const TransactionHistoryPage(),
-        ),
-        GoRoute(
-          path: '/transactions/:id',
-          builder: (context, state) =>
-              TransactionDetailsPage(id: state.pathParameters['id']!),
-        ),
-        GoRoute(
-          path: '/transactions/:id/edit',
-          builder: (context, state) =>
-              TransactionEditPage(id: state.pathParameters['id']!),
+          routes: [
+            GoRoute(
+              path: ':id',
+              builder: (context, state) =>
+                  TransactionDetailsPage(id: state.pathParameters['id']!),
+              routes: [
+                GoRoute(
+                  path: 'edit',
+                  builder: (context, state) =>
+                      TransactionEditPage(id: state.pathParameters['id']!),
+                ),
+              ],
+            ),
+          ],
         ),
         GoRoute(
           path: '/budget',
@@ -72,24 +76,59 @@ GoRouter buildSanieRouter(
         GoRoute(
           path: '/accounts',
           builder: (context, state) => const AccountsPage(),
-        ),
-        GoRoute(
-          path: '/accounts/add',
-          builder: (context, state) => const AccountFormPage(),
-        ),
-        GoRoute(
-          path: '/accounts/:id',
-          builder: (context, state) =>
-              AccountDetailsPage(id: state.pathParameters['id']!),
-        ),
-        GoRoute(
-          path: '/accounts/:id/edit',
-          builder: (context, state) =>
-              AccountFormPage(id: state.pathParameters['id']!),
+          routes: [
+            GoRoute(
+              path: 'add',
+              builder: (context, state) => const AccountFormPage(),
+            ),
+            GoRoute(
+              path: ':id',
+              builder: (context, state) =>
+                  AccountDetailsPage(id: state.pathParameters['id']!),
+              routes: [
+                GoRoute(
+                  path: 'edit',
+                  builder: (context, state) =>
+                      AccountFormPage(id: state.pathParameters['id']!),
+                ),
+              ],
+            ),
+          ],
         ),
         GoRoute(
           path: '/categories',
           builder: (context, state) => const CategoriesPage(),
+          routes: [
+            GoRoute(
+              path: 'add',
+              builder: (context, state) => const CategoryFormPage(),
+            ),
+            GoRoute(
+              path: ':id',
+              builder: (context, state) =>
+                  CategoryDetailsPage(id: state.pathParameters['id']!),
+              routes: [
+                GoRoute(
+                  path: 'edit',
+                  builder: (context, state) =>
+                      CategoryFormPage(id: state.pathParameters['id']!),
+                ),
+                GoRoute(
+                  path: 'subcategories/add',
+                  builder: (context, state) => SubcategoryFormPage(
+                    parentId: state.pathParameters['id']!,
+                  ),
+                ),
+                GoRoute(
+                  path: 'subcategories/:subId/edit',
+                  builder: (context, state) => SubcategoryFormPage(
+                    parentId: state.pathParameters['id']!,
+                    id: state.pathParameters['subId']!,
+                  ),
+                ),
+              ],
+            ),
+          ],
         ),
         GoRoute(
           path: '/add/income',
@@ -118,32 +157,6 @@ GoRouter buildSanieRouter(
             initialDate: state.uri.queryParameters['date'],
             initialNote: state.uri.queryParameters['note'],
             replacingFailedId: state.uri.queryParameters['replace'],
-          ),
-        ),
-        GoRoute(
-          path: '/categories/add',
-          builder: (context, state) => const CategoryFormPage(),
-        ),
-        GoRoute(
-          path: '/categories/:id',
-          builder: (context, state) =>
-              CategoryDetailsPage(id: state.pathParameters['id']!),
-        ),
-        GoRoute(
-          path: '/categories/:id/edit',
-          builder: (context, state) =>
-              CategoryFormPage(id: state.pathParameters['id']!),
-        ),
-        GoRoute(
-          path: '/categories/:id/subcategories/add',
-          builder: (context, state) =>
-              SubcategoryFormPage(parentId: state.pathParameters['id']!),
-        ),
-        GoRoute(
-          path: '/categories/:id/subcategories/:subId/edit',
-          builder: (context, state) => SubcategoryFormPage(
-            parentId: state.pathParameters['id']!,
-            id: state.pathParameters['subId']!,
           ),
         ),
         GoRoute(
@@ -201,7 +214,7 @@ class MorePage extends StatelessWidget {
           title: const Text('Accounts'),
           subtitle: const Text('Balances and account settings'),
           trailing: const Icon(Icons.chevron_right_rounded),
-          onTap: () => context.go('/accounts'),
+          onTap: () => context.push('/accounts'),
         ),
       ),
       const SizedBox(height: SanieSpace.sm),
@@ -211,7 +224,7 @@ class MorePage extends StatelessWidget {
           title: const Text('Categories'),
           subtitle: const Text('Income, expenses and subcategories'),
           trailing: const Icon(Icons.chevron_right_rounded),
-          onTap: () => context.go('/categories'),
+          onTap: () => context.push('/categories'),
         ),
       ),
       const SizedBox(height: SanieSpace.sm),
@@ -221,7 +234,7 @@ class MorePage extends StatelessWidget {
           title: const Text('Design preview'),
           subtitle: const Text('Explore UI components and colors'),
           trailing: const Icon(Icons.chevron_right_rounded),
-          onTap: () => context.go('/design-preview'),
+          onTap: () => context.push('/design-preview'),
         ),
       ),
     ],

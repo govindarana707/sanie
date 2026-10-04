@@ -240,7 +240,7 @@ Future<void> showFinanceActionSheet(BuildContext context) =>
                     key: Key('add-$label'),
                     onTap: () {
                       Navigator.pop(sheetContext);
-                      context.go(path);
+                      context.push(path);
                     },
                     leading: Icon(kind.icon, color: kind.color(sheetContext)),
                     title: Text(label),

@@ -158,7 +158,15 @@ class _TransactionFormPageState extends ConsumerState<TransactionFormPage> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('$_label saved on this device. Pending sync.')),
       );
-      context.go(widget.editId == null ? '/' : '/transactions');
+      if (context.canPop()) {
+        context.pop();
+      } else {
+        context.go(
+          widget.editId == null
+              ? '/'
+              : '/transactions/${Uri.encodeComponent(widget.editId!)}',
+        );
+      }
     } on InsufficientFundsException {
       if (mounted) await _replaceAccount();
     } catch (error) {
@@ -505,11 +513,13 @@ class _TransactionFormPageState extends ConsumerState<TransactionFormPage> {
     children: [
       IconButton(
         tooltip: 'Back',
-        onPressed: () => context.go(
-          widget.editId == null
-              ? '/'
-              : '/transactions/${Uri.encodeComponent(widget.editId!)}',
-        ),
+        onPressed: () => context.canPop()
+            ? context.pop()
+            : context.go(
+                widget.editId == null
+                    ? '/'
+                    : '/transactions/${Uri.encodeComponent(widget.editId!)}',
+              ),
         icon: const Icon(Icons.arrow_back_rounded),
       ),
       const SizedBox(width: SanieSpace.xs),

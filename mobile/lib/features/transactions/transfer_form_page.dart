@@ -149,7 +149,11 @@ class _TransferFormPageState extends ConsumerState<TransferFormPage> {
           content: Text('Transfer saved on this device. Pending sync.'),
         ),
       );
-      context.go('/');
+      if (context.canPop()) {
+        context.pop();
+      } else {
+        context.go('/');
+      }
     } on InsufficientFundsException {
       if (mounted) {
         await _changeSource();
@@ -257,7 +261,7 @@ class _TransferFormPageState extends ConsumerState<TransferFormPage> {
                       const SizedBox(height: SanieSpace.md),
                       FinancePrimaryButton(
                         label: 'View accounts',
-                        onPressed: () => context.go('/accounts'),
+                        onPressed: () => context.push('/accounts'),
                       ),
                     ],
                   );
@@ -505,7 +509,7 @@ class _TransferFormPageState extends ConsumerState<TransferFormPage> {
     children: [
       IconButton(
         tooltip: 'Back',
-        onPressed: () => context.go('/'),
+        onPressed: () => context.canPop() ? context.pop() : context.go('/'),
         icon: const Icon(Icons.arrow_back_rounded),
       ),
       const SizedBox(width: SanieSpace.xs),

@@ -668,7 +668,7 @@ class _FailedExpenseCard extends StatelessWidget {
         ),
         const SizedBox(height: SanieSpace.sm),
         TextButton(
-          onPressed: () => context.go(
+          onPressed: () => context.push(
             Uri(
               path: '/add/expense',
               queryParameters: {
@@ -709,7 +709,7 @@ class _FailedTransferCard extends StatelessWidget {
         ),
         const SizedBox(height: SanieSpace.sm),
         TextButton(
-          onPressed: () => context.go(
+          onPressed: () => context.push(
             Uri(
               path: '/add/transfer',
               queryParameters: {

@@ -153,7 +153,7 @@ class AccountsPage extends ConsumerWidget {
               FinancePrimaryButton(
                 label: 'Add account',
                 icon: Icons.add_rounded,
-                onPressed: () => context.go('/accounts/add'),
+                onPressed: () => context.push('/accounts/add'),
               ),
             ],
           ],
@@ -171,7 +171,7 @@ class _AccountCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) => FinanceCard(
     child: InkWell(
-      onTap: () => context.go('/accounts/${Uri.encodeComponent(account.id)}'),
+      onTap: () => context.push('/accounts/${Uri.encodeComponent(account.id)}'),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -382,7 +382,7 @@ class _AccountDetailsPageState extends ConsumerState<AccountDetailsPage> {
                         label: 'Edit account',
                         onPressed:
                             queue == AccountQueueState.none && !_archiving
-                            ? () => context.go(
+                            ? () => context.push(
                                 '/accounts/${Uri.encodeComponent(widget.id)}/edit',
                               )
                             : null,
@@ -629,7 +629,11 @@ class _AccountEditorState extends State<_AccountEditor> {
         );
       }
       if (mounted && widget.repository.authenticatedUserId() == widget.userId) {
-        context.go('/accounts/${Uri.encodeComponent(id)}');
+        if (widget.account == null) {
+          context.replace('/accounts/${Uri.encodeComponent(id)}');
+        } else {
+          context.pop();
+        }
       }
     } catch (error) {
       if (mounted) setState(() => _error = _accountError(error));
@@ -663,7 +667,7 @@ class _AccountEditorState extends State<_AccountEditor> {
         includeInSavings: _settings.includeInSavings,
         isActive: _settings.isActive,
       );
-      if (mounted) context.go('/accounts/${Uri.encodeComponent(account.id)}');
+      if (mounted) context.pop();
     } catch (error) {
       if (mounted) setState(() => _error = _accountError(error));
     } finally {
@@ -848,7 +852,7 @@ class _AccountHeading extends StatelessWidget {
     children: [
       IconButton(
         tooltip: 'Back',
-        onPressed: () => context.go(backTo),
+        onPressed: () => context.canPop() ? context.pop() : context.go(backTo),
         icon: const Icon(Icons.arrow_back_rounded),
       ),
       const SizedBox(width: SanieSpace.sm),
