@@ -715,7 +715,7 @@ class _CategoryEditorState extends State<_CategoryEditor> {
               return widget.category!.id;
             }();
       if (mounted && widget.repository.authenticatedUserId() == widget.userId) {
-        if (widget.id == null) {
+        if (widget.category == null) {
           context.replace(_categoryPath(id));
         } else {
           context.pop();
